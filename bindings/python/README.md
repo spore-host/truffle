@@ -1,6 +1,6 @@
 # Truffle Python Bindings (Native cgo)
 
-**High-performance** Python wrapper for [Truffle](https://github.com/yourusername/truffle) using native Go library via cgo.
+**High-performance** Python wrapper for [Truffle](https://github.com/spore-host/truffle) using native Go library via cgo.
 
 ## 🚀 Performance
 
@@ -373,7 +373,7 @@ try:
     results = tf.search("m7i.large")
 except TruffleNotFoundError:
     print("Truffle CLI not installed!")
-    print("Install from: https://github.com/yourusername/truffle")
+    print("Install from: https://github.com/spore-host/truffle")
 except TruffleError as e:
     print(f"Truffle error: {e}")
 ```
@@ -449,9 +449,9 @@ MIT License - see [LICENSE](../../LICENSE) file
 
 ## Links
 
-- **Main Project**: https://github.com/yourusername/truffle
-- **Documentation**: https://github.com/yourusername/truffle/tree/main/bindings/python
-- **Issues**: https://github.com/yourusername/truffle/issues
+- **Main Project**: https://github.com/spore-host/truffle
+- **Documentation**: https://github.com/spore-host/truffle/tree/main/bindings/python
+- **Issues**: https://github.com/spore-host/truffle/issues
 
 ## Related
 
