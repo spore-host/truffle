@@ -66,7 +66,7 @@ setup(
     description="Python bindings for Truffle AWS EC2 instance discovery (Native cgo)",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/yourusername/truffle",
+    url="https://github.com/spore-host/truffle",
     packages=find_packages(),
     cmdclass={
         'build_py': BuildGoLibrary,
@@ -101,9 +101,9 @@ setup(
     },
     keywords="aws ec2 instance-types spot-instances ml-capacity gpu cloud infrastructure cgo native",
     project_urls={
-        "Bug Reports": "https://github.com/yourusername/truffle/issues",
-        "Source": "https://github.com/yourusername/truffle",
-        "Documentation": "https://github.com/yourusername/truffle/tree/main/bindings/python",
+        "Bug Reports": "https://github.com/spore-host/truffle/issues",
+        "Source": "https://github.com/spore-host/truffle",
+        "Documentation": "https://github.com/spore-host/truffle/tree/main/bindings/python",
     },
     zip_safe=False,  # Required for including shared libraries
 )
