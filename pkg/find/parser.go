@@ -69,6 +69,7 @@ type ParsedQuery struct {
 	Architecture   string   // "x86_64" or "arm64"; empty means both
 	MinNetworkGbps int      // Minimum network bandwidth in Gbps; 0 means unconstrained
 	RequireEFA     bool     // If true, only match instance families with EFA support
+	ExactMatch     bool     // If true, match exact vCPU and memory values instead of minimum
 	RawTokens      []Token  // Parsed tokens in input order, useful for diagnostics
 	Apps           []string // Application names from catalog (e.g. ["paraview"]); resolved to hardware in BuildCriteria
 }

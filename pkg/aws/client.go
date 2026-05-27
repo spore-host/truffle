@@ -66,6 +66,8 @@ type FilterOptions struct {
 	Architecture   string  // Filter to "x86_64" or "arm64"; empty matches both
 	MinVCPUs       int     // Minimum vCPU count; 0 disables this filter
 	MinMemory      float64 // Minimum memory in GiB; 0 disables this filter
+	ExactVCPUs     bool    // If true, match exact vCPU count instead of minimum
+	ExactMemory    bool    // If true, match exact memory instead of minimum
 	InstanceFamily string  // Restrict to a family prefix, e.g. "m6i"; empty matches all
 	Verbose        bool    // If true, log per-region progress to stderr
 }
@@ -379,8 +381,16 @@ func matchesFilters(it types.InstanceTypeInfo, opts FilterOptions) bool {
 	// vCPU filter
 	if opts.MinVCPUs > 0 {
 		vcpus := valueOrZero(it.VCpuInfo.DefaultVCpus)
-		if int(vcpus) < opts.MinVCPUs {
-			return false
+		if opts.ExactVCPUs {
+			// Exact match
+			if int(vcpus) != opts.MinVCPUs {
+				return false
+			}
+		} else {
+			// Minimum match
+			if int(vcpus) < opts.MinVCPUs {
+				return false
+			}
 		}
 	}
 
@@ -388,8 +398,16 @@ func matchesFilters(it types.InstanceTypeInfo, opts FilterOptions) bool {
 	if opts.MinMemory > 0 {
 		memMiB := valueOrZero(it.MemoryInfo.SizeInMiB)
 		memGiB := float64(memMiB) / 1024.0
-		if memGiB < opts.MinMemory {
-			return false
+		if opts.ExactMemory {
+			// Exact match (with 0.5 GiB tolerance for floating point)
+			if memGiB < opts.MinMemory-0.5 || memGiB > opts.MinMemory+0.5 {
+				return false
+			}
+		} else {
+			// Minimum match
+			if memGiB < opts.MinMemory {
+				return false
+			}
 		}
 	}
 

@@ -84,6 +84,13 @@ var ProcessorDatabase = map[string]ProcessorInfo{
 		Generation:   "4th gen",
 		Families:     []string{"m7a", "c7a"},
 	},
+	"turin": {
+		CodeName:     "Turin",
+		Vendor:       "amd",
+		Architecture: "x86_64",
+		Generation:   "5th gen",
+		Families:     []string{"m8a", "c8a", "r8a"},
+	},
 	"zen 3": {
 		CodeName:     "Zen 3",
 		Vendor:       "amd",
@@ -97,6 +104,13 @@ var ProcessorDatabase = map[string]ProcessorInfo{
 		Architecture: "x86_64",
 		Generation:   "4th gen",
 		Families:     []string{"m7a", "c7a", "r7a", "hpc7a"},
+	},
+	"zen 5": {
+		CodeName:     "Zen 5",
+		Vendor:       "amd",
+		Architecture: "x86_64",
+		Generation:   "5th gen",
+		Families:     []string{"m8a", "c8a", "r8a"},
 	},
 
 	// AWS Graviton processors

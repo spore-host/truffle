@@ -22,6 +22,7 @@ var (
 	findShowQuery bool
 	findTimeout   time.Duration
 	findApp       string // --app flag: application name from catalog
+	findExact     bool   // --exact flag: match exact vCPU and memory instead of minimum
 )
 
 var findCmd = &cobra.Command{
@@ -62,6 +63,7 @@ func init() {
 	findCmd.Flags().BoolVar(&findShowQuery, "show-query", false, "Show parsed query details")
 	findCmd.Flags().DurationVar(&findTimeout, "timeout", 5*time.Minute, "Timeout for AWS API calls")
 	findCmd.Flags().StringVar(&findApp, "app", "", "Application name from catalog (e.g. paraview, igv)")
+	findCmd.Flags().BoolVar(&findExact, "exact", false, "Match exact vCPU and memory values instead of minimum")
 }
 
 func runFind(cmd *cobra.Command, args []string) error {
@@ -86,6 +88,11 @@ func runFind(cmd *cobra.Command, args []string) error {
 	query, err := find.ParseQuery(queryStr)
 	if err != nil {
 		return fmt.Errorf("failed to parse query: %w", err)
+	}
+
+	// Apply --exact flag
+	if findExact {
+		query.ExactMatch = true
 	}
 
 	// Show parsed query if requested

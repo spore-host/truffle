@@ -22,6 +22,8 @@ func (pq *ParsedQuery) BuildCriteria() (*SearchCriteria, error) {
 			IncludeAZs:   true,
 			MinVCPUs:     pq.MinVCPU,
 			MinMemory:    pq.MinMemory,
+			ExactVCPUs:   pq.ExactMatch,
+			ExactMemory:  pq.ExactMatch,
 			Architecture: pq.DeriveArchitecture(),
 		},
 	}
