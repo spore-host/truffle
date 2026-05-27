@@ -71,7 +71,7 @@ var GPUDatabase = map[string]GPUInfo{
 	"a10g": {
 		Name:     "A10G",
 		Vendor:   "nvidia",
-		MemoryGB: 24,
+		MemoryGB: 22,
 		UseCase:  "inference",
 		Families: []string{"g5"},
 		InstanceTypes: []string{
@@ -93,7 +93,7 @@ var GPUDatabase = map[string]GPUInfo{
 	"l4": {
 		Name:     "L4",
 		Vendor:   "nvidia",
-		MemoryGB: 24,
+		MemoryGB: 22,
 		UseCase:  "inference",
 		Families: []string{"g6"},
 		InstanceTypes: []string{
@@ -104,13 +104,40 @@ var GPUDatabase = map[string]GPUInfo{
 	"l40s": {
 		Name:     "L40S",
 		Vendor:   "nvidia",
-		MemoryGB: 48,
+		MemoryGB: 44,
 		UseCase:  "inference",
 		Families: []string{"g6e"},
 		InstanceTypes: []string{
 			"g6e.xlarge", "g6e.2xlarge", "g6e.4xlarge", "g6e.8xlarge",
 			"g6e.12xlarge", "g6e.16xlarge", "g6e.24xlarge", "g6e.48xlarge",
 		},
+	},
+	"rtx pro server 6000": {
+		Name:     "RTX PRO Server 6000",
+		Vendor:   "nvidia",
+		MemoryGB: 96,
+		UseCase:  "graphics",
+		Families: []string{"g7e"},
+		InstanceTypes: []string{
+			"g7e.2xlarge", "g7e.4xlarge", "g7e.8xlarge",
+			"g7e.12xlarge", "g7e.24xlarge", "g7e.48xlarge",
+		},
+	},
+	"b200": {
+		Name:     "B200",
+		Vendor:   "nvidia",
+		MemoryGB: 179,
+		UseCase:  "training",
+		Families: []string{"p6"},
+		InstanceTypes: []string{"p6-b200.48xlarge", "p6e-gb200.36xlarge"},
+	},
+	"b300": {
+		Name:     "B300",
+		Vendor:   "nvidia",
+		MemoryGB: 268,
+		UseCase:  "training",
+		Families: []string{"p6"},
+		InstanceTypes: []string{"p6-b300.48xlarge"},
 	},
 
 	// AMD GPUs
@@ -171,6 +198,11 @@ var GPUAliases = map[string]string{
 	"inferent": "inferentia",
 	"h200":     "h200",
 	"l40":      "l40s",
+	"rtx":      "rtx pro server 6000",
+	"rtx6000":  "rtx pro server 6000",
+	"b200":     "b200",
+	"b300":     "b300",
+	"gb200":    "b200",
 }
 
 // GetGPUsByVendor returns all GPUs for a given vendor
