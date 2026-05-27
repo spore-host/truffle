@@ -46,8 +46,9 @@ truffle search "m7i.*"
 truffle spot c6a.xlarge c7g.xlarge --sort-by-price --active-only
 
 # Find by natural language
-truffle find "h100 8gpu efa"
-truffle find graviton
+truffle find "h200 8gpu efa"
+truffle find "amd turin 32 cores 64gb" --exact
+truffle find graviton --region us-east-1
 
 # Check EC2 quotas (requires credentials)
 truffle quotas --regions us-east-1 --family P
@@ -64,7 +65,9 @@ truffle capacity --gpu-only
 | Command | Description |
 |---------|-------------|
 | `search <pattern>` | Search instance types by pattern |
-| `find [query...]` | Natural language instance search |
+| `find [query...]` | Natural language instance search (supports --exact for precise matching) |
+| `help` | Show help for truffle or a specific command |
+| `version` | Show version, build info, and project URL |
 | `spot <pattern>` | Spot prices and availability |
 | `az <pattern>` | AZ-first availability view |
 | `capacity` | On-demand capacity reservations |

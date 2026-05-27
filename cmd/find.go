@@ -32,8 +32,8 @@ var findCmd = &cobra.Command{
 
 Understands:
   - CPU vendors: intel, amd, graviton
-  - Processor code names: ice lake, milan, sapphire rapids, genoa
-  - GPU types: a100, v100, h100, t4, l4, inferentia, trainium
+  - Processor code names: emerald rapids, sapphire rapids, ice lake, genoa, turin, milan
+  - GPU types: h200, h100, a100, b200, b300, l40s, l4, a10g, t4, rtx, inferentia, trainium
   - Sizes: tiny, small, medium, large, huge
   - Specs: 8 cores, 32gb, 4 gpus
   - Architecture: x86_64, arm64
@@ -41,17 +41,18 @@ Understands:
 
 Examples:
   truffle find graviton
-  truffle find "ice lake"
-  truffle find "amd 16 cores"
-  truffle find a100
-  truffle find "graviton large"
-  truffle find "intel gpu"
-  truffle find "milan 64gb"
+  truffle find "turin 32 cores 64gb" --exact
+  truffle find "amd turin" --regions us-west-2
+  truffle find h200 --region us-east-1
   truffle find "sapphire rapids 32 cores"
   truffle find "inferentia"
   truffle find "efa graviton"
-  truffle find "100gbps intel"
-  truffle find "h100 efa"`,
+  truffle find "h100 efa"
+
+Flags:
+  --exact        Match exact vCPU and memory values instead of minimum
+  --regions, -r  Filter by specific regions (comma-separated)
+  --region       Alias for --regions`,
 	Args: cobra.ArbitraryArgs, // 0 args allowed when --app is used
 	RunE: runFind,
 }
