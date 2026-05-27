@@ -23,6 +23,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/spore-host/truffle/pkg/spawn"
 )
 
 // Client wraps AWS SDK clients
@@ -45,6 +46,7 @@ type InstanceTypeResult struct {
 	GPUModel        string  `json:"gpu_model,omitempty" yaml:"gpu_model,omitempty"`           // GPU model name, e.g. "A100"
 	GPUManufacturer string  `json:"gpu_manufacturer,omitempty" yaml:"gpu_manufacturer,omitempty"` // GPU vendor, e.g. "nvidia"
 	OnDemandPrice   float64 `json:"on_demand_price,omitempty" yaml:"on_demand_price,omitempty"` // On-demand $/hr; 0 if not yet fetched
+	SpawnSupported  bool    `json:"spawn_supported,omitempty" yaml:"spawn_supported,omitempty"` // True if spawn can launch instances in this region
 }
 
 // SpotPriceResult represents a Spot instance price observation for one AZ,
@@ -293,6 +295,7 @@ func (c *Client) searchInRegion(ctx context.Context, region string, matcher *reg
 				VCPUs:          valueOrZero(it.VCpuInfo.DefaultVCpus),
 				MemoryMiB:      valueOrZero(it.MemoryInfo.SizeInMiB),
 				InstanceFamily: extractFamily(instanceType),
+				SpawnSupported: spawn.IsSpawnSupported(region),
 			}
 
 			// Get architecture

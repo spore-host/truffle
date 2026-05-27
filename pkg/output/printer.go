@@ -165,9 +165,21 @@ func (p *Printer) PrintTable(results []aws.InstanceTypeResult, includeAZs bool, 
 	for instanceType, regions := range grouped {
 		for i, result := range regions {
 			memGiB := fmt.Sprintf("%.1f", float64(result.MemoryMiB)/1024.0)
+
+			// Add spawn support indicator to region
+			regionDisplay := result.Region
+			if result.SpawnSupported {
+				if p.useColor {
+					green := color.New(color.FgGreen)
+					regionDisplay = result.Region + " " + green.Sprint("✓")
+				} else {
+					regionDisplay = result.Region + " ✓"
+				}
+			}
+
 			row := []string{
 				instanceType,
-				result.Region,
+				regionDisplay,
 				strconv.Itoa(int(result.VCPUs)),
 				memGiB,
 				result.Architecture,
@@ -220,7 +232,30 @@ func (p *Printer) PrintTable(results []aws.InstanceTypeResult, includeAZs bool, 
 		fmt.Printf("\n%s\n\n", summaryMsg)
 	}
 
-	return table.render()
+	if err := table.render(); err != nil {
+		return err
+	}
+
+	// Add footer note about spawn support indicator
+	// Check if any results have spawn support to decide whether to show the note
+	hasSpawnSupported := false
+	for _, r := range deduped {
+		if r.SpawnSupported {
+			hasSpawnSupported = true
+			break
+		}
+	}
+	if hasSpawnSupported {
+		fmt.Println()
+		if p.useColor {
+			green := color.New(color.FgGreen)
+			fmt.Printf("  %s = spawn-supported region\n", green.Sprint("✓"))
+		} else {
+			fmt.Println("  ✓ = spawn-supported region")
+		}
+	}
+
+	return nil
 }
 
 // PrintJSON outputs results as JSON
