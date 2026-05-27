@@ -46,6 +46,7 @@ func (t *table) render() error {
 	n := len(t.headers)
 
 	// Column widths = max(header width, max data cell width) per column
+	// Calculate widths BEFORE applying color to avoid counting ANSI escape sequences
 	widths := make([]int, n)
 	for i, h := range t.headers {
 		widths[i] = utf8.RuneCountInString(h)
@@ -53,7 +54,9 @@ func (t *table) render() error {
 	for _, row := range t.rows {
 		for i, cell := range row {
 			if i < n {
-				if w := utf8.RuneCountInString(cell); w > widths[i] {
+				// Strip ANSI color codes before measuring width
+				cleanCell := stripAnsiCodes(cell)
+				if w := utf8.RuneCountInString(cleanCell); w > widths[i] {
 					widths[i] = w
 				}
 			}
@@ -81,7 +84,9 @@ func (t *table) render() error {
 			if i < len(cells) {
 				s = cells[i]
 			}
-			pad := widths[i] - utf8.RuneCountInString(s)
+			// Calculate padding based on visual width (without ANSI codes)
+			visualWidth := utf8.RuneCountInString(stripAnsiCodes(s))
+			pad := widths[i] - visualWidth
 			if pad < 0 {
 				pad = 0
 			}
@@ -445,6 +450,31 @@ func shortenReservationID(id string) string {
 		return id[:10] + "..."
 	}
 	return id
+}
+
+// stripAnsiCodes removes ANSI escape sequences from a string for accurate width calculation
+func stripAnsiCodes(s string) string {
+	// ANSI escape sequences start with ESC[ and end with a letter
+	// Simple regex: \x1b\[[0-9;]*[a-zA-Z]
+	const ansiEscape = "\x1b"
+	result := make([]byte, 0, len(s))
+	i := 0
+	for i < len(s) {
+		if i < len(s)-1 && s[i] == ansiEscape[0] && s[i+1] == '[' {
+			// Skip until we find the ending letter
+			i += 2
+			for i < len(s) && !((s[i] >= 'a' && s[i] <= 'z') || (s[i] >= 'A' && s[i] <= 'Z')) {
+				i++
+			}
+			if i < len(s) {
+				i++ // Skip the ending letter
+			}
+		} else {
+			result = append(result, s[i])
+			i++
+		}
+	}
+	return string(result)
 }
 
 // truncateWithEllipsis truncates a string to maxLen runes, adding "..." if truncated.
