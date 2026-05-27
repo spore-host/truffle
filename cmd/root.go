@@ -46,9 +46,10 @@ func init() {
 		ensureI18nInitialized()
 
 		// Merge --region (singular alias) into --regions for backward compatibility
-		// Only applies to persistent flag, not local flags like in 'list' command
+		// Only merge if --region was explicitly used and --regions was NOT used
 		regionFlag := rootCmd.PersistentFlags().Lookup("region")
-		if regionFlag != nil && regionFlag.Changed {
+		regionsFlag := rootCmd.PersistentFlags().Lookup("regions")
+		if regionFlag != nil && regionFlag.Changed && (regionsFlag == nil || !regionsFlag.Changed) {
 			regionValues, err := rootCmd.PersistentFlags().GetStringSlice("region")
 			if err == nil && len(regionValues) > 0 {
 				// Append to regions, avoiding duplicates
