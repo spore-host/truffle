@@ -44,6 +44,29 @@ func init() {
 	// Set PersistentPreRunE to initialize i18n after flag parsing
 	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
 		ensureI18nInitialized()
+
+		// Merge --region (singular alias) into --regions for backward compatibility
+		// Only applies to persistent flag, not local flags like in 'list' command
+		regionFlag := rootCmd.PersistentFlags().Lookup("region")
+		if regionFlag != nil && regionFlag.Changed {
+			regionValues, err := rootCmd.PersistentFlags().GetStringSlice("region")
+			if err == nil && len(regionValues) > 0 {
+				// Append to regions, avoiding duplicates
+				for _, r := range regionValues {
+					found := false
+					for _, existing := range regions {
+						if existing == r {
+							found = true
+							break
+						}
+					}
+					if !found {
+						regions = append(regions, r)
+					}
+				}
+			}
+		}
+
 		return nil
 	}
 
@@ -55,6 +78,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&outputFormat, "output", "o", "table", "Output format (table, json, yaml, csv)")
 	rootCmd.PersistentFlags().BoolVar(&noColor, "no-color", false, "Disable colorized output")
 	rootCmd.PersistentFlags().StringSliceVarP(&regions, "regions", "r", []string{}, "Filter by specific regions (comma-separated)")
+	rootCmd.PersistentFlags().StringSlice("region", []string{}, "Alias for --regions")
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output")
 
 	// Enable shell completion for all supported shells
