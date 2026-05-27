@@ -7,10 +7,9 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/fatih/color"
-	"github.com/olekukonko/tablewriter"
-	"github.com/olekukonko/tablewriter/tw"
 	"github.com/spore-host/libs/i18n"
 	"github.com/spore-host/truffle/pkg/aws"
 	"gopkg.in/yaml.v3"
@@ -26,26 +25,92 @@ func NewPrinter(useColor bool) *Printer {
 	return &Printer{useColor: useColor}
 }
 
-// newTable creates a standard table with consistent options.
-func newTable(headers []string, useColor bool) *tablewriter.Table {
-	if useColor {
+// table is a minimal table renderer that sizes columns to content width.
+// We implement this directly because tablewriter v1.1.4 ignores
+// WithHeaderAutoFormat(tw.Off) and still applies CamelCase splitting to headers.
+type table struct {
+	headers  []string
+	rows     [][]string
+	useColor bool
+}
+
+func newTable(headers []string, useColor bool) *table {
+	return &table{headers: headers, useColor: useColor}
+}
+
+func (t *table) append(row []string) {
+	t.rows = append(t.rows, row)
+}
+
+func (t *table) render() error {
+	n := len(t.headers)
+
+	// Column widths = max(header width, max data cell width) per column
+	widths := make([]int, n)
+	for i, h := range t.headers {
+		widths[i] = utf8.RuneCountInString(h)
+	}
+	for _, row := range t.rows {
+		for i, cell := range row {
+			if i < n {
+				if w := utf8.RuneCountInString(cell); w > widths[i] {
+					widths[i] = w
+				}
+			}
+		}
+	}
+
+	// Build border lines
+	borderLine := func(left, mid, right, horiz string) string {
+		var sb strings.Builder
+		sb.WriteString(left)
+		for i, w := range widths {
+			sb.WriteString(strings.Repeat(horiz, w+2))
+			if i < n-1 {
+				sb.WriteString(mid)
+			}
+		}
+		sb.WriteString(right)
+		return sb.String()
+	}
+	dataLine := func(cells []string) string {
+		var sb strings.Builder
+		sb.WriteString("│")
+		for i := 0; i < n; i++ {
+			var s string
+			if i < len(cells) {
+				s = cells[i]
+			}
+			pad := widths[i] - utf8.RuneCountInString(s)
+			if pad < 0 {
+				pad = 0
+			}
+			sb.WriteString(" ")
+			sb.WriteString(s)
+			sb.WriteString(strings.Repeat(" ", pad))
+			sb.WriteString(" │")
+		}
+		return sb.String()
+	}
+
+	// Render header with optional color
+	headers := make([]string, n)
+	copy(headers, t.headers)
+	if t.useColor {
 		hdr := color.New(color.FgHiCyan, color.Bold).SprintFunc()
 		for i, h := range headers {
 			headers[i] = hdr(h)
 		}
 	}
-	return tablewriter.NewTable(os.Stdout,
-		tablewriter.WithHeader(headers),
-		tablewriter.WithHeaderAlignment(tw.AlignLeft),
-		tablewriter.WithRowAlignment(tw.AlignLeft),
-		tablewriter.WithHeaderAutoWrap(tw.WrapNone),
-		tablewriter.WithRowAutoWrap(tw.WrapNone),
-	)
-}
 
-// appendRow appends a []string row to a v1.x table.
-func appendRow(table *tablewriter.Table, row []string) error {
-	return table.Append(row)
+	fmt.Fprintln(os.Stdout, borderLine("┌", "┬", "┐", "─"))
+	fmt.Fprintln(os.Stdout, dataLine(headers))
+	fmt.Fprintln(os.Stdout, borderLine("├", "┼", "┤", "─"))
+	for _, row := range t.rows {
+		fmt.Fprintln(os.Stdout, dataLine(row))
+	}
+	fmt.Fprintln(os.Stdout, borderLine("└", "┴", "┘", "─"))
+	return nil
 }
 
 // PrintTable outputs results as a formatted table
@@ -131,9 +196,7 @@ func (p *Printer) PrintTable(results []aws.InstanceTypeResult, includeAZs bool, 
 			if i > 0 {
 				row[0] = ""
 			}
-			if err := appendRow(table, row); err != nil {
-				return err
-			}
+			table.append(row)
 		}
 	}
 
@@ -148,7 +211,7 @@ func (p *Printer) PrintTable(results []aws.InstanceTypeResult, includeAZs bool, 
 		fmt.Printf("\n%s\n\n", summaryMsg)
 	}
 
-	return table.Render()
+	return table.render()
 }
 
 // PrintJSON outputs results as JSON
@@ -229,13 +292,11 @@ func (p *Printer) PrintSpotTable(results []aws.SpotPriceResult) error {
 			if i > 0 {
 				row[0] = ""
 			}
-			if err := appendRow(table, row); err != nil {
-				return err
-			}
+			table.append(row)
 		}
 	}
 
-	return table.Render()
+	return table.render()
 }
 
 // PrintSpotJSON outputs Spot pricing results as JSON
@@ -309,12 +370,10 @@ func (p *Printer) PrintCapacityTable(results []aws.CapacityReservationResult) er
 			r.State,
 			shortenReservationID(r.ReservationID),
 		}
-		if err := appendRow(table, row); err != nil {
-			return err
-		}
+		table.append(row)
 	}
 
-	return table.Render()
+	return table.render()
 }
 
 // PrintCapacityJSON outputs capacity reservation results as JSON
