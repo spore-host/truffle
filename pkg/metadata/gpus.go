@@ -13,6 +13,14 @@ type GPUInfo struct {
 // GPUDatabase maps GPU names to their information
 var GPUDatabase = map[string]GPUInfo{
 	// NVIDIA Training GPUs
+	"h200": {
+		Name:          "H200",
+		Vendor:        "nvidia",
+		MemoryGB:      141,
+		UseCase:       "training",
+		Families:      []string{"p5e"},
+		InstanceTypes: []string{"p5e.48xlarge"},
+	},
 	"h100": {
 		Name:          "H100",
 		Vendor:        "nvidia",
@@ -93,6 +101,17 @@ var GPUDatabase = map[string]GPUInfo{
 			"g6.12xlarge", "g6.16xlarge", "g6.24xlarge", "g6.48xlarge",
 		},
 	},
+	"l40s": {
+		Name:     "L40S",
+		Vendor:   "nvidia",
+		MemoryGB: 48,
+		UseCase:  "inference",
+		Families: []string{"g6e"},
+		InstanceTypes: []string{
+			"g6e.xlarge", "g6e.2xlarge", "g6e.4xlarge", "g6e.8xlarge",
+			"g6e.12xlarge", "g6e.16xlarge", "g6e.24xlarge", "g6e.48xlarge",
+		},
+	},
 
 	// AMD GPUs
 	"radeon pro v520": {
@@ -150,6 +169,8 @@ var GPUAliases = map[string]string{
 	"v520":     "radeon pro v520",
 	"neuron":   "inferentia",
 	"inferent": "inferentia",
+	"h200":     "h200",
+	"l40":      "l40s",
 }
 
 // GetGPUsByVendor returns all GPUs for a given vendor

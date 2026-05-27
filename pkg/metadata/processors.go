@@ -12,6 +12,20 @@ type ProcessorInfo struct {
 // ProcessorDatabase maps processor code names to their information
 var ProcessorDatabase = map[string]ProcessorInfo{
 	// Intel processors
+	"emerald rapids": {
+		CodeName:     "Emerald Rapids",
+		Vendor:       "intel",
+		Architecture: "x86_64",
+		Generation:   "5th gen",
+		Families:     []string{"m8i", "c8i", "r8i"},
+	},
+	"sapphire rapids": {
+		CodeName:     "Sapphire Rapids",
+		Vendor:       "intel",
+		Architecture: "x86_64",
+		Generation:   "4th gen",
+		Families:     []string{"m7i", "c7i", "r7i", "r7iz", "m7i-flex"},
+	},
 	"ice lake": {
 		CodeName:     "Ice Lake",
 		Vendor:       "intel",
@@ -26,13 +40,6 @@ var ProcessorDatabase = map[string]ProcessorInfo{
 		Generation:   "2nd gen",
 		Families:     []string{"m5", "c5", "r5", "m5n", "m5dn", "c5n", "r5n", "r5dn", "m5d", "c5d", "r5d"},
 	},
-	"sapphire rapids": {
-		CodeName:     "Sapphire Rapids",
-		Vendor:       "intel",
-		Architecture: "x86_64",
-		Generation:   "4th gen",
-		Families:     []string{"m7i", "c7i", "r7i", "r7iz", "m7i-flex"},
-	},
 	"skylake": {
 		CodeName:     "Skylake",
 		Vendor:       "intel",
@@ -45,14 +52,28 @@ var ProcessorDatabase = map[string]ProcessorInfo{
 		Vendor:       "intel",
 		Architecture: "x86_64",
 		Generation:   "legacy",
-		Families:     []string{"m4", "c4", "r4", "t2"},
+		Families:     []string{"m4", "c4", "r4", "t2", "d2", "i2"},
 	},
 	"broadwell": {
 		CodeName:     "Broadwell",
 		Vendor:       "intel",
 		Architecture: "x86_64",
 		Generation:   "legacy",
-		Families:     []string{"m4", "c4", "t2"},
+		Families:     []string{"m4", "c4", "t2", "d2"},
+	},
+	"ivy bridge": {
+		CodeName:     "Ivy Bridge",
+		Vendor:       "intel",
+		Architecture: "x86_64",
+		Generation:   "legacy",
+		Families:     []string{"m3", "c3", "r3", "i2"},
+	},
+	"sandy bridge": {
+		CodeName:     "Sandy Bridge",
+		Vendor:       "intel",
+		Architecture: "x86_64",
+		Generation:   "legacy",
+		Families:     []string{"m1", "c1", "m2", "t1"},
 	},
 
 	// AMD processors
