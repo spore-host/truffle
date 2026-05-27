@@ -191,6 +191,10 @@ func (p *Printer) PrintTable(results []aws.InstanceTypeResult, includeAZs bool, 
 				if azs == "" {
 					azs = "N/A"
 				}
+				// Limit AZ column to reasonable width
+				if utf8.RuneCountInString(azs) > 40 {
+					azs = truncateWithEllipsis(azs, 40)
+				}
 				row = append(row, azs)
 			}
 			if i > 0 {
@@ -441,4 +445,30 @@ func shortenReservationID(id string) string {
 		return id[:10] + "..."
 	}
 	return id
+}
+
+// truncateWithEllipsis truncates a string to maxLen runes, adding "..." if truncated.
+// It tries to break at a comma+space boundary to avoid cutting mid-word.
+func truncateWithEllipsis(s string, maxLen int) string {
+	if utf8.RuneCountInString(s) <= maxLen {
+		return s
+	}
+
+	// Reserve 3 characters for "..."
+	maxLen -= 3
+
+	// Try to find a comma+space boundary near the limit
+	runes := []rune(s)
+	if maxLen > 0 && maxLen < len(runes) {
+		// Look backwards from maxLen for ", "
+		for i := maxLen; i > maxLen-10 && i > 0; i-- {
+			if i < len(runes)-1 && runes[i] == ',' && runes[i+1] == ' ' {
+				return string(runes[:i]) + "..."
+			}
+		}
+		// No good break found, just truncate
+		return string(runes[:maxLen]) + "..."
+	}
+
+	return s
 }
