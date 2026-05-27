@@ -96,6 +96,13 @@ func runSearch(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return i18n.Te("truffle.search.error.get_regions_failed", err)
 		}
+
+		// Warn about searching all regions (can be slow)
+		if len(searchRegions) > 10 && outputFormat == "table" {
+			fmt.Fprintf(os.Stderr, "%s Searching across all %d enabled regions (this may take a while)\n",
+				i18n.Emoji("warning"), len(searchRegions))
+			fmt.Fprintf(os.Stderr, "   Tip: Use --regions to limit search (e.g., --regions us-east-1,us-west-2)\n\n")
+		}
 	}
 
 	// Show spinner for non-verbose mode
