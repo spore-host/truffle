@@ -176,8 +176,10 @@ func runSpot(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Print summary
-	printSpotSummary(spotResults)
+	// Print summary (table output only — keeps stdout clean for json/csv/yaml)
+	if outputFormat == "table" {
+		printSpotSummary(spotResults)
+	}
 
 	// Output results
 	printer := output.NewPrinter(!noColor)

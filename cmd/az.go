@@ -89,7 +89,7 @@ func runAZSearch(cmd *cobra.Command, args []string) error {
 	if len(searchRegions) == 0 {
 		searchRegions = regions
 	}
-	
+
 	// If no regions specified, auto-detect enabled regions (respects SCPs)
 	if len(searchRegions) == 0 {
 		if verbose {
@@ -146,8 +146,8 @@ func runAZSearch(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Print summary
-	if verbose || outputFormat == "table" {
+	// Print summary (table output only — keeps stdout clean for json/csv/yaml)
+	if outputFormat == "table" {
 		printAZSummary(results)
 	}
 
