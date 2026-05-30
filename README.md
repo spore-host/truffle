@@ -1,5 +1,11 @@
 # truffle
 
+[![CI](https://github.com/spore-host/truffle/actions/workflows/ci.yml/badge.svg)](https://github.com/spore-host/truffle/actions/workflows/ci.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/spore-host/truffle)](https://goreportcard.com/report/github.com/spore-host/truffle)
+[![codecov](https://codecov.io/gh/spore-host/truffle/branch/main/graph/badge.svg)](https://codecov.io/gh/spore-host/truffle)
+[![Go Reference](https://pkg.go.dev/badge/github.com/spore-host/truffle.svg)](https://pkg.go.dev/github.com/spore-host/truffle)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+
 Find EC2 instance types, compare spot prices, check quotas.
 
 Most commands work **without AWS credentials** — only `truffle quotas` and `truffle capacity` require them.
