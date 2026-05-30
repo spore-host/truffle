@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/spore-host/libs/i18n"
 	"github.com/spf13/cobra"
+	"github.com/spore-host/libs/i18n"
 	"github.com/spore-host/truffle/pkg/aws"
 	"github.com/spore-host/truffle/pkg/output"
 )
@@ -112,8 +112,10 @@ func runCapacity(cmd *cobra.Command, args []string) error {
 		return results[i].Region < results[j].Region
 	})
 
-	// Print summary
-	printCapacitySummary(results)
+	// Print summary (table output only — keeps stdout clean for json/csv/yaml)
+	if outputFormat == "table" {
+		printCapacitySummary(results)
+	}
 
 	// Output results
 	printer := output.NewPrinter(!noColor)
@@ -171,7 +173,7 @@ func printCapacitySummary(results []aws.CapacityReservationResult) {
 	instanceTypes := make(map[string]bool)
 	regions := make(map[string]bool)
 	azs := make(map[string]bool)
-	
+
 	var totalCapacity, availableCapacity, usedCapacity int32
 	activeCount := 0
 
@@ -179,11 +181,11 @@ func printCapacitySummary(results []aws.CapacityReservationResult) {
 		instanceTypes[r.InstanceType] = true
 		regions[r.Region] = true
 		azs[r.AvailabilityZone] = true
-		
+
 		totalCapacity += r.TotalCapacity
 		availableCapacity += r.AvailableCapacity
 		usedCapacity += r.UsedCapacity
-		
+
 		if r.State == "active" {
 			activeCount++
 		}
