@@ -82,6 +82,12 @@ import "github.com/spore-host/truffle/pkg/aws"
 
 client, _ := aws.NewClient(ctx)
 results, _ := client.SearchInstanceTypes(ctx, regions, matcher, opts)
+
+// On-demand rate for one type (live AWS Price List, cached)
+rate, _ := client.HourlyRate(ctx, "c6i.4xlarge", "us-east-1", "on-demand")
+
+// Spot prices with on-demand comparison populated
+prices, _ := client.GetSpotPricing(ctx, results, aws.SpotOptions{ShowSavings: true})
 ```
 
 ## Python Bindings
