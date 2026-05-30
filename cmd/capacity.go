@@ -135,25 +135,38 @@ func runCapacity(cmd *cobra.Command, args []string) error {
 	}
 }
 
-func filterGPUInstances(results []aws.CapacityReservationResult) []aws.CapacityReservationResult {
-	// GPU/ML instance families
-	gpuFamilies := map[string]bool{
-		"p5":   true, // NVIDIA H100
-		"p4":   true, // NVIDIA A100
-		"p3":   true, // NVIDIA V100
-		"g6":   true, // NVIDIA L4/L40S
-		"g5":   true, // NVIDIA A10G
-		"g4":   true, // NVIDIA T4
-		"inf2": true, // AWS Inferentia2
-		"inf1": true, // AWS Inferentia
-		"trn1": true, // AWS Trainium
-		"vt1":  true, // Video transcoding
-	}
+// gpuFamilyPrefixes are the GPU/ML instance-family generations. We match by
+// prefix (not exact family) so suffixed variants are caught — e.g. "p4d"/"p4de"
+// (A100), "p5e"/"p5en" (H100), "g4dn"/"g4ad" (T4), "trn1n" (Trainium). Matching
+// the exact family would silently miss these (see #8).
+var gpuFamilyPrefixes = []string{
+	"p3",   // NVIDIA V100
+	"p4",   // NVIDIA A100 (p4d, p4de)
+	"p5",   // NVIDIA H100 (p5, p5e, p5en)
+	"g4",   // NVIDIA T4 / AMD (g4dn, g4ad)
+	"g5",   // NVIDIA A10G (g5, g5g)
+	"g6",   // NVIDIA L4/L40S (g6, g6e, gr6)
+	"inf1", // AWS Inferentia
+	"inf2", // AWS Inferentia2
+	"trn1", // AWS Trainium (trn1, trn1n)
+	"trn2", // AWS Trainium2
+	"vt1",  // Video transcoding
+}
 
+// isGPUFamily reports whether an instance family belongs to a GPU/ML generation.
+func isGPUFamily(family string) bool {
+	for _, p := range gpuFamilyPrefixes {
+		if strings.HasPrefix(family, p) {
+			return true
+		}
+	}
+	return false
+}
+
+func filterGPUInstances(results []aws.CapacityReservationResult) []aws.CapacityReservationResult {
 	filtered := make([]aws.CapacityReservationResult, 0)
 	for _, r := range results {
-		family := extractFamily(r.InstanceType)
-		if gpuFamilies[family] {
+		if isGPUFamily(extractFamily(r.InstanceType)) {
 			filtered = append(filtered, r)
 		}
 	}

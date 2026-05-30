@@ -211,6 +211,34 @@ func TestGetSpotPricing_NoSavingsByDefault(t *testing.T) {
 	}
 }
 
+// TestHourlyRate_Spot exercises the spot branch of HourlyRate against substrate
+// (the stub-pricer unit tests in pricing_test.go cannot reach GetSpotPricing).
+func TestHourlyRate_Spot(t *testing.T) {
+	env := testutil.SubstrateServer(t)
+	ctx := context.Background()
+	c := NewClientFromConfig(env.AWSConfig)
+
+	rate, err := c.HourlyRate(ctx, "t3.micro", "us-east-1", "spot")
+	if err != nil {
+		t.Fatalf("HourlyRate spot error = %v", err)
+	}
+	if rate <= 0 {
+		t.Errorf("spot HourlyRate = %v, want > 0", rate)
+	}
+}
+
+func TestHourlyRate_SpotUnavailable(t *testing.T) {
+	env := testutil.SubstrateServer(t)
+	ctx := context.Background()
+	c := NewClientFromConfig(env.AWSConfig)
+
+	// An instance type with no seeded spot history → no price → error.
+	_, err := c.HourlyRate(ctx, "zz9.nonexistent", "us-east-1", "spot")
+	if err == nil {
+		t.Error("expected error for instance type with no spot price, got nil")
+	}
+}
+
 func TestGetSpotPricing_MaxPriceFilter(t *testing.T) {
 	env := testutil.SubstrateServer(t)
 	ctx := context.Background()
