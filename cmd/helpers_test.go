@@ -124,10 +124,10 @@ func TestFilterByMinAZCount(t *testing.T) {
 
 func TestFilterGPUInstances(t *testing.T) {
 	results := []aws.CapacityReservationResult{
-		{InstanceType: "p3.2xlarge"},    // family p3 — in map
-		{InstanceType: "g5.xlarge"},     // family g5 — in map
+		{InstanceType: "p3.2xlarge"},    // V100
+		{InstanceType: "g5.xlarge"},     // A10G
 		{InstanceType: "m5.large"},      // not GPU
-		{InstanceType: "trn1.32xlarge"}, // family trn1 — in map
+		{InstanceType: "trn1.32xlarge"}, // Trainium
 		{InstanceType: "c6i.large"},     // not GPU
 	}
 	got := filterGPUInstances(results)
@@ -145,13 +145,47 @@ func TestFilterGPUInstances(t *testing.T) {
 	}
 }
 
-// TestFilterGPUInstances_P4dGap documents a known gap: the GPU family map keys
-// on "p4"/"p5", but the real instances are p4d.24xlarge / p5.48xlarge whose
-// families are "p4d"/"p5". p4d is therefore NOT matched. Tracked in truffle#8.
-func TestFilterGPUInstances_P4dGap(t *testing.T) {
-	got := filterGPUInstances([]aws.CapacityReservationResult{{InstanceType: "p4d.24xlarge"}})
-	if len(got) != 0 {
-		t.Skip("p4d now matched — the family-map gap (truffle#8) appears fixed; update this test")
+// TestFilterGPUInstances_SuffixedVariants verifies the prefix matcher catches
+// suffixed GPU families that the old exact-match map missed (regression #8).
+func TestFilterGPUInstances_SuffixedVariants(t *testing.T) {
+	gpu := []string{
+		"p4d.24xlarge",   // A100 — the original #8 miss
+		"p4de.24xlarge",  // A100 80GB
+		"p5.48xlarge",    // H100
+		"p5e.48xlarge",   // H200
+		"p5en.48xlarge",  // H200 + EFAv3
+		"g4dn.xlarge",    // T4
+		"g4ad.xlarge",    // AMD Radeon
+		"g6e.xlarge",     // L40S
+		"trn1n.32xlarge", // Trainium + EFA
+		"trn2.48xlarge",  // Trainium2
+	}
+	for _, it := range gpu {
+		got := filterGPUInstances([]aws.CapacityReservationResult{{InstanceType: it}})
+		if len(got) != 1 {
+			t.Errorf("%s should be detected as GPU/ML, got %d matches", it, len(got))
+		}
+	}
+
+	notGPU := []string{"m5.large", "c6i.large", "r7g.xlarge", "t3.micro", "i4i.large"}
+	for _, it := range notGPU {
+		got := filterGPUInstances([]aws.CapacityReservationResult{{InstanceType: it}})
+		if len(got) != 0 {
+			t.Errorf("%s should NOT be detected as GPU, got %d matches", it, len(got))
+		}
+	}
+}
+
+func TestIsGPUFamily(t *testing.T) {
+	for _, f := range []string{"p3", "p4d", "p5en", "g4dn", "g5", "g6e", "inf2", "trn1n", "trn2", "vt1"} {
+		if !isGPUFamily(f) {
+			t.Errorf("isGPUFamily(%q) = false, want true", f)
+		}
+	}
+	for _, f := range []string{"m5", "c6i", "r7g", "t3", "i4i", "x2gd"} {
+		if isGPUFamily(f) {
+			t.Errorf("isGPUFamily(%q) = true, want false", f)
+		}
 	}
 }
 
