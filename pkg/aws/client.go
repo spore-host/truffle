@@ -29,37 +29,40 @@ import (
 // Client wraps AWS SDK clients
 type Client struct {
 	cfg aws.Config
+
+	pricerOnce sync.Once
+	pricer     OnDemandPricer // on-demand price source; lazily initialized, override with SetOnDemandPricer
 }
 
 // InstanceTypeResult represents an instance type's availability and specifications
 // in a given region, as returned by [Client.SearchInstanceTypes].
 type InstanceTypeResult struct {
-	InstanceType   string   `json:"instance_type" yaml:"instance_type"`           // EC2 instance type, e.g. "m6i.2xlarge"
-	Region         string   `json:"region" yaml:"region"`                         // AWS region where this type is available
-	AvailableAZs   []string `json:"availability_zones,omitempty" yaml:"availability_zones,omitempty"` // AZs with capacity; populated when FilterOptions.IncludeAZs is true
-	VCPUs          int32    `json:"vcpus,omitempty" yaml:"vcpus,omitempty"`       // Default vCPU count
-	MemoryMiB      int64    `json:"memory_mib,omitempty" yaml:"memory_mib,omitempty"` // Memory in MiB
-	Architecture   string   `json:"architecture,omitempty" yaml:"architecture,omitempty"` // CPU architecture: "x86_64" or "arm64"
-	InstanceFamily string   `json:"instance_family,omitempty" yaml:"instance_family,omitempty"` // Family prefix, e.g. "m6i"
-	GPUs            int32   `json:"gpus,omitempty" yaml:"gpus,omitempty"`         // Number of GPUs; 0 for non-GPU instances
-	GPUMemoryMiB    int64   `json:"gpu_memory_mib,omitempty" yaml:"gpu_memory_mib,omitempty"` // Total GPU memory in MiB across all GPUs
-	GPUModel        string  `json:"gpu_model,omitempty" yaml:"gpu_model,omitempty"`           // GPU model name, e.g. "A100"
-	GPUManufacturer string  `json:"gpu_manufacturer,omitempty" yaml:"gpu_manufacturer,omitempty"` // GPU vendor, e.g. "nvidia"
-	OnDemandPrice   float64 `json:"on_demand_price,omitempty" yaml:"on_demand_price,omitempty"` // On-demand $/hr; 0 if not yet fetched
-	SpawnSupported  bool    `json:"spawn_supported,omitempty" yaml:"spawn_supported,omitempty"` // True if spawn can launch instances in this region
+	InstanceType    string   `json:"instance_type" yaml:"instance_type"`                               // EC2 instance type, e.g. "m6i.2xlarge"
+	Region          string   `json:"region" yaml:"region"`                                             // AWS region where this type is available
+	AvailableAZs    []string `json:"availability_zones,omitempty" yaml:"availability_zones,omitempty"` // AZs with capacity; populated when FilterOptions.IncludeAZs is true
+	VCPUs           int32    `json:"vcpus,omitempty" yaml:"vcpus,omitempty"`                           // Default vCPU count
+	MemoryMiB       int64    `json:"memory_mib,omitempty" yaml:"memory_mib,omitempty"`                 // Memory in MiB
+	Architecture    string   `json:"architecture,omitempty" yaml:"architecture,omitempty"`             // CPU architecture: "x86_64" or "arm64"
+	InstanceFamily  string   `json:"instance_family,omitempty" yaml:"instance_family,omitempty"`       // Family prefix, e.g. "m6i"
+	GPUs            int32    `json:"gpus,omitempty" yaml:"gpus,omitempty"`                             // Number of GPUs; 0 for non-GPU instances
+	GPUMemoryMiB    int64    `json:"gpu_memory_mib,omitempty" yaml:"gpu_memory_mib,omitempty"`         // Total GPU memory in MiB across all GPUs
+	GPUModel        string   `json:"gpu_model,omitempty" yaml:"gpu_model,omitempty"`                   // GPU model name, e.g. "A100"
+	GPUManufacturer string   `json:"gpu_manufacturer,omitempty" yaml:"gpu_manufacturer,omitempty"`     // GPU vendor, e.g. "nvidia"
+	OnDemandPrice   float64  `json:"on_demand_price,omitempty" yaml:"on_demand_price,omitempty"`       // On-demand $/hr; 0 if not yet fetched
+	SpawnSupported  bool     `json:"spawn_supported,omitempty" yaml:"spawn_supported,omitempty"`       // True if spawn can launch instances in this region
 }
 
 // SpotPriceResult represents a Spot instance price observation for one AZ,
 // as returned by [Client.GetSpotPricing].
 type SpotPriceResult struct {
-	InstanceType     string  `json:"instance_type" yaml:"instance_type"`   // EC2 instance type
-	Region           string  `json:"region" yaml:"region"`                 // AWS region
-	AvailabilityZone string  `json:"availability_zone" yaml:"availability_zone"` // AZ where this price applies
-	SpotPrice        float64 `json:"spot_price" yaml:"spot_price"`         // Current Spot price in $/hr
+	InstanceType     string  `json:"instance_type" yaml:"instance_type"`                         // EC2 instance type
+	Region           string  `json:"region" yaml:"region"`                                       // AWS region
+	AvailabilityZone string  `json:"availability_zone" yaml:"availability_zone"`                 // AZ where this price applies
+	SpotPrice        float64 `json:"spot_price" yaml:"spot_price"`                               // Current Spot price in $/hr
 	OnDemandPrice    float64 `json:"on_demand_price,omitempty" yaml:"on_demand_price,omitempty"` // On-demand $/hr for savings calculation; 0 if unavailable
 	SavingsPercent   float64 `json:"savings_percent,omitempty" yaml:"savings_percent,omitempty"` // Discount vs on-demand: 100*(1-spot/ondemand); set when SpotOptions.ShowSavings is true
-	Timestamp        string  `json:"timestamp" yaml:"timestamp"`           // RFC3339 timestamp of the price observation
-	ProductType      string  `json:"product_type,omitempty" yaml:"product_type,omitempty"` // OS description, e.g. "Linux/UNIX"
+	Timestamp        string  `json:"timestamp" yaml:"timestamp"`                                 // RFC3339 timestamp of the price observation
+	ProductType      string  `json:"product_type,omitempty" yaml:"product_type,omitempty"`       // OS description, e.g. "Linux/UNIX"
 }
 
 // FilterOptions controls which instance types are returned by [Client.SearchInstanceTypes].
@@ -85,28 +88,28 @@ type SpotOptions struct {
 
 // CapacityReservationResult represents an ODCR (On-Demand Capacity Reservation)
 type CapacityReservationResult struct {
-	ReservationID      string   `json:"reservation_id" yaml:"reservation_id"`
-	InstanceType       string   `json:"instance_type" yaml:"instance_type"`
-	Region             string   `json:"region" yaml:"region"`
-	AvailabilityZone   string   `json:"availability_zone" yaml:"availability_zone"`
-	TotalCapacity      int32    `json:"total_capacity" yaml:"total_capacity"`
-	AvailableCapacity  int32    `json:"available_capacity" yaml:"available_capacity"`
-	UsedCapacity       int32    `json:"used_capacity" yaml:"used_capacity"`
-	State              string   `json:"state" yaml:"state"`
-	Tenancy            string   `json:"tenancy" yaml:"tenancy"`
-	EBSOptimized       bool     `json:"ebs_optimized" yaml:"ebs_optimized"`
-	EndDate            string   `json:"end_date,omitempty" yaml:"end_date,omitempty"`
-	Platform           string   `json:"platform" yaml:"platform"`
-	Tags               []string `json:"tags,omitempty" yaml:"tags,omitempty"`
+	ReservationID     string   `json:"reservation_id" yaml:"reservation_id"`
+	InstanceType      string   `json:"instance_type" yaml:"instance_type"`
+	Region            string   `json:"region" yaml:"region"`
+	AvailabilityZone  string   `json:"availability_zone" yaml:"availability_zone"`
+	TotalCapacity     int32    `json:"total_capacity" yaml:"total_capacity"`
+	AvailableCapacity int32    `json:"available_capacity" yaml:"available_capacity"`
+	UsedCapacity      int32    `json:"used_capacity" yaml:"used_capacity"`
+	State             string   `json:"state" yaml:"state"`
+	Tenancy           string   `json:"tenancy" yaml:"tenancy"`
+	EBSOptimized      bool     `json:"ebs_optimized" yaml:"ebs_optimized"`
+	EndDate           string   `json:"end_date,omitempty" yaml:"end_date,omitempty"`
+	Platform          string   `json:"platform" yaml:"platform"`
+	Tags              []string `json:"tags,omitempty" yaml:"tags,omitempty"`
 }
 
 // CapacityReservationOptions contains ODCR search options
 type CapacityReservationOptions struct {
 	InstanceTypes  []string
-	OnlyAvailable  bool   // Only show reservations with available capacity
-	OnlyActive     bool   // Only show active reservations
-	IncludeExpired bool   // Include expired reservations
-	MinCapacity    int32  // Minimum available capacity
+	OnlyAvailable  bool  // Only show reservations with available capacity
+	OnlyActive     bool  // Only show active reservations
+	IncludeExpired bool  // Include expired reservations
+	MinCapacity    int32 // Minimum available capacity
 	Verbose        bool
 }
 
@@ -128,8 +131,8 @@ type CapacityBlockResult struct {
 // CapacityBlockOptions contains Capacity Block search options
 type CapacityBlockOptions struct {
 	InstanceTypes []string
-	MinDuration   int32 // Minimum duration in hours
-	MaxDuration   int32 // Maximum duration in hours
+	MinDuration   int32  // Minimum duration in hours
+	MaxDuration   int32  // Maximum duration in hours
 	StartAfter    string // ISO format datetime
 	StartBefore   string // ISO format datetime
 	OnlyActive    bool
@@ -536,7 +539,7 @@ func (c *Client) getRegionSpotPricing(ctx context.Context, region string, instan
 	client := ec2.NewFromConfig(cfg)
 
 	var results []SpotPriceResult
-	
+
 	// Calculate start time for price history
 	startTime := time.Now().Add(-time.Duration(opts.LookbackHours) * time.Hour)
 
@@ -552,6 +555,13 @@ func (c *Client) getRegionSpotPricing(ctx context.Context, region string, instan
 
 	// Query each instance type
 	for _, inst := range deduped {
+		// When the caller asks for savings, fetch the on-demand rate once per
+		// instance type (it does not vary by AZ) and reuse it across this type's AZs.
+		var onDemand float64
+		if opts.ShowSavings {
+			onDemand, _ = c.OnDemandPrice(ctx, inst.InstanceType, region)
+		}
+
 		// Get Spot price history
 		input := &ec2.DescribeSpotPriceHistoryInput{
 			InstanceTypes: []types.InstanceType{types.InstanceType(inst.InstanceType)},
@@ -575,7 +585,7 @@ func (c *Client) getRegionSpotPricing(ctx context.Context, region string, instan
 			}
 
 			az := *sp.AvailabilityZone
-			
+
 			// Keep only the most recent price per AZ
 			if existing, ok := azPrices[az]; !ok || (sp.Timestamp != nil && existing.Timestamp != nil && sp.Timestamp.After(*existing.Timestamp)) {
 				azPrices[az] = sp
@@ -589,7 +599,7 @@ func (c *Client) getRegionSpotPricing(ctx context.Context, region string, instan
 			}
 
 			price := parsePrice(*spotPrice.SpotPrice)
-			
+
 			// Apply max price filter
 			if opts.MaxPrice > 0 && price > opts.MaxPrice {
 				continue
@@ -601,6 +611,14 @@ func (c *Client) getRegionSpotPricing(ctx context.Context, region string, instan
 				AvailabilityZone: az,
 				SpotPrice:        price,
 				ProductType:      string(spotPrice.ProductDescription),
+			}
+
+			// Populate on-demand price and savings when requested (SpotOptions.ShowSavings).
+			if opts.ShowSavings && onDemand > 0 {
+				result.OnDemandPrice = onDemand
+				if price > 0 {
+					result.SavingsPercent = (1 - price/onDemand) * 100
+				}
 			}
 
 			if spotPrice.Timestamp != nil {
@@ -670,7 +688,7 @@ func (c *Client) getRegionCapacityReservations(ctx context.Context, region strin
 
 	// Build filters
 	filters := []types.Filter{}
-	
+
 	if len(opts.InstanceTypes) > 0 {
 		filters = append(filters, types.Filter{
 			Name:   stringPtr("instance-type"),
@@ -747,8 +765,6 @@ func (c *Client) getRegionCapacityReservations(ctx context.Context, region strin
 	return results, nil
 }
 
-
-
 // GetCapacityBlocks retrieves Capacity Blocks for ML
 func (c *Client) GetCapacityBlocks(ctx context.Context, regions []string, opts CapacityBlockOptions) ([]CapacityBlockResult, error) {
 	var (
@@ -799,7 +815,7 @@ func (c *Client) getRegionCapacityBlocks(ctx context.Context, region string, opt
 	// Build filters for DescribeCapacityBlockOfferings
 	// Note: This API is for FINDING available blocks to reserve
 	// For EXISTING reservations, we use DescribeCapacityReservations with specific filters
-	
+
 	// Get existing Capacity Block reservations
 	// Capacity Blocks are a special type of Capacity Reservation
 	filters := []types.Filter{
@@ -837,12 +853,12 @@ func (c *Client) getRegionCapacityBlocks(ctx context.Context, region string, opt
 		for _, cr := range output.CapacityReservations {
 			// Capacity Blocks have specific characteristics
 			// They have start/end dates and are co-located in UltraClusters
-			
+
 			startDate := ""
 			if cr.StartDate != nil {
 				startDate = cr.StartDate.Format(time.RFC3339)
 			}
-			
+
 			endDate := ""
 			durationHours := int32(0)
 			if cr.EndDate != nil {
