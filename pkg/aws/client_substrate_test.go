@@ -139,6 +139,78 @@ func TestGetSpotPricing(t *testing.T) {
 	}
 }
 
+// TestGetSpotPricing_ShowSavings verifies that SpotOptions.ShowSavings populates
+// OnDemandPrice and SavingsPercent on every result (regression for the issue
+// where these documented fields were always 0 — spore-host/truffle#1).
+func TestGetSpotPricing_ShowSavings(t *testing.T) {
+	env := testutil.SubstrateServer(t)
+	ctx := context.Background()
+
+	c := NewClientFromConfig(env.AWSConfig)
+	// Inject a deterministic on-demand price so savings math is checkable
+	// without reaching the real Price List API (which Substrate does not mock).
+	const onDemand = 0.10
+	c.SetOnDemandPricer(stubPricer{prices: map[string]float64{"t3.micro": onDemand}})
+
+	matcher := regexp.MustCompile(`^t3\.micro$`)
+	instances, err := c.SearchInstanceTypes(ctx, []string{"us-east-1"}, matcher, FilterOptions{})
+	if err != nil {
+		t.Fatalf("SearchInstanceTypes() error = %v", err)
+	}
+	if len(instances) == 0 {
+		t.Skip("t3.micro not in seeded catalog — skipping savings test")
+	}
+
+	prices, err := c.GetSpotPricing(ctx, instances, SpotOptions{
+		LookbackHours: 24,
+		ShowSavings:   true,
+	})
+	if err != nil {
+		t.Fatalf("GetSpotPricing() error = %v", err)
+	}
+	if len(prices) == 0 {
+		t.Fatal("GetSpotPricing() returned 0 prices, want >= 1")
+	}
+	for _, p := range prices {
+		if p.OnDemandPrice != onDemand {
+			t.Errorf("OnDemandPrice = %v, want %v (ShowSavings should populate it)", p.OnDemandPrice, onDemand)
+		}
+		wantSavings := (1 - p.SpotPrice/onDemand) * 100
+		if diff := p.SavingsPercent - wantSavings; diff > 1e-6 || diff < -1e-6 {
+			t.Errorf("SavingsPercent = %v, want %v", p.SavingsPercent, wantSavings)
+		}
+	}
+}
+
+// TestGetSpotPricing_NoSavingsByDefault verifies the fields stay zero when
+// ShowSavings is not set (no extra pricing work, backward-compatible default).
+func TestGetSpotPricing_NoSavingsByDefault(t *testing.T) {
+	env := testutil.SubstrateServer(t)
+	ctx := context.Background()
+
+	c := NewClientFromConfig(env.AWSConfig)
+	c.SetOnDemandPricer(stubPricer{prices: map[string]float64{"t3.micro": 0.10}})
+
+	matcher := regexp.MustCompile(`^t3\.micro$`)
+	instances, err := c.SearchInstanceTypes(ctx, []string{"us-east-1"}, matcher, FilterOptions{})
+	if err != nil {
+		t.Fatalf("SearchInstanceTypes() error = %v", err)
+	}
+	if len(instances) == 0 {
+		t.Skip("t3.micro not in seeded catalog")
+	}
+
+	prices, err := c.GetSpotPricing(ctx, instances, SpotOptions{LookbackHours: 24})
+	if err != nil {
+		t.Fatalf("GetSpotPricing() error = %v", err)
+	}
+	for _, p := range prices {
+		if p.OnDemandPrice != 0 || p.SavingsPercent != 0 {
+			t.Errorf("without ShowSavings, OnDemandPrice=%v SavingsPercent=%v, want 0/0", p.OnDemandPrice, p.SavingsPercent)
+		}
+	}
+}
+
 func TestGetSpotPricing_MaxPriceFilter(t *testing.T) {
 	env := testutil.SubstrateServer(t)
 	ctx := context.Background()

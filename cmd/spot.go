@@ -8,9 +8,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/spore-host/libs/i18n"
-	"github.com/spore-host/libs/pricing"
 	"github.com/spf13/cobra"
+	"github.com/spore-host/libs/i18n"
 	"github.com/spore-host/truffle/pkg/aws"
 	"github.com/spore-host/truffle/pkg/output"
 )
@@ -167,14 +166,9 @@ func runSpot(cmd *cobra.Command, args []string) error {
 		})
 	}
 
-	// Populate on-demand price and savings for each result
-	for idx := range spotResults {
-		odPrice := pricing.GetEC2HourlyRate(spotResults[idx].Region, spotResults[idx].InstanceType)
-		spotResults[idx].OnDemandPrice = odPrice
-		if odPrice > 0 {
-			spotResults[idx].SavingsPercent = (1 - spotResults[idx].SpotPrice/odPrice) * 100
-		}
-	}
+	// On-demand price and savings are populated by GetSpotPricing when
+	// --show-savings is set (SpotOptions.ShowSavings), sourced from the live
+	// AWS Price List API with a static fallback.
 
 	// --pick-first: output just the instance type of the top result and exit
 	if spotPickFirst {
@@ -212,7 +206,7 @@ func printSpotSummary(results []aws.SpotPriceResult) {
 	instanceTypes := make(map[string]bool)
 	regions := make(map[string]bool)
 	azs := make(map[string]bool)
-	
+
 	var totalPrice, minPrice, maxPrice float64
 	minPrice = 999999.0
 	maxPrice = 0.0
@@ -223,7 +217,7 @@ func printSpotSummary(results []aws.SpotPriceResult) {
 		instanceTypes[r.InstanceType] = true
 		regions[r.Region] = true
 		azs[r.AvailabilityZone] = true
-		
+
 		totalPrice += r.SpotPrice
 		if r.SpotPrice < minPrice {
 			minPrice = r.SpotPrice
@@ -231,7 +225,7 @@ func printSpotSummary(results []aws.SpotPriceResult) {
 		if r.SpotPrice > maxPrice {
 			maxPrice = r.SpotPrice
 		}
-		
+
 		if r.SavingsPercent > 0 {
 			totalSavings += r.SavingsPercent
 			savingsCount++
