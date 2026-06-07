@@ -1,13 +1,16 @@
 package cmd
 
 import (
+	"encoding/csv"
+	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"text/tabwriter"
-	"os"
 
 	"github.com/spore-host/libs/catalog"
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 )
 
 var appCmd = &cobra.Command{
@@ -22,25 +25,61 @@ var appListCmd = &cobra.Command{
 	RunE:  runAppList,
 }
 
+type appRow struct {
+	Name             string   `json:"name" yaml:"name"`
+	Description      string   `json:"description" yaml:"description"`
+	GPU              bool     `json:"gpu" yaml:"gpu"`
+	InstanceFamilies []string `json:"instance_families" yaml:"instance_families"`
+	License          string   `json:"license" yaml:"license"`
+}
+
 func runAppList(cmd *cobra.Command, args []string) error {
 	apps := catalog.List()
 
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "NAME\tDESCRIPTION\tGPU\tFAMILIES\tLICENSE")
+	rows := make([]appRow, 0, len(apps))
 	for _, app := range apps {
-		gpu := "no"
-		if app.GPU {
-			gpu = "yes"
-		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
-			app.Name,
-			app.Description,
-			gpu,
-			strings.Join(app.InstanceFamilies, ", "),
-			app.License,
-		)
+		rows = append(rows, appRow{
+			Name:             app.Name,
+			Description:      app.Description,
+			GPU:              app.GPU,
+			InstanceFamilies: app.InstanceFamilies,
+			License:          app.License,
+		})
 	}
-	return w.Flush()
+
+	switch outputFormat {
+	case "json":
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(rows)
+	case "yaml":
+		return yaml.NewEncoder(os.Stdout).Encode(rows)
+	case "csv":
+		w := csv.NewWriter(os.Stdout)
+		_ = w.Write([]string{"name", "description", "gpu", "instance_families", "license"})
+		for _, r := range rows {
+			gpu := "false"
+			if r.GPU {
+				gpu = "true"
+			}
+			_ = w.Write([]string{r.Name, r.Description, gpu, strings.Join(r.InstanceFamilies, ";"), r.License})
+		}
+		w.Flush()
+		return w.Error()
+	default:
+		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(w, "NAME\tDESCRIPTION\tGPU\tFAMILIES\tLICENSE")
+		for _, r := range rows {
+			gpu := "no"
+			if r.GPU {
+				gpu = "yes"
+			}
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
+				r.Name, r.Description, gpu,
+				strings.Join(r.InstanceFamilies, ", "), r.License)
+		}
+		return w.Flush()
+	}
 }
 
 func init() {

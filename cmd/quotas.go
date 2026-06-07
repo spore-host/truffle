@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"context"
+	"encoding/csv"
+	"encoding/json"
 	"fmt"
 	"os"
 	"sort"
@@ -13,6 +15,7 @@ import (
 	"github.com/spore-host/libs/i18n"
 	"github.com/spf13/cobra"
 	"github.com/spore-host/truffle/pkg/quotas"
+	"gopkg.in/yaml.v3"
 )
 
 var (
@@ -63,6 +66,16 @@ func init() {
 		"Service to query: ec2 (default) or sagemaker")
 }
 
+type quotaRow struct {
+	Region    string `json:"region" yaml:"region"`
+	Family    string `json:"family" yaml:"family"`
+	Type      string `json:"type" yaml:"type"`
+	QuotaVCPU int32  `json:"quota_vcpus" yaml:"quota_vcpus"`
+	UsageVCPU int32  `json:"usage_vcpus" yaml:"usage_vcpus"`
+	Available int32  `json:"available_vcpus" yaml:"available_vcpus"`
+	Status    string `json:"status" yaml:"status"`
+}
+
 func runQuotas(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
 
@@ -95,28 +108,96 @@ func runQuotas(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("could not retrieve quotas for any region")
 	}
 
-	// Display quotas
-	for _, region := range quotasRegions {
-		info, ok := quotaInfos[region]
-		if !ok {
-			continue
+	// Build structured rows for all output formats
+	rows := buildQuotaRows(quotaInfos, quotasFamily)
+
+	switch outputFormat {
+	case "json":
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(rows)
+	case "yaml":
+		return yaml.NewEncoder(os.Stdout).Encode(rows)
+	case "csv":
+		w := csv.NewWriter(os.Stdout)
+		_ = w.Write([]string{"region", "family", "type", "quota_vcpus", "usage_vcpus", "available_vcpus", "status"})
+		for _, r := range rows {
+			_ = w.Write([]string{r.Region, r.Family, r.Type,
+				fmt.Sprintf("%d", r.QuotaVCPU), fmt.Sprintf("%d", r.UsageVCPU),
+				fmt.Sprintf("%d", r.Available), r.Status})
+		}
+		w.Flush()
+		return w.Error()
+	default:
+		// Table output
+		for _, region := range quotasRegions {
+			info, ok := quotaInfos[region]
+			if !ok {
+				continue
+			}
+			displayRegionQuotas(region, info, quotasFamily)
 		}
 
-		displayRegionQuotas(region, info, quotasFamily)
+		if quotasRequest {
+			fmt.Println()
+			fmt.Println("╔════════════════════════════════════════════════════════╗")
+			fmt.Println("║  📝 Quota Increase Request Commands                   ║")
+			fmt.Println("╚════════════════════════════════════════════════════════╝")
+			fmt.Println()
+			generateIncreaseRequests(quotaInfos, quotasFamily)
+		}
+		return nil
+	}
+}
+
+func buildQuotaRows(quotaInfos map[string]*quotas.QuotaInfo, filterFamily string) []quotaRow {
+	var rows []quotaRow
+
+	var sortedRegions []string
+	for region := range quotaInfos {
+		sortedRegions = append(sortedRegions, region)
+	}
+	sort.Strings(sortedRegions)
+
+	families := []quotas.QuotaFamily{
+		quotas.FamilyStandard, quotas.FamilyG, quotas.FamilyP,
+		quotas.FamilyInf, quotas.FamilyTrn, quotas.FamilyF, quotas.FamilyX,
 	}
 
-	// Generate increase requests if requested
-	if quotasRequest {
-		fmt.Println()
-		fmt.Println("╔════════════════════════════════════════════════════════╗")
-		fmt.Println("║  📝 Quota Increase Request Commands                   ║")
-		fmt.Println("╚════════════════════════════════════════════════════════╝")
-		fmt.Println()
-
-		generateIncreaseRequests(quotaInfos, quotasFamily)
+	for _, region := range sortedRegions {
+		info := quotaInfos[region]
+		for _, family := range families {
+			if filterFamily != "" && string(family) != filterFamily {
+				continue
+			}
+			onDemandQuota := info.OnDemand[family]
+			onDemandUsage := info.Usage[family]
+			if onDemandQuota > 0 || onDemandUsage > 0 {
+				rows = append(rows, quotaRow{
+					Region:    region,
+					Family:    string(family),
+					Type:      "On-Demand",
+					QuotaVCPU: onDemandQuota,
+					UsageVCPU: onDemandUsage,
+					Available: onDemandQuota - onDemandUsage,
+					Status:    getQuotaStatus(onDemandQuota, onDemandUsage),
+				})
+			}
+			spotQuota := info.Spot[family]
+			if spotQuota > 0 {
+				rows = append(rows, quotaRow{
+					Region:    region,
+					Family:    string(family),
+					Type:      "Spot",
+					QuotaVCPU: spotQuota,
+					UsageVCPU: 0,
+					Available: spotQuota,
+					Status:    getQuotaStatus(spotQuota, 0),
+				})
+			}
+		}
 	}
-
-	return nil
+	return rows
 }
 
 func displayRegionQuotas(region string, info *quotas.QuotaInfo, filterFamily string) {

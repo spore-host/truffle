@@ -324,60 +324,75 @@ func (pq *ParsedQuery) Validate() error {
 
 // ResolveInstanceFamilies returns all instance families matching the query
 func (pq *ParsedQuery) ResolveInstanceFamilies() []string {
-	familySet := make(map[string]bool)
+	// Collect families from query constraints (vendors, processors, GPUs, network)
+	queryFamilies := make(map[string]bool)
 
-	// From processors
 	for _, proc := range pq.Processors {
 		if info, ok := metadata.ProcessorDatabase[proc]; ok {
 			for _, family := range info.Families {
-				familySet[family] = true
+				queryFamilies[family] = true
 			}
 		}
 	}
 
-	// From vendors
 	for _, vendor := range pq.Vendors {
 		families := metadata.GetFamiliesByVendor(vendor)
 		for _, family := range families {
-			familySet[family] = true
+			queryFamilies[family] = true
 		}
 	}
 
-	// From GPUs (use families for fuzzy matching)
 	for _, gpu := range pq.GPUs {
 		if info, ok := metadata.GPUDatabase[gpu]; ok {
 			for _, family := range info.Families {
-				familySet[family] = true
+				queryFamilies[family] = true
 			}
 		}
 	}
 
-	// From network requirements
 	if pq.RequireEFA {
 		efaFamilies := metadata.GetFamiliesByEFA()
 		for _, family := range efaFamilies {
-			familySet[family] = true
+			queryFamilies[family] = true
 		}
 	}
 
 	if pq.MinNetworkGbps > 0 {
 		networkFamilies := metadata.GetFamiliesByNetworkSpeed(pq.MinNetworkGbps)
 		for _, family := range networkFamilies {
-			familySet[family] = true
+			queryFamilies[family] = true
 		}
 	}
 
-	// From app catalog entries
+	// Collect families from app catalog entries
+	appFamilies := make(map[string]bool)
 	for _, appName := range pq.Apps {
 		if entry, ok := catalog.Lookup(appName); ok {
 			for _, family := range entry.InstanceFamilies {
-				familySet[family] = true
+				appFamilies[family] = true
 			}
 		}
 	}
 
-	families := make([]string, 0, len(familySet))
-	for family := range familySet {
+	// If both app families and query families are present, intersect them.
+	// This ensures "graviton --app paraview" only returns families that satisfy
+	// BOTH constraints, not the union of all.
+	var result map[string]bool
+	if len(appFamilies) > 0 && len(queryFamilies) > 0 {
+		result = make(map[string]bool)
+		for family := range appFamilies {
+			if queryFamilies[family] {
+				result[family] = true
+			}
+		}
+	} else if len(appFamilies) > 0 {
+		result = appFamilies
+	} else {
+		result = queryFamilies
+	}
+
+	families := make([]string, 0, len(result))
+	for family := range result {
 		families = append(families, family)
 	}
 

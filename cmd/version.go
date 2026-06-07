@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 
+	"github.com/spore-host/libs/i18n"
 	"github.com/spf13/cobra"
 )
 
@@ -17,7 +18,7 @@ var versionCmd = &cobra.Command{
 	Short: "Print version information",
 	Long:  `Display version, build date, and git commit information for truffle.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Printf("🍄 Truffle - AWS EC2 Instance Type Finder\n\n")
+		fmt.Printf("%s Truffle - AWS EC2 Instance Type Finder\n\n", i18n.Emoji("mushroom"))
 		fmt.Printf("Version:    %s\n", Version)
 		fmt.Printf("Git Commit: %s\n", GitCommit)
 		fmt.Printf("Build Date: %s\n", BuildDate)

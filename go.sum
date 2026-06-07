@@ -126,6 +126,8 @@ github.com/spore-host/libs v0.35.0 h1:GU+LApiUcChwgoWdExS+lJ+NXRDFhluOMTM8zViity
 github.com/spore-host/libs v0.35.0/go.mod h1:ThV1Dt/A+LAdvYDDnokl10TyovY/tZ1RslHbbtSamiY=
 github.com/spore-host/libs v0.35.1 h1:8H8QXTyel3VU23cRsFgvOGJo2wXVMD1JWrQQ4vVaUsg=
 github.com/spore-host/libs v0.35.1/go.mod h1:1NdCOXkDuw6T0MAcWOyO630e0OPaGaYiMbLcRBIHeyM=
+github.com/spore-host/libs v0.35.2 h1:DNXSYxD0jjYNWK4+BaYcqIIZPeBWz7ZEwKUJ/0K+dC8=
+github.com/spore-host/libs v0.35.2/go.mod h1:1NdCOXkDuw6T0MAcWOyO630e0OPaGaYiMbLcRBIHeyM=
 github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu7U=
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
 github.com/subosito/gotenv v1.6.0 h1:9NlTDc1FTs4qu0DDq7AEtTPNw6SVm7uBMsUCUjABIf8=
