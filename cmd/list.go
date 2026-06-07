@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"context"
+	"encoding/csv"
+	"encoding/json"
 	"fmt"
 	"os"
 	"sort"
@@ -10,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spore-host/truffle/pkg/aws"
+	"gopkg.in/yaml.v3"
 )
 
 var (
@@ -58,17 +61,39 @@ func runList(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to get instance types: %w", err)
 	}
 
+	var items []string
 	if showFamilies {
-		families := extractFamilies(types)
-		printList("Instance Families", families)
+		items = extractFamilies(types)
 	} else if showSizes {
-		sizes := extractSizes(types)
-		printList("Instance Sizes", sizes)
+		items = extractSizes(types)
 	} else {
-		printList("Instance Types", types)
+		items = types
 	}
 
-	return nil
+	switch outputFormat {
+	case "json":
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(items)
+	case "yaml":
+		return yaml.NewEncoder(os.Stdout).Encode(items)
+	case "csv":
+		w := csv.NewWriter(os.Stdout)
+		for _, item := range items {
+			_ = w.Write([]string{item})
+		}
+		w.Flush()
+		return w.Error()
+	default:
+		title := "Instance Types"
+		if showFamilies {
+			title = "Instance Families"
+		} else if showSizes {
+			title = "Instance Sizes"
+		}
+		printList(title, items)
+		return nil
+	}
 }
 
 func extractFamilies(types []string) []string {

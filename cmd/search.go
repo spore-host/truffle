@@ -143,6 +143,9 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	})
 
 	if len(results) == 0 {
+		if ctx.Err() != nil {
+			fmt.Fprintf(os.Stderr, "%s Request timed out after %s. Results may be incomplete.\n    Try increasing --timeout (default: 5m0s) or narrowing --regions.\n", i18n.Symbol("warning"), timeout)
+		}
 		fmt.Println(i18n.T("truffle.search.no_results"))
 		return nil
 	}

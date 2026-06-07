@@ -278,7 +278,20 @@ func (p *Printer) PrintCSV(results []aws.InstanceTypeResult) error {
 	writer := csv.NewWriter(os.Stdout)
 	defer writer.Flush()
 
-	header := []string{"instance_type", "region", "vcpus", "memory_gib", "architecture", "availability_zones"}
+	// Include price column if any result has pricing populated
+	hasPrice := false
+	for _, r := range results {
+		if r.OnDemandPrice > 0 {
+			hasPrice = true
+			break
+		}
+	}
+
+	header := []string{"instance_type", "region", "vcpus", "memory_gib", "architecture"}
+	if hasPrice {
+		header = append(header, "on_demand_price")
+	}
+	header = append(header, "availability_zones")
 	if err := writer.Write(header); err != nil {
 		return err
 	}
@@ -291,8 +304,11 @@ func (p *Printer) PrintCSV(results []aws.InstanceTypeResult) error {
 			strconv.Itoa(int(result.VCPUs)),
 			memGiB,
 			result.Architecture,
-			azs,
 		}
+		if hasPrice {
+			row = append(row, fmt.Sprintf("%.4f", result.OnDemandPrice))
+		}
+		row = append(row, azs)
 		if err := writer.Write(row); err != nil {
 			return err
 		}

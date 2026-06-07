@@ -576,56 +576,76 @@ func (c *Client) getRegionSpotPricing(ctx context.Context, region string, instan
 			continue // Skip on error
 		}
 
-		// Process results - group by AZ and get latest price
-		azPrices := make(map[string]*types.SpotPrice)
-		for i := range output.SpotPriceHistory {
-			sp := &output.SpotPriceHistory[i]
-			if sp.AvailabilityZone == nil || sp.SpotPrice == nil {
-				continue
+		// When lookback is > 1 hour, return all price history points (for trend analysis).
+		// Otherwise, deduplicate to latest price per AZ (default: current spot price).
+		if opts.LookbackHours > 1 {
+			for i := range output.SpotPriceHistory {
+				sp := &output.SpotPriceHistory[i]
+				if sp.AvailabilityZone == nil || sp.SpotPrice == nil {
+					continue
+				}
+				price := parsePrice(*sp.SpotPrice)
+				if opts.MaxPrice > 0 && price > opts.MaxPrice {
+					continue
+				}
+				result := SpotPriceResult{
+					InstanceType:     inst.InstanceType,
+					Region:           region,
+					AvailabilityZone: *sp.AvailabilityZone,
+					SpotPrice:        price,
+					ProductType:      string(sp.ProductDescription),
+				}
+				if opts.ShowSavings && onDemand > 0 {
+					result.OnDemandPrice = onDemand
+					if price > 0 {
+						result.SavingsPercent = (1 - price/onDemand) * 100
+					}
+				}
+				if sp.Timestamp != nil {
+					result.Timestamp = sp.Timestamp.Format(time.RFC3339)
+				}
+				results = append(results, result)
 			}
-
-			az := *sp.AvailabilityZone
-
-			// Keep only the most recent price per AZ
-			if existing, ok := azPrices[az]; !ok || (sp.Timestamp != nil && existing.Timestamp != nil && sp.Timestamp.After(*existing.Timestamp)) {
-				azPrices[az] = sp
-			}
-		}
-
-		// Convert to results
-		for az, spotPrice := range azPrices {
-			if spotPrice.SpotPrice == nil {
-				continue
-			}
-
-			price := parsePrice(*spotPrice.SpotPrice)
-
-			// Apply max price filter
-			if opts.MaxPrice > 0 && price > opts.MaxPrice {
-				continue
-			}
-
-			result := SpotPriceResult{
-				InstanceType:     inst.InstanceType,
-				Region:           region,
-				AvailabilityZone: az,
-				SpotPrice:        price,
-				ProductType:      string(spotPrice.ProductDescription),
-			}
-
-			// Populate on-demand price and savings when requested (SpotOptions.ShowSavings).
-			if opts.ShowSavings && onDemand > 0 {
-				result.OnDemandPrice = onDemand
-				if price > 0 {
-					result.SavingsPercent = (1 - price/onDemand) * 100
+		} else {
+			// Default: group by AZ and get latest price
+			azPrices := make(map[string]*types.SpotPrice)
+			for i := range output.SpotPriceHistory {
+				sp := &output.SpotPriceHistory[i]
+				if sp.AvailabilityZone == nil || sp.SpotPrice == nil {
+					continue
+				}
+				az := *sp.AvailabilityZone
+				if existing, ok := azPrices[az]; !ok || (sp.Timestamp != nil && existing.Timestamp != nil && sp.Timestamp.After(*existing.Timestamp)) {
+					azPrices[az] = sp
 				}
 			}
 
-			if spotPrice.Timestamp != nil {
-				result.Timestamp = spotPrice.Timestamp.Format(time.RFC3339)
+			for az, spotPrice := range azPrices {
+				if spotPrice.SpotPrice == nil {
+					continue
+				}
+				price := parsePrice(*spotPrice.SpotPrice)
+				if opts.MaxPrice > 0 && price > opts.MaxPrice {
+					continue
+				}
+				result := SpotPriceResult{
+					InstanceType:     inst.InstanceType,
+					Region:           region,
+					AvailabilityZone: az,
+					SpotPrice:        price,
+					ProductType:      string(spotPrice.ProductDescription),
+				}
+				if opts.ShowSavings && onDemand > 0 {
+					result.OnDemandPrice = onDemand
+					if price > 0 {
+						result.SavingsPercent = (1 - price/onDemand) * 100
+					}
+				}
+				if spotPrice.Timestamp != nil {
+					result.Timestamp = spotPrice.Timestamp.Format(time.RFC3339)
+				}
+				results = append(results, result)
 			}
-
-			results = append(results, result)
 		}
 	}
 

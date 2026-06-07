@@ -23,6 +23,7 @@ var (
 	findTimeout   time.Duration
 	findApp       string // --app flag: application name from catalog
 	findExact     bool   // --exact flag: match exact vCPU and memory instead of minimum
+	findPickFirst bool
 )
 
 var findCmd = &cobra.Command{
@@ -65,6 +66,7 @@ func init() {
 	findCmd.Flags().DurationVar(&findTimeout, "timeout", 5*time.Minute, "Timeout for AWS API calls")
 	findCmd.Flags().StringVar(&findApp, "app", "", "Application name from catalog (e.g. paraview, igv)")
 	findCmd.Flags().BoolVar(&findExact, "exact", false, "Match exact vCPU and memory values instead of minimum")
+	findCmd.Flags().BoolVar(&findPickFirst, "pick-first", false, "Output only the top result's instance type (useful for piping to spawn)")
 }
 
 func runFind(cmd *cobra.Command, args []string) error {
@@ -171,8 +173,17 @@ func runFind(cmd *cobra.Command, args []string) error {
 	})
 
 	if len(results) == 0 {
+		if ctx.Err() != nil {
+			fmt.Fprintf(os.Stderr, "%s Request timed out after %s. Results may be incomplete.\n    Try increasing --timeout or narrowing --regions.\n", i18n.Symbol("warning"), findTimeout)
+		}
 		fmt.Fprintln(os.Stderr, "No instances match your query")
 		printSuggestions(query)
+		return nil
+	}
+
+	// --pick-first: output just the instance type of the top result and exit
+	if findPickFirst {
+		fmt.Println(results[0].InstanceType)
 		return nil
 	}
 
