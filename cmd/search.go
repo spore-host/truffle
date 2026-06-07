@@ -29,7 +29,7 @@ var (
 
 var searchCmd = &cobra.Command{
 	Use:   "search [instance-type-pattern]",
-	Short: "Search by instance type pattern (regex, e.g. 'p4d.*' or 'c[6-8]')",
+	Short: "Search by instance type pattern (glob: 'm7i*' or regex: 'c[6-8]i\\.large')",
 	Args:  cobra.ExactArgs(1),
 	RunE:  runSearch,
 }
@@ -57,8 +57,10 @@ func init() {
 func runSearch(cmd *cobra.Command, args []string) error {
 	pattern := args[0]
 
-	// Convert wildcard pattern to regex
-	regexPattern := wildcardToRegex(pattern)
+	// Convert pattern to regex: if the pattern contains regex metacharacters
+	// (brackets, +, unescaped dots not followed by *), treat it as a regex.
+	// Otherwise treat it as a glob (only * and ? are wildcards).
+	regexPattern := patternToRegex(pattern)
 	matcher, err := regexp.Compile(regexPattern)
 	if err != nil {
 		return i18n.Te("truffle.search.error.invalid_pattern", err)
@@ -107,15 +109,11 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	// Show spinner for non-verbose mode
 	var spinner *progress.Spinner
 	if !verbose && outputFormat == "table" {
-		msg := i18n.Tf("truffle.search.searching_regions", map[string]interface{}{
-			"Count": len(searchRegions),
-		})
+		msg := fmt.Sprintf("Searching across %d %s...", len(searchRegions), pluralize(len(searchRegions), "region", "regions"))
 		spinner = progress.NewSpinner(os.Stderr, msg)
 		spinner.Start()
 	} else if verbose {
-		fmt.Fprintf(os.Stderr, "%s %s\n", i18n.Emoji("magnifying_glass_tilted"), i18n.Tf("truffle.search.searching_across", map[string]interface{}{
-			"Count": len(searchRegions),
-		}))
+		fmt.Fprintf(os.Stderr, "%s Searching across %d %s\n", i18n.Emoji("magnifying_glass_tilted"), len(searchRegions), pluralize(len(searchRegions), "region", "regions"))
 	}
 
 	// Search for instance types
@@ -181,6 +179,32 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	}
 }
 
+// patternToRegex converts a user pattern to a regex. If the pattern contains
+// regex metacharacters ([, ], +, \d, \w, unanchored ^/$), it's treated as a
+// regex directly. Otherwise it's treated as a glob where * and ? are wildcards.
+func patternToRegex(pattern string) string {
+	if looksLikeRegex(pattern) {
+		// Already a regex — just anchor it if not already anchored
+		if !strings.HasPrefix(pattern, "^") {
+			pattern = "^" + pattern
+		}
+		if !strings.HasSuffix(pattern, "$") {
+			pattern = pattern + "$"
+		}
+		return pattern
+	}
+	return wildcardToRegex(pattern)
+}
+
+func looksLikeRegex(pattern string) bool {
+	for _, indicator := range []string{"[", "]", "(", ")", "+", "\\d", "\\w", "\\s", "|"} {
+		if strings.Contains(pattern, indicator) {
+			return true
+		}
+	}
+	return false
+}
+
 func wildcardToRegex(pattern string) string {
 	// Escape special regex characters except * and ?
 	pattern = regexp.QuoteMeta(pattern)
@@ -189,4 +213,11 @@ func wildcardToRegex(pattern string) string {
 	pattern = strings.ReplaceAll(pattern, `\?`, ".")
 	// Anchor the pattern
 	return "^" + pattern + "$"
+}
+
+func pluralize(n int, singular, plural string) string {
+	if n == 1 {
+		return singular
+	}
+	return plural
 }

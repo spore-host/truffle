@@ -138,11 +138,11 @@ func runFind(cmd *cobra.Command, args []string) error {
 	// Show spinner for non-verbose mode
 	var spinner *progress.Spinner
 	if !verbose && outputFormat == "table" {
-		msg := fmt.Sprintf("Finding '%s' across %d region(s)", queryStr, len(searchRegions))
+		msg := fmt.Sprintf("Finding '%s' across %d %s", queryStr, len(searchRegions), pluralize(len(searchRegions), "region", "regions"))
 		spinner = progress.NewSpinner(os.Stderr, msg)
 		spinner.Start()
 	} else if verbose {
-		fmt.Fprintf(os.Stderr, "%s Finding across %d region(s)\n", i18n.Emoji("magnifying_glass_tilted"), len(searchRegions))
+		fmt.Fprintf(os.Stderr, "%s Finding across %d %s\n", i18n.Emoji("magnifying_glass_tilted"), len(searchRegions), pluralize(len(searchRegions), "region", "regions"))
 	}
 
 	// Execute search
@@ -154,6 +154,12 @@ func runFind(cmd *cobra.Command, args []string) error {
 
 	if err != nil {
 		return i18n.Te("truffle.search.error.search_failed", err)
+	}
+
+	// Populate on-demand pricing
+	for idx := range results {
+		price, _ := client.OnDemandPrice(ctx, results[idx].InstanceType, results[idx].Region)
+		results[idx].OnDemandPrice = price
 	}
 
 	// Sort results

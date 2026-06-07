@@ -30,8 +30,19 @@ var rootCmd = &cobra.Command{
 var i18nInitialized = false
 
 func Execute() {
-	// Parse flags early to get --lang value before help is displayed
-	_ = rootCmd.ParseFlags(os.Args[1:])
+	// Snapshot --lang value before Execute() parses flags into the bound slice.
+	// We only need --lang for early i18n init; reading it via Lookup avoids
+	// double-appending to StringSliceVar-bound slices (see #19).
+	for i, arg := range os.Args[1:] {
+		if arg == "--lang" && i+1 < len(os.Args[1:])-1 {
+			flagLang = os.Args[i+2]
+			break
+		}
+		if len(arg) > 7 && arg[:7] == "--lang=" {
+			flagLang = arg[7:]
+			break
+		}
+	}
 	ensureI18nInitialized()
 
 	if err := rootCmd.Execute(); err != nil {
@@ -46,13 +57,10 @@ func init() {
 		ensureI18nInitialized()
 
 		// Merge --region (singular alias) into --regions for backward compatibility
-		// Only merge if --region was explicitly used and --regions was NOT used
 		regionFlag := rootCmd.PersistentFlags().Lookup("region")
-		regionsFlag := rootCmd.PersistentFlags().Lookup("regions")
-		if regionFlag != nil && regionFlag.Changed && (regionsFlag == nil || !regionsFlag.Changed) {
+		if regionFlag != nil && regionFlag.Changed {
 			regionValues, err := rootCmd.PersistentFlags().GetStringSlice("region")
 			if err == nil && len(regionValues) > 0 {
-				// Append to regions, avoiding duplicates
 				for _, r := range regionValues {
 					found := false
 					for _, existing := range regions {
@@ -66,6 +74,19 @@ func init() {
 					}
 				}
 			}
+		}
+
+		// Dedup regions (cobra StringSliceVar can accumulate duplicates)
+		if len(regions) > 1 {
+			seen := make(map[string]bool, len(regions))
+			deduped := regions[:0]
+			for _, r := range regions {
+				if !seen[r] {
+					seen[r] = true
+					deduped = append(deduped, r)
+				}
+			}
+			regions = deduped
 		}
 
 		return nil

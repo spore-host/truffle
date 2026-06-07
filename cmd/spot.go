@@ -50,8 +50,8 @@ func init() {
 func runSpot(cmd *cobra.Command, args []string) error {
 	pattern := args[0]
 
-	// Convert wildcard pattern to regex
-	regexPattern := wildcardToRegex(pattern)
+	// Convert pattern to regex (supports both glob wildcards and full regex)
+	regexPattern := patternToRegex(pattern)
 	matcher, err := regexp.Compile(regexPattern)
 	if err != nil {
 		return i18n.Te("truffle.spot.error.invalid_pattern", err)
@@ -119,9 +119,10 @@ func runSpot(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(os.Stderr, "%s %s\n", i18n.Emoji("money_bag"), i18n.T("truffle.spot.fetching_pricing"))
 	}
 
+	// Always fetch on-demand prices so the table shows savings comparison
 	spotResults, err := awsClient.GetSpotPricing(ctx, results, aws.SpotOptions{
 		MaxPrice:      spotMaxPrice,
-		ShowSavings:   spotShowSavings,
+		ShowSavings:   true,
 		LookbackHours: spotLookbackHours,
 		OnlyActive:    spotOnlyActive,
 		Verbose:       verbose,
