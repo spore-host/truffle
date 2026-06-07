@@ -284,3 +284,68 @@ func TestCompleteRegion(t *testing.T) {
 		}
 	}
 }
+
+func TestPatternToRegex(t *testing.T) {
+	tests := []struct {
+		pattern string
+		match   []string
+		noMatch []string
+	}{
+		// Glob patterns (no regex metacharacters)
+		{"m7i*", []string{"m7i.large", "m7i.xlarge"}, []string{"c7i.large"}},
+		{"m7i.large", []string{"m7i.large"}, []string{"m7i.xlarge"}},
+		// Regex patterns (detected by brackets, +, etc.)
+		{"c[6-8]i\\.large", []string{"c6i.large", "c7i.large", "c8i.large"}, []string{"c5i.large", "c6i.xlarge"}},
+		{"m7[ig]\\..*", []string{"m7i.large", "m7g.xlarge"}, []string{"m7a.large"}},
+		{"(p4d|p5)\\..*", []string{"p4d.24xlarge", "p5.48xlarge"}, []string{"p3.2xlarge"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.pattern, func(t *testing.T) {
+			re, err := regexp.Compile(patternToRegex(tt.pattern))
+			if err != nil {
+				t.Fatalf("patternToRegex(%q) produced invalid regex: %v", tt.pattern, err)
+			}
+			for _, m := range tt.match {
+				if !re.MatchString(m) {
+					t.Errorf("pattern %q should match %q (regex %q)", tt.pattern, m, re.String())
+				}
+			}
+			for _, nm := range tt.noMatch {
+				if re.MatchString(nm) {
+					t.Errorf("pattern %q should NOT match %q (regex %q)", tt.pattern, nm, re.String())
+				}
+			}
+		})
+	}
+}
+
+func TestLooksLikeRegex(t *testing.T) {
+	tests := []struct {
+		pattern string
+		want    bool
+	}{
+		{"m7i*", false},
+		{"m7i.large", false},
+		{"c[6-8]i", true},
+		{"(p4d|p5)", true},
+		{"m7.+", true},
+		{"\\d+", true},
+	}
+	for _, tt := range tests {
+		if got := looksLikeRegex(tt.pattern); got != tt.want {
+			t.Errorf("looksLikeRegex(%q) = %v, want %v", tt.pattern, got, tt.want)
+		}
+	}
+}
+
+func TestPluralize(t *testing.T) {
+	if got := pluralize(0, "region", "regions"); got != "regions" {
+		t.Errorf("pluralize(0) = %q", got)
+	}
+	if got := pluralize(1, "region", "regions"); got != "region" {
+		t.Errorf("pluralize(1) = %q", got)
+	}
+	if got := pluralize(5, "region", "regions"); got != "regions" {
+		t.Errorf("pluralize(5) = %q", got)
+	}
+}

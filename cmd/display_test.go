@@ -62,7 +62,8 @@ func TestPrintCapacitySummary(t *testing.T) {
 	out := captureOutput(t, func() { printCapacitySummary(results) })
 	// 8+4 total capacity, 5 used → assert on the computed figures, which are
 	// i18n-independent.
-	if !strings.Contains(out, "12") || !strings.Contains(out, "summary") {
+	lower := strings.ToLower(out)
+	if !strings.Contains(out, "12") || !strings.Contains(lower, "summary") {
 		t.Errorf("capacity summary missing computed totals:\n%s", out)
 	}
 }
