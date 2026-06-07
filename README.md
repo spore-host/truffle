@@ -8,7 +8,7 @@
 
 Find EC2 instance types, compare spot prices, check quotas.
 
-Most commands work **without AWS credentials** — only `truffle quotas` and `truffle capacity` require them.
+All discovery commands require **AWS credentials** (configured via `aws configure`, environment variables, or IAM role). Only `truffle app list` and `truffle version` work without credentials.
 
 ## Installation
 
@@ -45,41 +45,57 @@ cd truffle && make build && sudo make install
 ## Quick Start
 
 ```bash
-# Search instance types
-truffle search "m7i.*"
+# Search instance types (glob or regex)
+truffle search "m7i*"                         # glob: all m7i sizes
+truffle search "c[6-8]i\.large"               # regex: c6i/c7i/c8i large
 
-# Compare spot prices (no credentials needed)
-truffle spot c6a.xlarge c7g.xlarge --sort-by-price --active-only
+# Compare spot prices
+truffle spot m7i.large --regions us-east-1 --show-savings
+truffle spot "c6a*" --sort-by-price --lookback-hours 24
 
 # Find by natural language
 truffle find "h200 8gpu efa"
 truffle find "amd turin 32 cores 64gb" --exact
-truffle find graviton --region us-east-1
+truffle find graviton --regions us-east-1
 
-# Check EC2 quotas (requires credentials)
+# Check EC2 quotas
 truffle quotas --regions us-east-1 --family P
+truffle quotas --regions us-east-1 -o json
 
 # Check SageMaker quotas
 truffle quotas --service sagemaker --family g5 --regions us-west-2
 
 # Find available capacity reservations
 truffle capacity --gpu-only
+
+# Output formats (all commands)
+truffle search "m7i*" -o json
+truffle find "intel 8 vcpu" -o csv
 ```
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `search <pattern>` | Search instance types by pattern |
-| `find [query...]` | Natural language instance search (supports --exact for precise matching) |
-| `help` | Show help for truffle or a specific command |
-| `version` | Show version, build info, and project URL |
-| `spot <pattern>` | Spot prices and availability |
+| `search <pattern>` | Search by glob (`m7i*`) or regex (`c[6-8]i\.large`) |
+| `find <query>` | Natural language search (`amd epyc 32 cores 64gb`) |
+| `spot <pattern>` | Spot pricing with savings vs on-demand |
 | `az <pattern>` | AZ-first availability view |
-| `capacity` | On-demand capacity reservations |
+| `capacity` | On-demand capacity reservations (ODCRs) |
 | `list` | List instance families or sizes |
 | `quotas` | EC2 and SageMaker service quotas |
-| `app list` | Browse application catalog |
+| `app list` | Browse application catalog (no credentials needed) |
+| `version` | Show version, build info, and project URL |
+
+### Global Flags
+
+| Flag | Description |
+|------|-------------|
+| `-o, --output` | Output format: `table`, `json`, `yaml`, `csv` |
+| `-r, --regions` | Filter by regions (comma-separated) |
+| `--no-emoji` | Disable emoji in output |
+| `--no-color` | Disable colorized output |
+| `--lang` | Language: `en`, `es`, `pt`, `ja`, `de` |
 
 ## Go Library
 
@@ -94,6 +110,26 @@ rate, _ := client.HourlyRate(ctx, "c6i.4xlarge", "us-east-1", "on-demand")
 
 // Spot prices with on-demand comparison populated
 prices, _ := client.GetSpotPricing(ctx, results, aws.SpotOptions{ShowSavings: true})
+```
+
+### Testing with awsmock
+
+The `aws.Finder` interface allows downstream projects to mock truffle's discovery layer:
+
+```go
+import (
+    "github.com/spore-host/truffle/pkg/aws"
+    "github.com/spore-host/truffle/pkg/aws/awsmock"
+)
+
+mock := awsmock.New(
+    awsmock.WithRegions([]string{"us-east-1"}),
+    awsmock.WithInstances([]aws.InstanceTypeResult{
+        {InstanceType: "m7i.large", Region: "us-east-1", VCPUs: 2, MemoryMiB: 8192},
+    }),
+    awsmock.WithOnDemandPrices(map[string]float64{"m7i.large/us-east-1": 0.1008}),
+)
+// Use mock anywhere an aws.Finder is accepted.
 ```
 
 ## Python Bindings
