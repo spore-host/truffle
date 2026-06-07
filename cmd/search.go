@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/spore-host/libs/i18n"
-	"github.com/spore-host/libs/pricing"
 	"github.com/spf13/cobra"
 	"github.com/spore-host/truffle/pkg/aws"
 	"github.com/spore-host/truffle/pkg/output"
@@ -150,10 +149,11 @@ func runSearch(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Populate on-demand pricing if requested (or always for table/json)
+	// Populate on-demand pricing if requested
 	if searchShowPrice {
 		for idx := range results {
-			results[idx].OnDemandPrice = pricing.GetEC2HourlyRate(results[idx].Region, results[idx].InstanceType)
+			price, _ := awsClient.OnDemandPrice(ctx, results[idx].InstanceType, results[idx].Region)
+			results[idx].OnDemandPrice = price
 		}
 	}
 
