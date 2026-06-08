@@ -30,17 +30,17 @@ var rootCmd = &cobra.Command{
 var i18nInitialized = false
 
 func Execute() {
-	// Snapshot --lang value before Execute() parses flags into the bound slice.
-	// We only need --lang for early i18n init; reading it via Lookup avoids
-	// double-appending to StringSliceVar-bound slices (see #19).
+	// Pre-scan argv for i18n-relevant flags before cobra parses them,
+	// because i18n must initialize before any output is produced.
 	for i, arg := range os.Args[1:] {
 		if arg == "--lang" && i+1 < len(os.Args[1:]) {
 			flagLang = os.Args[i+2]
-			break
-		}
-		if len(arg) > 7 && arg[:7] == "--lang=" {
+		} else if len(arg) > 7 && arg[:7] == "--lang=" {
 			flagLang = arg[7:]
-			break
+		} else if arg == "--accessibility" {
+			flagAccessibility = true
+		} else if arg == "--no-emoji" {
+			flagNoEmoji = true
 		}
 	}
 	ensureI18nInitialized()

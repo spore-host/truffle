@@ -108,9 +108,13 @@ func runFind(cmd *cobra.Command, args []string) error {
 	// Apply sort preference from qualitative keywords
 	sortPref := query.SortPreference()
 	if sortPref != find.SortDefault {
-		if verbose {
-			fmt.Fprintf(os.Stderr, "   Sorting by: %v\n", sortPref)
+		sortLabel := map[find.SortPreference]string{
+			find.SortCheapest:   "price (lowest first)",
+			find.SortExpensive:  "price (highest first)",
+			find.SortPerformant: "vCPUs (most first)",
+			find.SortNewest:     "generation (newest first)",
 		}
+		fmt.Fprintf(os.Stderr, "Sorting by: %s\n", sortLabel[sortPref])
 	}
 
 	// Warn about remaining qualitative keywords that have no effect
@@ -196,12 +200,26 @@ func runFind(cmd *cobra.Command, args []string) error {
 	sort.Slice(results, func(i, j int) bool {
 		switch sortPref {
 		case find.SortCheapest:
-			if results[i].OnDemandPrice != results[j].OnDemandPrice {
-				return results[i].OnDemandPrice < results[j].OnDemandPrice
+			pi, pj := results[i].OnDemandPrice, results[j].OnDemandPrice
+			if pi == 0 && pj != 0 {
+				return false // push unknown prices to end
+			}
+			if pi != 0 && pj == 0 {
+				return true
+			}
+			if pi != pj {
+				return pi < pj
 			}
 		case find.SortExpensive:
-			if results[i].OnDemandPrice != results[j].OnDemandPrice {
-				return results[i].OnDemandPrice > results[j].OnDemandPrice
+			pi, pj := results[i].OnDemandPrice, results[j].OnDemandPrice
+			if pi == 0 && pj != 0 {
+				return false
+			}
+			if pi != 0 && pj == 0 {
+				return true
+			}
+			if pi != pj {
+				return pi > pj
 			}
 		case find.SortPerformant:
 			if results[i].VCPUs != results[j].VCPUs {
