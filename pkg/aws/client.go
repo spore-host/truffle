@@ -37,19 +37,21 @@ type Client struct {
 // InstanceTypeResult represents an instance type's availability and specifications
 // in a given region, as returned by [Client.SearchInstanceTypes].
 type InstanceTypeResult struct {
-	InstanceType    string   `json:"instance_type" yaml:"instance_type"`                               // EC2 instance type, e.g. "m6i.2xlarge"
-	Region          string   `json:"region" yaml:"region"`                                             // AWS region where this type is available
-	AvailableAZs    []string `json:"availability_zones,omitempty" yaml:"availability_zones,omitempty"` // AZs with capacity; populated when FilterOptions.IncludeAZs is true
-	VCPUs           int32    `json:"vcpus,omitempty" yaml:"vcpus,omitempty"`                           // Default vCPU count
-	MemoryMiB       int64    `json:"memory_mib,omitempty" yaml:"memory_mib,omitempty"`                 // Memory in MiB
-	Architecture    string   `json:"architecture,omitempty" yaml:"architecture,omitempty"`             // CPU architecture: "x86_64" or "arm64"
-	InstanceFamily  string   `json:"instance_family,omitempty" yaml:"instance_family,omitempty"`       // Family prefix, e.g. "m6i"
-	GPUs            int32    `json:"gpus,omitempty" yaml:"gpus,omitempty"`                             // Number of GPUs; 0 for non-GPU instances
-	GPUMemoryMiB    int64    `json:"gpu_memory_mib,omitempty" yaml:"gpu_memory_mib,omitempty"`         // Total GPU memory in MiB across all GPUs
-	GPUModel        string   `json:"gpu_model,omitempty" yaml:"gpu_model,omitempty"`                   // GPU model name, e.g. "A100"
-	GPUManufacturer string   `json:"gpu_manufacturer,omitempty" yaml:"gpu_manufacturer,omitempty"`     // GPU vendor, e.g. "nvidia"
-	OnDemandPrice   float64  `json:"on_demand_price,omitempty" yaml:"on_demand_price,omitempty"`       // On-demand $/hr; 0 if not yet fetched
-	SpawnSupported  bool     `json:"spawn_supported,omitempty" yaml:"spawn_supported,omitempty"`       // True if spawn can launch instances in this region
+	InstanceType      string   `json:"instance_type" yaml:"instance_type"`                               // EC2 instance type, e.g. "m6i.2xlarge"
+	Region            string   `json:"region" yaml:"region"`                                             // AWS region where this type is available
+	AvailableAZs      []string `json:"availability_zones,omitempty" yaml:"availability_zones,omitempty"` // AZs with capacity; populated when FilterOptions.IncludeAZs is true
+	VCPUs             int32    `json:"vcpus,omitempty" yaml:"vcpus,omitempty"`                           // Default vCPU count
+	PhysicalCores     int32    `json:"physical_cores,omitempty" yaml:"physical_cores,omitempty"`         // Physical CPU cores (vCPUs / threads-per-core)
+	ThreadsPerCore    int32    `json:"threads_per_core,omitempty" yaml:"threads_per_core,omitempty"`     // Threads per physical core (1 for Graviton, 2 for most x86)
+	MemoryMiB         int64    `json:"memory_mib,omitempty" yaml:"memory_mib,omitempty"`                 // Memory in MiB
+	Architecture      string   `json:"architecture,omitempty" yaml:"architecture,omitempty"`             // CPU architecture: "x86_64" or "arm64"
+	InstanceFamily    string   `json:"instance_family,omitempty" yaml:"instance_family,omitempty"`       // Family prefix, e.g. "m6i"
+	GPUs              int32    `json:"gpus,omitempty" yaml:"gpus,omitempty"`                             // Number of GPUs; 0 for non-GPU instances
+	GPUMemoryMiB      int64    `json:"gpu_memory_mib,omitempty" yaml:"gpu_memory_mib,omitempty"`         // Total GPU memory in MiB across all GPUs
+	GPUModel          string   `json:"gpu_model,omitempty" yaml:"gpu_model,omitempty"`                   // GPU model name, e.g. "A100"
+	GPUManufacturer   string   `json:"gpu_manufacturer,omitempty" yaml:"gpu_manufacturer,omitempty"`     // GPU vendor, e.g. "nvidia"
+	OnDemandPrice     float64  `json:"on_demand_price,omitempty" yaml:"on_demand_price,omitempty"`       // On-demand $/hr; 0 if not yet fetched
+	SpawnSupported    bool     `json:"spawn_supported,omitempty" yaml:"spawn_supported,omitempty"`       // True if spawn can launch instances in this region
 }
 
 // SpotPriceResult represents a Spot instance price observation for one AZ,
@@ -67,14 +69,16 @@ type SpotPriceResult struct {
 
 // FilterOptions controls which instance types are returned by [Client.SearchInstanceTypes].
 type FilterOptions struct {
-	IncludeAZs     bool    // If true, populate InstanceTypeResult.AvailableAZs (one extra API call per type)
-	Architecture   string  // Filter to "x86_64" or "arm64"; empty matches both
-	MinVCPUs       int     // Minimum vCPU count; 0 disables this filter
-	MinMemory      float64 // Minimum memory in GiB; 0 disables this filter
-	ExactVCPUs     bool    // If true, match exact vCPU count instead of minimum
-	ExactMemory    bool    // If true, match exact memory instead of minimum
-	InstanceFamily string  // Restrict to a family prefix, e.g. "m6i"; empty matches all
-	Verbose        bool    // If true, log per-region progress to stderr
+	IncludeAZs       bool    // If true, populate InstanceTypeResult.AvailableAZs (one extra API call per type)
+	Architecture     string  // Filter to "x86_64" or "arm64"; empty matches both
+	MinVCPUs         int     // Minimum vCPU count; 0 disables this filter
+	MinMemory        float64 // Minimum memory in GiB; 0 disables this filter
+	MinPhysicalCores int     // Minimum physical core count; 0 disables this filter
+	ExactVCPUs       bool    // If true, match exact vCPU count instead of minimum
+	ExactMemory      bool    // If true, match exact memory instead of minimum
+	ExactCores       bool    // If true, match exact physical core count instead of minimum
+	InstanceFamily   string  // Restrict to a family prefix, e.g. "m6i"; empty matches all
+	Verbose          bool    // If true, log per-region progress to stderr
 }
 
 // SpotOptions controls the behavior of [Client.GetSpotPricing].
@@ -292,10 +296,18 @@ func (c *Client) searchInRegion(ctx context.Context, region string, matcher *reg
 				continue
 			}
 
+			cores := valueOrZero(it.VCpuInfo.DefaultCores)
+			threadsPerCore := valueOrZero(it.VCpuInfo.DefaultThreadsPerCore)
+			if threadsPerCore == 0 {
+				threadsPerCore = 1
+			}
+
 			result := InstanceTypeResult{
 				InstanceType:   instanceType,
 				Region:         region,
 				VCPUs:          valueOrZero(it.VCpuInfo.DefaultVCpus),
+				PhysicalCores:  cores,
+				ThreadsPerCore: threadsPerCore,
 				MemoryMiB:      valueOrZero(it.MemoryInfo.SizeInMiB),
 				InstanceFamily: extractFamily(instanceType),
 				SpawnSupported: spawn.IsSpawnSupported(region),
@@ -395,6 +407,28 @@ func matchesFilters(it types.InstanceTypeInfo, opts FilterOptions) bool {
 		} else {
 			// Minimum match
 			if int(vcpus) < opts.MinVCPUs {
+				return false
+			}
+		}
+	}
+
+	// Physical core filter
+	if opts.MinPhysicalCores > 0 {
+		cores := valueOrZero(it.VCpuInfo.DefaultCores)
+		if cores == 0 {
+			// Estimate: most x86 = 2 threads/core, Graviton = 1
+			tpc := valueOrZero(it.VCpuInfo.DefaultThreadsPerCore)
+			if tpc == 0 {
+				tpc = 2
+			}
+			cores = valueOrZero(it.VCpuInfo.DefaultVCpus) / tpc
+		}
+		if opts.ExactCores {
+			if int(cores) != opts.MinPhysicalCores {
+				return false
+			}
+		} else {
+			if int(cores) < opts.MinPhysicalCores {
 				return false
 			}
 		}

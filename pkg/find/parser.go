@@ -46,7 +46,9 @@ const (
 	TokenArchitecture
 	TokenNetworkSpeed
 	TokenEFA
-	TokenApp // Application name from pkg/catalog (e.g. "paraview", "igv")
+	TokenPhysicalCores // Physical core count (e.g. "8 physical cores")
+	TokenApp           // Application name from pkg/catalog (e.g. "paraview", "igv")
+	TokenQualitative   // Qualitative/subjective keyword (e.g. "cheap", "fastest")
 )
 
 // Token represents a single classified word from a natural language query.
@@ -64,6 +66,7 @@ type ParsedQuery struct {
 	GPUs           []string // GPU model names, e.g. ["h100", "a100"]
 	Sizes          []string // Size-category filters, e.g. ["large", "xlarge"]
 	MinVCPU        int      // Minimum vCPU count; 0 means unconstrained
+	MinPhysCores   int      // Minimum physical core count; 0 means unconstrained
 	MinMemory      float64  // Minimum memory in GiB; 0 means unconstrained
 	GPUCount       int      // Minimum number of GPUs; 0 means unconstrained
 	Architecture   string   // "x86_64" or "arm64"; empty means both
@@ -109,6 +112,10 @@ func ParseQuery(query string) (*ParsedQuery, error) {
 		case TokenVCPU:
 			if v, err := strconv.Atoi(token.Value); err == nil {
 				pq.MinVCPU = v
+			}
+		case TokenPhysicalCores:
+			if v, err := strconv.Atoi(token.Value); err == nil {
+				pq.MinPhysCores = v
 			}
 		case TokenMemory:
 			if v, err := parseMemory(token.Value); err == nil {
@@ -219,7 +226,11 @@ func classifyTokens(words []string) []Token {
 			// Look ahead for units
 			if i+1 < len(words) {
 				next := words[i+1]
-				if next == "cores" || next == "core" || next == "vcpus" || next == "vcpu" || next == "cpus" || next == "cpu" {
+				// "8 physical cores" or "8 physical core"
+				if next == "physical" && i+2 < len(words) && (words[i+2] == "cores" || words[i+2] == "core") {
+					tokens = append(tokens, Token{Type: TokenPhysicalCores, Value: word, Raw: word + " physical cores"})
+					i += 2
+				} else if next == "cores" || next == "core" || next == "vcpus" || next == "vcpu" || next == "cpus" || next == "cpu" {
 					tokens = append(tokens, Token{Type: TokenVCPU, Value: word, Raw: word + " " + next})
 					i++
 				} else if next == "gpus" || next == "gpu" {
@@ -232,6 +243,8 @@ func classifyTokens(words []string) []Token {
 			}
 		} else if memoryRegex.MatchString(word) {
 			tokens = append(tokens, Token{Type: TokenMemory, Value: word, Raw: word})
+		} else if isQualitativeKeyword(word) {
+			tokens = append(tokens, Token{Type: TokenQualitative, Value: word, Raw: word})
 		} else {
 			tokens = append(tokens, Token{Type: TokenUnknown, Value: word, Raw: word})
 		}
@@ -255,6 +268,64 @@ func parseMemory(s string) (float64, error) {
 
 	// All units are treated as GiB
 	return value, nil
+}
+
+var qualitativeKeywords = map[string]bool{
+	"cheap": true, "cheapest": true, "affordable": true, "budget": true,
+	"fast": true, "fastest": true, "quick": true,
+	"slow": true, "slowest": true,
+	"expensive": true, "premium": true,
+	"best": true, "worst": true, "optimal": true,
+	"powerful": true, "performant": true,
+	"efficient": true, "inefficient": true,
+	"popular": true, "recommended": true,
+	"new": true, "newest": true, "latest": true,
+	"old": true, "oldest": true, "legacy": true,
+}
+
+// SortPreference represents a user-requested sort derived from qualitative keywords.
+type SortPreference int
+
+const (
+	SortDefault    SortPreference = iota
+	SortCheapest                  // sort by on-demand price ascending
+	SortExpensive                 // sort by on-demand price descending
+	SortNewest                    // sort by generation descending
+	SortPerformant                // sort by vCPU count descending
+)
+
+var QualitativeSortMap = map[string]SortPreference{
+	"cheap": SortCheapest, "cheapest": SortCheapest, "affordable": SortCheapest, "budget": SortCheapest,
+	"expensive": SortExpensive, "premium": SortExpensive,
+	"fast": SortPerformant, "fastest": SortPerformant, "powerful": SortPerformant, "performant": SortPerformant,
+	"new": SortNewest, "newest": SortNewest, "latest": SortNewest,
+}
+
+// SortPreference returns the sort preference derived from qualitative keywords in the query.
+func (pq *ParsedQuery) SortPreference() SortPreference {
+	for _, t := range pq.RawTokens {
+		if t.Type == TokenQualitative {
+			if pref, ok := QualitativeSortMap[t.Value]; ok {
+				return pref
+			}
+		}
+	}
+	return SortDefault
+}
+
+func isQualitativeKeyword(word string) bool {
+	return qualitativeKeywords[word]
+}
+
+// QualitativeTokens returns any qualitative keywords found in the parsed query.
+func (pq *ParsedQuery) QualitativeTokens() []string {
+	var quals []string
+	for _, t := range pq.RawTokens {
+		if t.Type == TokenQualitative {
+			quals = append(quals, t.Raw)
+		}
+	}
+	return quals
 }
 
 // parseNetworkSpeed parses network speed string (e.g., "10gbps", "100g") to Gbps

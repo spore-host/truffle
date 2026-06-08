@@ -28,10 +28,11 @@ var (
 )
 
 var searchCmd = &cobra.Command{
-	Use:   "search [instance-type-pattern]",
-	Short: "Search by instance type pattern (glob: 'm7i*' or regex: 'c[6-8]i\\.large')",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runSearch,
+	Use:        "search [instance-type-pattern]",
+	Short:      "Search by instance type pattern (glob: 'm7i*' or regex: 'c[6-8]i\\.large')",
+	Args:       cobra.ExactArgs(1),
+	RunE:       runSearch,
+	Deprecated: "use 'find' instead — it auto-detects patterns vs natural language queries",
 }
 
 func init() {

@@ -19,12 +19,14 @@ type SearchCriteria struct {
 func (pq *ParsedQuery) BuildCriteria() (*SearchCriteria, error) {
 	sc := &SearchCriteria{
 		FilterOptions: aws.FilterOptions{
-			IncludeAZs:   true,
-			MinVCPUs:     pq.MinVCPU,
-			MinMemory:    pq.MinMemory,
-			ExactVCPUs:   pq.ExactMatch,
-			ExactMemory:  pq.ExactMatch,
-			Architecture: pq.DeriveArchitecture(),
+			IncludeAZs:       true,
+			MinVCPUs:         pq.MinVCPU,
+			MinMemory:        pq.MinMemory,
+			MinPhysicalCores: pq.MinPhysCores,
+			ExactVCPUs:       pq.ExactMatch,
+			ExactMemory:      pq.ExactMatch,
+			ExactCores:       pq.ExactMatch,
+			Architecture:     pq.DeriveArchitecture(),
 		},
 	}
 

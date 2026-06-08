@@ -34,7 +34,7 @@ func Execute() {
 	// We only need --lang for early i18n init; reading it via Lookup avoids
 	// double-appending to StringSliceVar-bound slices (see #19).
 	for i, arg := range os.Args[1:] {
-		if arg == "--lang" && i+1 < len(os.Args[1:])-1 {
+		if arg == "--lang" && i+1 < len(os.Args[1:]) {
 			flagLang = os.Args[i+2]
 			break
 		}

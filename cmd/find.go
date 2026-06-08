@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -28,32 +29,32 @@ var (
 
 var findCmd = &cobra.Command{
 	Use:   "find <query>",
-	Short: "Find instances using natural language (e.g. 'nvidia h100 8gpu', 'amd epyc genoa')",
-	Long: `Find EC2 instance types using natural language queries.
+	Short: "Find instances by natural language, pattern, or specs",
+	Long: `Find EC2 instance types using natural language, glob patterns, or regex.
+
+Auto-detects query type:
+  - Patterns: m7i*, c[6-8]i.large, g5.* → pattern matching
+  - Natural language: "graviton 8 cores 32gb" → spec-based search
 
 Understands:
-  - CPU vendors: intel, amd, graviton
-  - Processor code names: emerald rapids, sapphire rapids, ice lake, genoa, turin, milan
-  - GPU types: h200, h100, a100, b200, b300, l40s, l4, a10g, t4, rtx, inferentia, trainium
+  - CPU vendors: intel, amd, graviton, nvidia
+  - Processors: emerald rapids, sapphire rapids, ice lake, genoa, turin, milan
+  - GPUs: h200, h100, a100, b200, b300, l40s, l4, a10g, t4, rtx, inferentia, trainium
+  - Specs: 8 cores, 8 physical cores, 32gb, 4 gpus
   - Sizes: tiny, small, medium, large, huge
-  - Specs: 8 cores, 32gb, 4 gpus
   - Architecture: x86_64, arm64
   - Network: efa, 10gbps, 25gbps, 50gbps, 100gbps, 200gbps, 400gbps
+  - Sort hints: cheap/cheapest, fast/fastest, newest/latest
 
 Examples:
-  truffle find graviton
-  truffle find "turin 32 cores 64gb" --exact
-  truffle find "amd turin" --regions us-west-2
-  truffle find h200 --region us-east-1
-  truffle find "sapphire rapids 32 cores"
-  truffle find "inferentia"
-  truffle find "efa graviton"
-  truffle find "h100 efa"
-
-Flags:
-  --exact        Match exact vCPU and memory values instead of minimum
-  --regions, -r  Filter by specific regions (comma-separated)
-  --region       Alias for --regions`,
+  truffle find "m7i*"                         (glob pattern)
+  truffle find "c[6-8]i.large"                (regex pattern)
+  truffle find graviton                       (vendor search)
+  truffle find "turin 32 cores 64gb" --exact  (exact spec match)
+  truffle find "8 physical cores 32gb"        (physical core count)
+  truffle find "cheap graviton 8 cores"       (sorted by price)
+  truffle find nvidia                         (all NVIDIA GPU instances)
+  truffle find "h100 efa"                     (GPU + network)`,
 	Args: cobra.ArbitraryArgs, // 0 args allowed when --app is used
 	RunE: runFind,
 }
@@ -87,6 +88,12 @@ func runFind(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("query or --app required")
 	}
 
+	// Auto-detect: if query looks like a pattern (glob or regex), route to
+	// the pattern-matching path instead of NL parsing.
+	if looksLikePattern(queryStr) {
+		return runSearchWithPattern(queryStr)
+	}
+
 	// Parse query
 	query, err := find.ParseQuery(queryStr)
 	if err != nil {
@@ -96,6 +103,27 @@ func runFind(cmd *cobra.Command, args []string) error {
 	// Apply --exact flag
 	if findExact {
 		query.ExactMatch = true
+	}
+
+	// Apply sort preference from qualitative keywords
+	sortPref := query.SortPreference()
+	if sortPref != find.SortDefault {
+		if verbose {
+			fmt.Fprintf(os.Stderr, "   Sorting by: %v\n", sortPref)
+		}
+	}
+
+	// Warn about remaining qualitative keywords that have no effect
+	if quals := query.QualitativeTokens(); len(quals) > 0 {
+		var unhandled []string
+		for _, q := range quals {
+			if _, ok := find.QualitativeSortMap[q]; !ok {
+				unhandled = append(unhandled, q)
+			}
+		}
+		if len(unhandled) > 0 {
+			fmt.Fprintf(os.Stderr, "Note: %q ignored — no matching sort or filter.\n", strings.Join(unhandled, "\", \""))
+		}
 	}
 
 	// Show parsed query if requested
@@ -164,12 +192,33 @@ func runFind(cmd *cobra.Command, args []string) error {
 		results[idx].OnDemandPrice = price
 	}
 
-	// Sort results: prefer newer generation, then alphabetical within same generation
+	// Sort results based on qualitative preference or default (newest gen first)
 	sort.Slice(results, func(i, j int) bool {
-		genI := instanceGeneration(results[i].InstanceType)
-		genJ := instanceGeneration(results[j].InstanceType)
-		if genI != genJ {
-			return genI > genJ
+		switch sortPref {
+		case find.SortCheapest:
+			if results[i].OnDemandPrice != results[j].OnDemandPrice {
+				return results[i].OnDemandPrice < results[j].OnDemandPrice
+			}
+		case find.SortExpensive:
+			if results[i].OnDemandPrice != results[j].OnDemandPrice {
+				return results[i].OnDemandPrice > results[j].OnDemandPrice
+			}
+		case find.SortPerformant:
+			if results[i].VCPUs != results[j].VCPUs {
+				return results[i].VCPUs > results[j].VCPUs
+			}
+		case find.SortNewest:
+			genI := instanceGeneration(results[i].InstanceType)
+			genJ := instanceGeneration(results[j].InstanceType)
+			if genI != genJ {
+				return genI > genJ
+			}
+		default:
+			genI := instanceGeneration(results[i].InstanceType)
+			genJ := instanceGeneration(results[j].InstanceType)
+			if genI != genJ {
+				return genI > genJ
+			}
 		}
 		if results[i].InstanceType != results[j].InstanceType {
 			return results[i].InstanceType < results[j].InstanceType
@@ -231,6 +280,9 @@ func printParsedQuery(query *find.ParsedQuery) {
 	}
 	if query.MinVCPU > 0 {
 		fmt.Fprintf(os.Stderr, "   Min vCPUs: %d\n", query.MinVCPU)
+	}
+	if query.MinPhysCores > 0 {
+		fmt.Fprintf(os.Stderr, "   Min Physical Cores: %d\n", query.MinPhysCores)
 	}
 	if query.MinMemory > 0 {
 		fmt.Fprintf(os.Stderr, "   Min Memory: %.0f GiB\n", query.MinMemory)
@@ -341,4 +393,108 @@ func instanceGeneration(instanceType string) int {
 		}
 	}
 	return 0
+}
+
+// looksLikePattern returns true if the query looks like an instance type pattern
+// (glob or regex) rather than a natural language query.
+func looksLikePattern(query string) bool {
+	if strings.ContainsAny(query, "*?") {
+		return true
+	}
+	if looksLikeRegex(query) {
+		return true
+	}
+	// Single word that looks like an instance type (e.g. "m7i.large", "c6i")
+	if !strings.Contains(query, " ") {
+		if matched, _ := regexp.MatchString(`^[a-z]\d`, query); matched {
+			return true
+		}
+	}
+	return false
+}
+
+// runSearchWithPattern runs a pattern-based search (the same logic as the search command).
+func runSearchWithPattern(pattern string) error {
+	regexPattern := patternToRegex(pattern)
+	matcher, err := regexp.Compile(regexPattern)
+	if err != nil {
+		return i18n.Te("truffle.search.error.invalid_pattern", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), findTimeout)
+	defer cancel()
+
+	awsClient, err := aws.NewClient(ctx)
+	if err != nil {
+		return i18n.Te("error.aws_client_init", err)
+	}
+
+	searchRegions := regions
+	if len(searchRegions) == 0 {
+		searchRegions, err = awsClient.GetEnabledRegions(ctx)
+		if err != nil {
+			return i18n.Te("truffle.search.error.get_regions_failed", err)
+		}
+		if len(searchRegions) > 10 && outputFormat == "table" {
+			fmt.Fprintf(os.Stderr, "%s Searching across all %d enabled regions (this may take a while)\n",
+				i18n.Emoji("warning"), len(searchRegions))
+			fmt.Fprintf(os.Stderr, "   Tip: Use --regions to limit search (e.g., --regions us-east-1,us-west-2)\n\n")
+		}
+	}
+
+	var spinner *progress.Spinner
+	if !verbose && outputFormat == "table" {
+		msg := fmt.Sprintf("Searching '%s' across %d %s...", pattern, len(searchRegions), pluralize(len(searchRegions), "region", "regions"))
+		spinner = progress.NewSpinner(os.Stderr, msg)
+		spinner.Start()
+	}
+
+	results, err := awsClient.SearchInstanceTypes(ctx, searchRegions, matcher, aws.FilterOptions{
+		IncludeAZs: !findSkipAZs,
+		Verbose:    verbose,
+	})
+
+	if spinner != nil {
+		spinner.Stop()
+	}
+
+	if err != nil {
+		return i18n.Te("truffle.search.error.search_failed", err)
+	}
+
+	sort.Slice(results, func(i, j int) bool {
+		genI := instanceGeneration(results[i].InstanceType)
+		genJ := instanceGeneration(results[j].InstanceType)
+		if genI != genJ {
+			return genI > genJ
+		}
+		if results[i].InstanceType != results[j].InstanceType {
+			return results[i].InstanceType < results[j].InstanceType
+		}
+		return results[i].Region < results[j].Region
+	})
+
+	if len(results) == 0 {
+		fmt.Println(i18n.T("truffle.search.no_results"))
+		return nil
+	}
+
+	if findPickFirst {
+		fmt.Println(results[0].InstanceType)
+		return nil
+	}
+
+	printer := output.NewPrinter(!noColor)
+	switch outputFormat {
+	case "json":
+		return printer.PrintJSON(results)
+	case "yaml":
+		return printer.PrintYAML(results)
+	case "csv":
+		return printer.PrintCSV(results)
+	case "table":
+		return printer.PrintTable(results, !findSkipAZs, false)
+	default:
+		return fmt.Errorf("unsupported output format: %s", outputFormat)
+	}
 }
