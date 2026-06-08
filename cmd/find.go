@@ -164,8 +164,13 @@ func runFind(cmd *cobra.Command, args []string) error {
 		results[idx].OnDemandPrice = price
 	}
 
-	// Sort results
+	// Sort results: prefer newer generation, then alphabetical within same generation
 	sort.Slice(results, func(i, j int) bool {
+		genI := instanceGeneration(results[i].InstanceType)
+		genJ := instanceGeneration(results[j].InstanceType)
+		if genI != genJ {
+			return genI > genJ
+		}
 		if results[i].InstanceType != results[j].InstanceType {
 			return results[i].InstanceType < results[j].InstanceType
 		}
@@ -321,4 +326,19 @@ func convertToInstanceTypeResults(findResults []find.FindResult) []aws.InstanceT
 		results[i] = r.InstanceTypeResult
 	}
 	return results
+}
+
+// instanceGeneration extracts the generation number from an instance type name.
+// E.g., "c7i.large" → 7, "m6g.xlarge" → 6, "p4d.24xlarge" → 4.
+func instanceGeneration(instanceType string) int {
+	for i, ch := range instanceType {
+		if ch >= '0' && ch <= '9' {
+			gen := int(ch - '0')
+			if i+1 < len(instanceType) && instanceType[i+1] >= '0' && instanceType[i+1] <= '9' {
+				gen = gen*10 + int(instanceType[i+1]-'0')
+			}
+			return gen
+		}
+	}
+	return 0
 }

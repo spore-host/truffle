@@ -89,7 +89,7 @@ var ProcessorDatabase = map[string]ProcessorInfo{
 		Vendor:       "amd",
 		Architecture: "x86_64",
 		Generation:   "2nd gen",
-		Families:     []string{"m5a", "c5a", "r5a", "m5ad", "r5ad", "m5dn"},
+		Families:     []string{"m5a", "c5a", "r5a", "m5ad", "r5ad"},
 	},
 	"genoa": {
 		CodeName:     "Genoa",

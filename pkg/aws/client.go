@@ -405,8 +405,8 @@ func matchesFilters(it types.InstanceTypeInfo, opts FilterOptions) bool {
 		memMiB := valueOrZero(it.MemoryInfo.SizeInMiB)
 		memGiB := float64(memMiB) / 1024.0
 		if opts.ExactMemory {
-			// Exact match (with 0.5 GiB tolerance for floating point)
-			if memGiB < opts.MinMemory-0.5 || memGiB > opts.MinMemory+0.5 {
+			// Exact match (with 0.01 GiB tolerance for floating point)
+			if memGiB < opts.MinMemory-0.01 || memGiB > opts.MinMemory+0.01 {
 				return false
 			}
 		} else {

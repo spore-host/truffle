@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/spore-host/libs/i18n"
 	"github.com/spore-host/truffle/pkg/aws"
 	"github.com/spore-host/truffle/pkg/output"
 )
@@ -66,12 +67,12 @@ func runAZSearch(cmd *cobra.Command, args []string) error {
 	}
 
 	if verbose {
-		fmt.Fprintf(os.Stderr, "🔍 Searching for instance types matching: %s (AZ-focused)\n", pattern)
+		fmt.Fprintf(os.Stderr, "%s Searching for instance types matching: %s (AZ-focused)\n", i18n.Emoji("magnifying_glass"), pattern)
 		if len(azFilter) > 0 {
-			fmt.Fprintf(os.Stderr, "📍 Filtering AZs: %s\n", strings.Join(azFilter, ", "))
+			fmt.Fprintf(os.Stderr, "%s Filtering AZs: %s\n", i18n.Emoji("pushpin"), strings.Join(azFilter, ", "))
 		}
 		if minAZCount > 0 {
-			fmt.Fprintf(os.Stderr, "📊 Minimum AZs per region: %d\n", minAZCount)
+			fmt.Fprintf(os.Stderr, "%s Minimum AZs per region: %d\n", i18n.Emoji("chart"), minAZCount)
 		}
 	}
 
@@ -93,7 +94,7 @@ func runAZSearch(cmd *cobra.Command, args []string) error {
 	// If no regions specified, auto-detect enabled regions (respects SCPs)
 	if len(searchRegions) == 0 {
 		if verbose {
-			fmt.Fprintln(os.Stderr, "🌍 Fetching enabled AWS regions (respects SCPs)...")
+			fmt.Fprintf(os.Stderr, "%s Fetching enabled AWS regions (respects SCPs)...\n", i18n.Emoji("globe"))
 		}
 		searchRegions, err = awsClient.GetEnabledRegions(ctx)
 		if err != nil {
@@ -102,7 +103,7 @@ func runAZSearch(cmd *cobra.Command, args []string) error {
 	}
 
 	if verbose {
-		fmt.Fprintf(os.Stderr, "🔎 Searching across %d regions...\n", len(searchRegions))
+		fmt.Fprintf(os.Stderr, "%s Searching across %d regions...\n", i18n.Emoji("magnifying_glass_tilted"), len(searchRegions))
 	}
 
 	// Search for instance types (always include AZs for this command)
@@ -247,7 +248,7 @@ func printAZSummary(results []aws.InstanceTypeResult) {
 		avgAZs = float64(totalAZs) / float64(len(results))
 	}
 
-	fmt.Printf("\n📊 AZ Availability Summary:\n")
+	fmt.Printf("\n%s AZ Availability Summary:\n", i18n.Emoji("chart"))
 	fmt.Printf("   Instance Types: %d\n", len(instanceTypes))
 	fmt.Printf("   Region Results: %d\n", len(results))
 	fmt.Printf("   AZ Range: %d-%d AZs per region\n", minAZs, maxAZs)

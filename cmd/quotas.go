@@ -141,7 +141,7 @@ func runQuotas(cmd *cobra.Command, args []string) error {
 		if quotasRequest {
 			fmt.Println()
 			fmt.Println("╔════════════════════════════════════════════════════════╗")
-			fmt.Println("║  📝 Quota Increase Request Commands                   ║")
+			fmt.Println("║  "+i18n.Emoji("memo")+" Quota Increase Request Commands                   ║")
 			fmt.Println("╚════════════════════════════════════════════════════════╝")
 			fmt.Println()
 			generateIncreaseRequests(quotaInfos, quotasFamily)
@@ -203,7 +203,7 @@ func buildQuotaRows(quotaInfos map[string]*quotas.QuotaInfo, filterFamily string
 func displayRegionQuotas(region string, info *quotas.QuotaInfo, filterFamily string) {
 	fmt.Println()
 	fmt.Println("╔════════════════════════════════════════════════════════╗")
-	fmt.Printf("║  📊 AWS Service Quotas - %-28s ║\n", region)
+	fmt.Printf("║  %s AWS Service Quotas - %-28s ║\n", i18n.Emoji("chart"), region)
 	fmt.Println("╚════════════════════════════════════════════════════════╝")
 	fmt.Println()
 
@@ -395,7 +395,7 @@ func generateIncreaseRequests(quotaInfos map[string]*quotas.QuotaInfo, filterFam
 	}
 
 	// Helpful notes
-	fmt.Println("💡 Notes:")
+	fmt.Printf("%s Notes:\n", i18n.Emoji("lightbulb"))
 	fmt.Println("   • Quota increases are typically approved within 24-48 hours")
 	fmt.Println("   • GPU quotas (P, G, Inf, Trn) often require business justification")
 	fmt.Println("   • Include your use case in the request for faster approval")
@@ -490,9 +490,9 @@ func displaySageMakerQuotas(ctx context.Context, sqClient quotas.ServiceQuotasLi
 
 	var zeroCount int
 	for _, r := range rows {
-		status := "✓ OK"
+		status := i18n.Symbol("success") + " OK"
 		if r.value == 0 {
-			status = "✗ Zero"
+			status = i18n.Symbol("failed") + " Zero"
 			zeroCount++
 		}
 		_ = table.Append([]string{
@@ -507,11 +507,11 @@ func displaySageMakerQuotas(ctx context.Context, sqClient quotas.ServiceQuotasLi
 	}
 
 	if zeroCount > 0 {
-		fmt.Printf("\n⚠️  %d quota(s) are zero — request increases before running SageMaker jobs.\n", zeroCount)
+		fmt.Printf("\n%s %d quota(s) are zero — request increases before running SageMaker jobs.\n", i18n.Symbol("warning"), zeroCount)
 	}
 
 	if quotasRequest {
-		fmt.Println("\n📝 Quota increase requests for zero quotas:")
+		fmt.Println("\n"+i18n.Emoji("memo")+" Quota increase requests for zero quotas:")
 		for _, r := range rows {
 			if r.value == 0 {
 				fmt.Printf("\naws service-quotas request-service-quota-increase \\\n")

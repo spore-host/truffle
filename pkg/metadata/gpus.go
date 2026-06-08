@@ -140,6 +140,15 @@ var GPUDatabase = map[string]GPUInfo{
 		InstanceTypes: []string{"p6-b300.48xlarge"},
 	},
 
+	// NVIDIA (vendor-level entry for "nvidia" keyword matching)
+	"nvidia": {
+		Name:     "NVIDIA (all)",
+		Vendor:   "nvidia",
+		MemoryGB: 0,
+		UseCase:  "any",
+		Families: []string{"p5e", "p5", "p4d", "p4de", "p3", "p2", "g3", "g5", "g4dn", "g6", "g6e", "g7e", "p6"},
+	},
+
 	// AMD GPUs
 	"radeon pro v520": {
 		Name:          "Radeon Pro V520",
@@ -186,6 +195,7 @@ var GPUDatabase = map[string]GPUInfo{
 
 // GPUAliases maps common GPU names to canonical forms
 var GPUAliases = map[string]string{
+	"nvidia":   "nvidia",
 	"inf":      "inferentia",
 	"inf1":     "inferentia",
 	"inf2":     "inferentia2",

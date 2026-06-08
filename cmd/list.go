@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/spore-host/libs/i18n"
 	"github.com/spore-host/truffle/pkg/aws"
 	"gopkg.in/yaml.v3"
 )
@@ -46,7 +47,7 @@ func runList(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	if verbose {
-		fmt.Fprintf(os.Stderr, "🔍 Querying region: %s\n", regionFilter)
+		fmt.Fprintf(os.Stderr, "%s Querying region: %s\n", i18n.Emoji("magnifying_glass"), regionFilter)
 	}
 
 	// Initialize AWS client
@@ -133,7 +134,7 @@ func extractSizes(types []string) []string {
 }
 
 func printList(title string, items []string) {
-	fmt.Printf("📋 %s (%d total):\n\n", title, len(items))
+	fmt.Printf("%s %s (%d total):\n\n", i18n.Emoji("clipboard"), title, len(items))
 	
 	// Print in columns
 	const itemsPerRow = 5

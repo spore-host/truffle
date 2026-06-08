@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/fatih/color"
@@ -318,6 +319,8 @@ func (p *Printer) PrintCSV(results []aws.InstanceTypeResult) error {
 
 // PrintSpotTable outputs Spot pricing results as a formatted table
 func (p *Printer) PrintSpotTable(results []aws.SpotPriceResult) error {
+	hasMultipleTimestamps := hasDistinctTimestamps(results)
+
 	headers := []string{
 		i18n.T("truffle.output.header.instance_type"),
 		i18n.T("truffle.output.header.region"),
@@ -325,6 +328,9 @@ func (p *Printer) PrintSpotTable(results []aws.SpotPriceResult) error {
 		i18n.T("truffle.output.header.spot_price"),
 		"On-Demand",
 		"Savings",
+	}
+	if hasMultipleTimestamps {
+		headers = append(headers, "Timestamp")
 	}
 
 	table := newTable(headers, p.useColor)
@@ -349,6 +355,9 @@ func (p *Printer) PrintSpotTable(results []aws.SpotPriceResult) error {
 				odStr,
 				savStr,
 			}
+			if hasMultipleTimestamps {
+				row = append(row, formatTimestamp(result.Timestamp))
+			}
 			if i > 0 {
 				row[0] = ""
 			}
@@ -357,6 +366,27 @@ func (p *Printer) PrintSpotTable(results []aws.SpotPriceResult) error {
 	}
 
 	return table.render()
+}
+
+func hasDistinctTimestamps(results []aws.SpotPriceResult) bool {
+	if len(results) < 2 {
+		return false
+	}
+	first := results[0].Timestamp
+	for _, r := range results[1:] {
+		if r.Timestamp != first {
+			return true
+		}
+	}
+	return false
+}
+
+func formatTimestamp(ts string) string {
+	t, err := time.Parse(time.RFC3339, ts)
+	if err != nil {
+		return ts
+	}
+	return t.Format("Jan 02 15:04")
 }
 
 // PrintSpotJSON outputs Spot pricing results as JSON
