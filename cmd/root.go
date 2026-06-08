@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/spore-host/libs/i18n"
+	"github.com/spore-host/libs/update"
 	"github.com/spf13/cobra"
 )
 
@@ -32,22 +33,42 @@ var i18nInitialized = false
 func Execute() {
 	// Pre-scan argv for i18n-relevant flags before cobra parses them,
 	// because i18n must initialize before any output is produced.
+	for _, arg := range os.Args[1:] {
+		switch {
+		case arg == "--accessibility":
+			flagAccessibility = true
+		case arg == "--no-emoji":
+			flagNoEmoji = true
+		}
+	}
 	for i, arg := range os.Args[1:] {
 		if arg == "--lang" && i+1 < len(os.Args[1:]) {
 			flagLang = os.Args[i+2]
-		} else if len(arg) > 7 && arg[:7] == "--lang=" {
+			break
+		}
+		if len(arg) > 7 && arg[:7] == "--lang=" {
 			flagLang = arg[7:]
-		} else if arg == "--accessibility" {
-			flagAccessibility = true
-		} else if arg == "--no-emoji" {
-			flagNoEmoji = true
+			break
 		}
 	}
 	ensureI18nInitialized()
 
+	// Start async update check (non-blocking, respects SPORE_NO_UPDATE_CHECK)
+	updateCh := update.CheckAsync("truffle", Version)
+
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
+	}
+
+	// Print update notice after command completes (if available)
+	select {
+	case result := <-updateCh:
+		if result.HasUpdate() {
+			fmt.Fprintf(os.Stderr, "\n%s\n", result.Message())
+		}
+	default:
+		// Check didn't finish in time — skip silently
 	}
 }
 
