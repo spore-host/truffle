@@ -294,10 +294,14 @@ func TestPatternToRegex(t *testing.T) {
 		// Glob patterns (no regex metacharacters)
 		{"m7i*", []string{"m7i.large", "m7i.xlarge"}, []string{"c7i.large"}},
 		{"m7i.large", []string{"m7i.large"}, []string{"m7i.xlarge"}},
+		{"c7.*", []string{"c7i.large", "c7g.xlarge", "c7a.metal"}, []string{"c6i.large"}},
 		// Regex patterns (detected by brackets, +, etc.)
 		{"c[6-8]i\\.large", []string{"c6i.large", "c7i.large", "c8i.large"}, []string{"c5i.large", "c6i.xlarge"}},
 		{"m7[ig]\\..*", []string{"m7i.large", "m7g.xlarge"}, []string{"m7a.large"}},
 		{"(p4d|p5)\\..*", []string{"p4d.24xlarge", "p5.48xlarge"}, []string{"p3.2xlarge"}},
+		// Mixed glob/regex: bare * treated as .* inside regex-detected patterns
+		{"c[6-8]*.xlarge", []string{"c6i.xlarge", "c7g.xlarge", "c8a.xlarge"}, []string{"c5i.xlarge", "c6i.large"}},
+		{"c[6-8]i.large", []string{"c6i.large", "c7i.large"}, []string{"c6i.xlarge"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.pattern, func(t *testing.T) {

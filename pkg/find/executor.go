@@ -66,6 +66,11 @@ func (pq *ParsedQuery) buildInstanceTypePattern() string {
 	families := pq.ResolveInstanceFamilies()
 
 	if len(families) == 0 {
+		if pq.hasConflictingFamilyConstraints() {
+			// Intersection of app families and query families is empty — no
+			// instance can satisfy both constraints. Return a never-match pattern.
+			return `^$`
+		}
 		// No specific criteria; match all
 		return ".*"
 	}

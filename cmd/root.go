@@ -147,10 +147,10 @@ func updateCommandDescriptions() {
 	rootCmd.Short = i18n.T("truffle.root.short")
 	rootCmd.Long = i18n.T("truffle.root.long")
 
-	// Search command
+	// Search command — Short/Long are set directly on searchCmd since they
+	// reference pattern syntax that must stay in sync with the code.
 	if cmd, _, err := rootCmd.Find([]string{"search"}); err == nil && cmd != nil {
-		cmd.Short = i18n.T("truffle.search.short")
-		cmd.Long = i18n.T("truffle.search.long")
+		cmd.Long = "Search for instance types across AWS regions.\n\nSupports glob patterns (m7i*, c7?) and regex (c[6-8]i\\.large, (p4d|p5)\\..*) for flexible matching."
 	}
 
 	// Capacity command

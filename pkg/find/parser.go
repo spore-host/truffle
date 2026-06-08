@@ -399,6 +399,21 @@ func (pq *ParsedQuery) ResolveInstanceFamilies() []string {
 	return families
 }
 
+// hasConflictingFamilyConstraints reports whether both app families and query
+// families are specified but their intersection is empty — meaning no instance
+// can satisfy both constraints simultaneously.
+func (pq *ParsedQuery) hasConflictingFamilyConstraints() bool {
+	if len(pq.Apps) == 0 {
+		return false
+	}
+	hasQueryFamilies := len(pq.Vendors) > 0 || len(pq.Processors) > 0 || len(pq.GPUs) > 0 || pq.RequireEFA || pq.MinNetworkGbps > 0
+	if !hasQueryFamilies {
+		return false
+	}
+	// Both are present — if ResolveInstanceFamilies returned empty, they conflict
+	return len(pq.ResolveInstanceFamilies()) == 0
+}
+
 // ResolveGPUInstances returns exact instance types for GPU queries
 func (pq *ParsedQuery) ResolveGPUInstances() []string {
 	instanceSet := make(map[string]bool)
