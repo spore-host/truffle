@@ -61,23 +61,23 @@ func TestParseQuery(t *testing.T) {
 			wantSizes: []string{"large"},
 		},
 		{
-			name:       "vendor with vcpu",
-			query:      "amd 16 cores",
+			name:        "vendor with vcpu",
+			query:       "amd 16 cores",
 			wantVendors: []string{"amd"},
-			wantVCPU:   16,
+			wantVCPU:    16,
 		},
 		{
-			name:       "vendor with memory",
-			query:      "graviton 32gb",
+			name:        "vendor with memory",
+			query:       "graviton 32gb",
 			wantVendors: []string{"aws"},
-			wantMemory: 32,
+			wantMemory:  32,
 		},
 		{
-			name:       "combined specs",
-			query:      "amd 16 cores 64gb",
+			name:        "combined specs",
+			query:       "amd 16 cores 64gb",
 			wantVendors: []string{"amd"},
-			wantVCPU:   16,
-			wantMemory: 64,
+			wantVCPU:    16,
+			wantMemory:  64,
 		},
 		{
 			name:        "vendor and size",
@@ -92,14 +92,14 @@ func TestParseQuery(t *testing.T) {
 			wantVCPU:  64,
 		},
 		{
-			name:       "architecture",
-			query:      "arm64",
-			wantArch:   "arm64",
+			name:     "architecture",
+			query:    "arm64",
+			wantArch: "arm64",
 		},
 		{
-			name:       "x86_64 architecture",
-			query:      "x86_64",
-			wantArch:   "x86_64",
+			name:     "x86_64 architecture",
+			query:    "x86_64",
+			wantArch: "x86_64",
 		},
 		{
 			name:     "multi-word gpu",
@@ -112,9 +112,9 @@ func TestParseQuery(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:       "vcpu with different unit",
-			query:      "8 vcpus",
-			wantVCPU:   8,
+			name:     "vcpu with different unit",
+			query:    "8 vcpus",
+			wantVCPU: 8,
 		},
 		{
 			name:       "memory with gib",
@@ -122,30 +122,30 @@ func TestParseQuery(t *testing.T) {
 			wantMemory: 32,
 		},
 		{
-			name:       "efa network",
-			query:      "efa",
-			wantEFA:    true,
+			name:    "efa network",
+			query:   "efa",
+			wantEFA: true,
 		},
 		{
-			name:          "100gbps network",
-			query:         "100gbps",
+			name:            "100gbps network",
+			query:           "100gbps",
 			wantNetworkGbps: 100,
 		},
 		{
-			name:          "efa with graviton",
-			query:         "efa graviton",
-			wantVendors:   []string{"aws"},
-			wantEFA:       true,
+			name:        "efa with graviton",
+			query:       "efa graviton",
+			wantVendors: []string{"aws"},
+			wantEFA:     true,
 		},
 		{
-			name:          "h100 with efa",
-			query:         "h100 efa",
-			wantGPUs:      []string{"h100"},
-			wantEFA:       true,
+			name:     "h100 with efa",
+			query:    "h100 efa",
+			wantGPUs: []string{"h100"},
+			wantEFA:  true,
 		},
 		{
-			name:          "100g alias",
-			query:         "100g",
+			name:            "100g alias",
+			query:           "100g",
 			wantNetworkGbps: 100,
 		},
 	}
@@ -203,32 +203,32 @@ func TestParseQuery(t *testing.T) {
 
 func TestParsedQuery_ResolveInstanceFamilies(t *testing.T) {
 	tests := []struct {
-		name      string
-		query     string
-		wantMin   int
+		name         string
+		query        string
+		wantMin      int
 		wantFamilies []string
 	}{
 		{
-			name:      "graviton",
-			query:     "graviton",
-			wantMin:   10,
+			name:    "graviton",
+			query:   "graviton",
+			wantMin: 10,
 		},
 		{
-			name:      "ice lake",
-			query:     "ice lake",
-			wantMin:   3,
+			name:         "ice lake",
+			query:        "ice lake",
+			wantMin:      3,
 			wantFamilies: []string{"m6i", "c6i", "r6i"},
 		},
 		{
-			name:      "a100",
-			query:     "a100",
-			wantMin:   1,
+			name:         "a100",
+			query:        "a100",
+			wantMin:      1,
 			wantFamilies: []string{"p4d", "p4de"},
 		},
 		{
-			name:      "intel vendor",
-			query:     "intel",
-			wantMin:   10,
+			name:    "intel vendor",
+			query:   "intel",
+			wantMin: 10,
 		},
 	}
 
@@ -463,5 +463,40 @@ func TestBuildCriteria_AppDoesNotOverrideExplicit(t *testing.T) {
 	}
 	if criteria.FilterOptions.MinVCPUs != 32 {
 		t.Errorf("MinVCPUs = %d, want 32 (explicit override)", criteria.FilterOptions.MinVCPUs)
+	}
+}
+
+func TestParseQuery_NestedVirtToken(t *testing.T) {
+	for _, q := range []string{"nested-virt", "nested-virtualization", "nestedvirt"} {
+		pq, err := ParseQuery(q)
+		if err != nil {
+			t.Fatalf("ParseQuery(%q): %v", q, err)
+		}
+		if !pq.RequireNestedV {
+			t.Errorf("ParseQuery(%q): RequireNestedV = false, want true", q)
+		}
+	}
+	// A query without the keyword must not set it.
+	pq, err := ParseQuery("intel 8 vcpu")
+	if err != nil {
+		t.Fatalf("ParseQuery: %v", err)
+	}
+	if pq.RequireNestedV {
+		t.Error("RequireNestedV should be false when not requested")
+	}
+}
+
+// TestBuildCriteria_NestedVirt confirms the parsed flag flows into FilterOptions.
+func TestBuildCriteria_NestedVirt(t *testing.T) {
+	pq, err := ParseQuery("nested-virt 16 vcpu")
+	if err != nil {
+		t.Fatalf("ParseQuery: %v", err)
+	}
+	sc, err := pq.BuildCriteria()
+	if err != nil {
+		t.Fatalf("BuildCriteria: %v", err)
+	}
+	if !sc.FilterOptions.NestedVirt {
+		t.Error("FilterOptions.NestedVirt should be true")
 	}
 }

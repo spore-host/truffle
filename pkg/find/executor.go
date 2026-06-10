@@ -11,7 +11,7 @@ import (
 // SearchCriteria holds the compiled, ready-to-execute form of a [ParsedQuery].
 // Pass InstanceTypePattern and FilterOptions directly to aws.SearchInstanceTypes.
 type SearchCriteria struct {
-	InstanceTypePattern *regexp.Regexp   // Compiled regexp matching eligible EC2 instance type strings
+	InstanceTypePattern *regexp.Regexp    // Compiled regexp matching eligible EC2 instance type strings
 	FilterOptions       aws.FilterOptions // Numeric and categorical filters passed to SearchInstanceTypes
 }
 
@@ -27,6 +27,7 @@ func (pq *ParsedQuery) BuildCriteria() (*SearchCriteria, error) {
 			ExactMemory:      pq.ExactMatch,
 			ExactCores:       pq.ExactMatch,
 			Architecture:     pq.DeriveArchitecture(),
+			NestedVirt:       pq.RequireNestedV,
 		},
 	}
 

@@ -123,10 +123,15 @@ func (t *table) render() error {
 func (p *Printer) PrintTable(results []aws.InstanceTypeResult, includeAZs bool, showPrice bool) error {
 	// Check if any results have GPU info
 	hasGPU := false
+	// Show the nested-virt column only when at least one result supports it
+	// (matches the conditional-GPU-columns convention).
+	hasNestedV := false
 	for _, r := range results {
 		if r.GPUs > 0 {
 			hasGPU = true
-			break
+		}
+		if r.NestedVirt {
+			hasNestedV = true
 		}
 	}
 
@@ -139,6 +144,9 @@ func (p *Printer) PrintTable(results []aws.InstanceTypeResult, includeAZs bool, 
 	}
 	if hasGPU {
 		headers = append(headers, "GPUs", "GPU Model", "VRAM (GiB)")
+	}
+	if hasNestedV {
+		headers = append(headers, "Nested-Virt")
 	}
 	if showPrice {
 		headers = append(headers, "$/hr")
@@ -195,6 +203,13 @@ func (p *Printer) PrintTable(results []aws.InstanceTypeResult, includeAZs bool, 
 					row = append(row, strconv.Itoa(int(result.GPUs)), gpuModel, vramGiB)
 				} else {
 					row = append(row, "-", "-", "-")
+				}
+			}
+			if hasNestedV {
+				if result.NestedVirt {
+					row = append(row, "✓")
+				} else {
+					row = append(row, "-")
 				}
 			}
 			if showPrice {

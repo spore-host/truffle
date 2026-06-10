@@ -151,3 +151,53 @@ func TestGetCapacityBlocks_Empty(t *testing.T) {
 		t.Errorf("expected 0 blocks from empty substrate, got %d", len(res))
 	}
 }
+
+// TestMatchesFilters_NestedVirt covers the nested-virtualization filter: the
+// predicate must include a type advertising the feature and exclude one that
+// doesn't, but only when the filter is enabled.
+func TestMatchesFilters_NestedVirt(t *testing.T) {
+	withNV := instanceTypeInfo("c8i.4xlarge", 16, 32*1024, types.ArchitectureTypeX8664)
+	withNV.ProcessorInfo.SupportedFeatures = []types.SupportedAdditionalProcessorFeature{
+		types.SupportedAdditionalProcessorFeatureNestedVirtualization,
+	}
+	withoutNV := instanceTypeInfo("c5.4xlarge", 16, 32*1024, types.ArchitectureTypeX8664)
+
+	tests := []struct {
+		name string
+		it   types.InstanceTypeInfo
+		opts FilterOptions
+		want bool
+	}{
+		{"filter off, supported type", withNV, FilterOptions{}, true},
+		{"filter off, unsupported type", withoutNV, FilterOptions{}, true},
+		{"filter on, supported type", withNV, FilterOptions{NestedVirt: true}, true},
+		{"filter on, unsupported type", withoutNV, FilterOptions{NestedVirt: true}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := matchesFilters(tt.it, tt.opts); got != tt.want {
+				t.Errorf("matchesFilters(NestedVirt=%v) = %v, want %v", tt.opts.NestedVirt, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestSupportsNestedVirt checks the helper directly, including a nil
+// ProcessorInfo and an unrelated feature (amd-sev-snp).
+func TestSupportsNestedVirt(t *testing.T) {
+	mk := func(feats ...types.SupportedAdditionalProcessorFeature) types.InstanceTypeInfo {
+		return types.InstanceTypeInfo{ProcessorInfo: &types.ProcessorInfo{SupportedFeatures: feats}}
+	}
+	if supportsNestedVirt(mk(types.SupportedAdditionalProcessorFeatureNestedVirtualization)) != true {
+		t.Error("type with nested-virtualization feature should be supported")
+	}
+	if supportsNestedVirt(mk(types.SupportedAdditionalProcessorFeatureAmdSevSnp)) != false {
+		t.Error("amd-sev-snp only should NOT be nested-virt supported")
+	}
+	if supportsNestedVirt(mk()) != false {
+		t.Error("no features should be unsupported")
+	}
+	if supportsNestedVirt(types.InstanceTypeInfo{}) != false {
+		t.Error("nil ProcessorInfo should be unsupported (no panic)")
+	}
+}
