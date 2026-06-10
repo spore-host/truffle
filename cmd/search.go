@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/spore-host/libs/i18n"
 	"github.com/spf13/cobra"
+	"github.com/spore-host/libs/i18n"
 	"github.com/spore-host/truffle/pkg/aws"
 	"github.com/spore-host/truffle/pkg/output"
 	"github.com/spore-host/truffle/pkg/progress"
@@ -22,6 +22,7 @@ var (
 	minVCPUs        int
 	minMemory       float64
 	instanceFamily  string
+	searchNestedV   bool
 	searchPickFirst bool
 	searchShowPrice bool
 	timeout         time.Duration
@@ -43,6 +44,7 @@ func init() {
 	searchCmd.Flags().IntVar(&minVCPUs, "min-vcpu", 0, "Minimum number of vCPUs")
 	searchCmd.Flags().Float64Var(&minMemory, "min-memory", 0, "Minimum memory in GiB")
 	searchCmd.Flags().StringVar(&instanceFamily, "family", "", "Filter by instance family (e.g., m5, c5)")
+	searchCmd.Flags().BoolVar(&searchNestedV, "nested-virtualization", false, "Only types supporting nested virtualization (KVM/Hyper-V in-instance)")
 	searchCmd.Flags().BoolVar(&searchPickFirst, "pick-first", false, "Output only the top result's instance type (useful for piping to spawn)")
 	searchCmd.Flags().BoolVar(&searchShowPrice, "show-price", false, "Show on-demand pricing (uses static pricing data)")
 	searchCmd.Flags().DurationVar(&timeout, "timeout", 5*time.Minute, "Timeout for AWS API calls")
@@ -124,6 +126,7 @@ func runSearch(cmd *cobra.Command, args []string) error {
 		MinVCPUs:       minVCPUs,
 		MinMemory:      minMemory,
 		InstanceFamily: instanceFamily,
+		NestedVirt:     searchNestedV,
 		Verbose:        verbose,
 	})
 

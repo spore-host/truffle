@@ -46,6 +46,7 @@ const (
 	TokenArchitecture
 	TokenNetworkSpeed
 	TokenEFA
+	TokenNestedVirt    // Nested-virtualization support (e.g. "nested-virt")
 	TokenPhysicalCores // Physical core count (e.g. "8 physical cores")
 	TokenApp           // Application name from pkg/catalog (e.g. "paraview", "igv")
 	TokenQualitative   // Qualitative/subjective keyword (e.g. "cheap", "fastest")
@@ -72,15 +73,16 @@ type ParsedQuery struct {
 	Architecture   string   // "x86_64" or "arm64"; empty means both
 	MinNetworkGbps int      // Minimum network bandwidth in Gbps; 0 means unconstrained
 	RequireEFA     bool     // If true, only match instance families with EFA support
+	RequireNestedV bool     // If true, only match instance types supporting nested virtualization
 	ExactMatch     bool     // If true, match exact vCPU and memory values instead of minimum
 	RawTokens      []Token  // Parsed tokens in input order, useful for diagnostics
 	Apps           []string // Application names from catalog (e.g. ["paraview"]); resolved to hardware in BuildCriteria
 }
 
 var (
-	numberRegex        = regexp.MustCompile(`^\d+$`)
-	memoryRegex        = regexp.MustCompile(`^(\d+(?:\.\d+)?)\s*(gb|gib|g)$`)
-	networkSpeedRegex  = regexp.MustCompile(`^(\d+)\s*(gbps|g)$`)
+	numberRegex       = regexp.MustCompile(`^\d+$`)
+	memoryRegex       = regexp.MustCompile(`^(\d+(?:\.\d+)?)\s*(gb|gib|g)$`)
+	networkSpeedRegex = regexp.MustCompile(`^(\d+)\s*(gbps|g)$`)
 )
 
 // ParseQuery parses a natural language query into structured search criteria
@@ -133,6 +135,8 @@ func ParseQuery(query string) (*ParsedQuery, error) {
 			}
 		case TokenEFA:
 			pq.RequireEFA = true
+		case TokenNestedVirt:
+			pq.RequireNestedV = true
 		case TokenApp:
 			pq.Apps = append(pq.Apps, token.Value)
 		}
@@ -209,6 +213,8 @@ func classifyTokens(words []string) []Token {
 			tokens = append(tokens, Token{Type: TokenSize, Value: word, Raw: word})
 		} else if word == "efa" {
 			tokens = append(tokens, Token{Type: TokenEFA, Value: "efa", Raw: word})
+		} else if word == "nested-virt" || word == "nested-virtualization" || word == "nestedvirt" {
+			tokens = append(tokens, Token{Type: TokenNestedVirt, Value: "nested-virt", Raw: word})
 		} else if alias, ok := metadata.NetworkAliases[word]; ok {
 			if alias == "efa" {
 				tokens = append(tokens, Token{Type: TokenEFA, Value: "efa", Raw: word})
