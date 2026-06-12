@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `truffle version` now reports whether a newer release is available (an
+  explicit, on-demand check) (#53).
+
 ## [0.38.1] - 2026-06-11
 
 ### Changed
