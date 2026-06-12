@@ -486,6 +486,72 @@ func supportsNestedVirt(it types.InstanceTypeInfo) bool {
 	return false
 }
 
+// Capabilities is a feature-support snapshot for a single instance type, from
+// one DescribeInstanceTypes call. truffle is the instance-type capability
+// authority for the spore.host tools; other tools (e.g. spawn's pre-flight
+// launch validation) consume this instead of re-querying EC2 themselves.
+type Capabilities struct {
+	InstanceType         string   `json:"instance_type"`
+	Found                bool     `json:"found"`
+	Architectures        []string `json:"architectures,omitempty"` // e.g. ["x86_64"], ["arm64"]
+	ClusterPlacement     bool     `json:"cluster_placement"`       // supports the "cluster" placement strategy (MPI)
+	EFA                  bool     `json:"efa"`                     // supports Elastic Fabric Adapter
+	Hibernation          bool     `json:"hibernation"`             // supports On-Demand hibernation
+	NestedVirtualization bool     `json:"nested_virtualization"`   // can run KVM/Hyper-V in-instance
+	GPUs                 int32    `json:"gpus,omitempty"`
+	BareMetal            bool     `json:"bare_metal"`
+}
+
+// GetCapabilities returns feature support for a single instance type in the
+// given region (region may be empty for the client default). Backed by one
+// DescribeInstanceTypes call; the API is the source of truth (no hardcoded
+// family lists).
+func (c *Client) GetCapabilities(ctx context.Context, instanceType, region string) (*Capabilities, error) {
+	cfg := c.cfg
+	if region != "" {
+		cfg.Region = region
+	}
+	ec2Client := ec2.NewFromConfig(cfg)
+	out, err := ec2Client.DescribeInstanceTypes(ctx, &ec2.DescribeInstanceTypesInput{
+		InstanceTypes: []types.InstanceType{types.InstanceType(instanceType)},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("describe instance type %s: %w", instanceType, err)
+	}
+	caps := &Capabilities{InstanceType: instanceType}
+	if len(out.InstanceTypes) == 0 {
+		return caps, nil // Found=false
+	}
+	it := out.InstanceTypes[0]
+	caps.Found = true
+	caps.NestedVirtualization = supportsNestedVirt(it)
+	caps.Hibernation = it.HibernationSupported != nil && *it.HibernationSupported
+	caps.BareMetal = it.BareMetal != nil && *it.BareMetal
+	if it.NetworkInfo != nil && it.NetworkInfo.EfaSupported != nil {
+		caps.EFA = *it.NetworkInfo.EfaSupported
+	}
+	if it.PlacementGroupInfo != nil {
+		for _, s := range it.PlacementGroupInfo.SupportedStrategies {
+			if s == types.PlacementGroupStrategyCluster {
+				caps.ClusterPlacement = true
+			}
+		}
+	}
+	if it.GpuInfo != nil {
+		for _, g := range it.GpuInfo.Gpus {
+			if g.Count != nil {
+				caps.GPUs += *g.Count
+			}
+		}
+	}
+	if it.ProcessorInfo != nil {
+		for _, a := range it.ProcessorInfo.SupportedArchitectures {
+			caps.Architectures = append(caps.Architectures, string(a))
+		}
+	}
+	return caps, nil
+}
+
 func extractFamily(instanceType string) string {
 	// Extract family from instance type (e.g., "m5" from "m5.large")
 	for i, c := range instanceType {
