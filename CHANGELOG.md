@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.39.0] - 2026-06-12
+
 ### Added
 - `truffle version` now reports whether a newer release is available (an
   explicit, on-demand check) (#53).
@@ -67,7 +69,8 @@ Initial tagged release from the standalone `spore-host/truffle` repository.
 Older releases are summarized in the
 [GitHub Releases](https://github.com/spore-host/truffle/releases) for this repo.
 
-[Unreleased]: https://github.com/spore-host/truffle/compare/v0.38.1...HEAD
+[Unreleased]: https://github.com/spore-host/truffle/compare/v0.39.0...HEAD
+[0.39.0]: https://github.com/spore-host/truffle/compare/v0.38.1...v0.39.0
 [0.38.1]: https://github.com/spore-host/truffle/compare/v0.38.0...v0.38.1
 [0.38.0]: https://github.com/spore-host/truffle/compare/v0.37.2...v0.38.0
 [0.37.2]: https://github.com/spore-host/truffle/compare/v0.37.1...v0.37.2
