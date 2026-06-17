@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.40.0] - 2026-06-17
+
 ### Added
 - **`truffle capacity-blocks`** — discover **purchasable** EC2 Capacity Block for ML
   offerings (read-only), via `DescribeCapacityBlockOfferings` (#67). Filter by
@@ -24,6 +26,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 - Semgrep SAST is now **enforcing** in CI (`--config=auto --error`) rather than
   report-only (#368). The scan was already clean — no findings to triage.
+
+### CI
+- Pin govulncheck to v1.3.0; v1.4.0 panics analyzing generics
+  (`ForEachElement called on type containing *types.TypeParam`), crashing the
+  scan rather than reporting a real vulnerability.
 
 ## [0.39.1] - 2026-06-12
 
@@ -95,7 +102,8 @@ Initial tagged release from the standalone `spore-host/truffle` repository.
 Older releases are summarized in the
 [GitHub Releases](https://github.com/spore-host/truffle/releases) for this repo.
 
-[Unreleased]: https://github.com/spore-host/truffle/compare/v0.39.1...HEAD
+[Unreleased]: https://github.com/spore-host/truffle/compare/v0.40.0...HEAD
+[0.40.0]: https://github.com/spore-host/truffle/compare/v0.39.1...v0.40.0
 [0.39.1]: https://github.com/spore-host/truffle/compare/v0.39.0...v0.39.1
 [0.39.0]: https://github.com/spore-host/truffle/compare/v0.38.1...v0.39.0
 [0.38.1]: https://github.com/spore-host/truffle/compare/v0.38.0...v0.38.1
