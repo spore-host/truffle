@@ -31,6 +31,9 @@ type Finder interface {
 	// GetCapacityBlocks retrieves Capacity Blocks for ML across regions.
 	GetCapacityBlocks(ctx context.Context, regions []string, opts CapacityBlockOptions) ([]CapacityBlockResult, error)
 
+	// GetCapacityBlockOfferings discovers purchasable Capacity Block offerings across regions.
+	GetCapacityBlockOfferings(ctx context.Context, regions []string, opts CapacityBlockOfferingOptions) ([]CapacityBlockOfferingResult, error)
+
 	// OnDemandPrice returns the on-demand $/hr for an instance type in a region.
 	OnDemandPrice(ctx context.Context, instanceType, region string) (float64, error)
 

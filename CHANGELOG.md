@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`truffle capacity-blocks`** — discover **purchasable** EC2 Capacity Block for ML
+  offerings (read-only), via `DescribeCapacityBlockOfferings` (#67). Filter by
+  `--instance-type` (required), `--count`, `--duration-hours` (required), optional
+  `--start-after`/`--start-before` and `--region`. Surfaces each offering's id,
+  instance type/count, AZ, start/end, duration, and **up-front price** — the offering
+  id is what `spawn capacity-block purchase` reserves. Table/JSON/YAML/CSV output.
+
+### Fixed
+- `truffle capacity --blocks` now actually shows your existing/scheduled Capacity
+  Blocks for ML (#67). The flag was previously a no-op — it never reached
+  `GetCapacityBlocks`, so the command always listed On-Demand Capacity Reservations
+  regardless. (For *purchasable* offerings, use the new `truffle capacity-blocks`.)
+
 ### Security
 - Semgrep SAST is now **enforcing** in CI (`--config=auto --error`) rather than
   report-only (#368). The scan was already clean — no findings to triage.

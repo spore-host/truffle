@@ -152,6 +152,27 @@ func TestGetCapacityBlocks_Empty(t *testing.T) {
 	}
 }
 
+// TestGetCapacityBlockOfferings_Empty exercises the offerings-discovery path
+// (truffle#67): the required CapacityDurationHours/InstanceType/InstanceCount
+// plumb through DescribeCapacityBlockOfferings and an empty substrate yields no
+// offerings without error.
+func TestGetCapacityBlockOfferings_Empty(t *testing.T) {
+	env := testutil.SubstrateServer(t)
+	c := NewClientFromConfig(env.AWSConfig)
+
+	res, err := c.GetCapacityBlockOfferings(context.Background(), []string{"us-east-1"}, CapacityBlockOfferingOptions{
+		InstanceType:          "p5.48xlarge",
+		InstanceCount:         1,
+		CapacityDurationHours: 24,
+	})
+	if err != nil {
+		t.Fatalf("GetCapacityBlockOfferings error = %v", err)
+	}
+	if len(res) != 0 {
+		t.Errorf("expected 0 offerings from empty substrate, got %d", len(res))
+	}
+}
+
 // TestMatchesFilters_NestedVirt covers the nested-virtualization filter: the
 // predicate must include a type advertising the feature and exclude one that
 // doesn't, but only when the filter is enabled.

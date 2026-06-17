@@ -525,6 +525,121 @@ func (p *Printer) PrintCapacityCSV(results []aws.CapacityReservationResult) erro
 	return nil
 }
 
+// --- Capacity Block offerings (purchasable; truffle#67) ---
+
+// PrintBlockOfferingsTable renders purchasable Capacity Block offerings.
+func (p *Printer) PrintBlockOfferingsTable(results []aws.CapacityBlockOfferingResult) error {
+	headers := []string{"OFFERING ID", "TYPE", "COUNT", "AZ", "START", "END", "HOURS", "UPFRONT", "CCY"}
+	table := newTable(headers, p.useColor)
+	for _, r := range results {
+		table.append([]string{
+			r.OfferingID,
+			r.InstanceType,
+			fmt.Sprintf("%d", r.InstanceCount),
+			r.AvailabilityZone,
+			r.StartDate,
+			r.EndDate,
+			fmt.Sprintf("%d", r.DurationHours),
+			r.UpfrontFee,
+			r.CurrencyCode,
+		})
+	}
+	return table.render()
+}
+
+// PrintBlockOfferingsJSON renders offerings as JSON.
+func (p *Printer) PrintBlockOfferingsJSON(results []aws.CapacityBlockOfferingResult) error {
+	encoder := json.NewEncoder(os.Stdout)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(results)
+}
+
+// PrintBlockOfferingsYAML renders offerings as YAML.
+func (p *Printer) PrintBlockOfferingsYAML(results []aws.CapacityBlockOfferingResult) error {
+	encoder := yaml.NewEncoder(os.Stdout)
+	encoder.SetIndent(2)
+	defer func() { _ = encoder.Close() }()
+	return encoder.Encode(results)
+}
+
+// PrintBlockOfferingsCSV renders offerings as CSV.
+func (p *Printer) PrintBlockOfferingsCSV(results []aws.CapacityBlockOfferingResult) error {
+	writer := csv.NewWriter(os.Stdout)
+	defer writer.Flush()
+	header := []string{"offering_id", "instance_type", "instance_count", "availability_zone", "region", "start_date", "end_date", "duration_hours", "upfront_fee", "currency_code", "tenancy"}
+	if err := writer.Write(header); err != nil {
+		return err
+	}
+	for _, r := range results {
+		row := []string{
+			r.OfferingID, r.InstanceType, fmt.Sprintf("%d", r.InstanceCount),
+			r.AvailabilityZone, r.Region, r.StartDate, r.EndDate,
+			fmt.Sprintf("%d", r.DurationHours), r.UpfrontFee, r.CurrencyCode, r.Tenancy,
+		}
+		if err := writer.Write(row); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// --- Owned Capacity Blocks (existing reservations; truffle#67 --blocks) ---
+
+// PrintBlocksTable renders owned/scheduled Capacity Block reservations.
+func (p *Printer) PrintBlocksTable(results []aws.CapacityBlockResult) error {
+	headers := []string{"BLOCK ID", "TYPE", "COUNT", "AZ", "START", "END", "HOURS", "STATE"}
+	table := newTable(headers, p.useColor)
+	for _, r := range results {
+		table.append([]string{
+			shortenReservationID(r.CapacityBlockID),
+			r.InstanceType,
+			fmt.Sprintf("%d", r.InstanceCount),
+			r.AvailabilityZone,
+			r.StartDate,
+			r.EndDate,
+			fmt.Sprintf("%d", r.DurationHours),
+			r.State,
+		})
+	}
+	return table.render()
+}
+
+// PrintBlocksJSON renders owned Capacity Blocks as JSON.
+func (p *Printer) PrintBlocksJSON(results []aws.CapacityBlockResult) error {
+	encoder := json.NewEncoder(os.Stdout)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(results)
+}
+
+// PrintBlocksYAML renders owned Capacity Blocks as YAML.
+func (p *Printer) PrintBlocksYAML(results []aws.CapacityBlockResult) error {
+	encoder := yaml.NewEncoder(os.Stdout)
+	encoder.SetIndent(2)
+	defer func() { _ = encoder.Close() }()
+	return encoder.Encode(results)
+}
+
+// PrintBlocksCSV renders owned Capacity Blocks as CSV.
+func (p *Printer) PrintBlocksCSV(results []aws.CapacityBlockResult) error {
+	writer := csv.NewWriter(os.Stdout)
+	defer writer.Flush()
+	header := []string{"capacity_block_id", "instance_type", "instance_count", "availability_zone", "start_date", "end_date", "duration_hours", "state"}
+	if err := writer.Write(header); err != nil {
+		return err
+	}
+	for _, r := range results {
+		row := []string{
+			r.CapacityBlockID, r.InstanceType, fmt.Sprintf("%d", r.InstanceCount),
+			r.AvailabilityZone, r.StartDate, r.EndDate,
+			fmt.Sprintf("%d", r.DurationHours), r.State,
+		}
+		if err := writer.Write(row); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func groupByInstanceType(results []aws.InstanceTypeResult) map[string][]aws.InstanceTypeResult {
 	grouped := make(map[string][]aws.InstanceTypeResult)
 	for _, result := range results {

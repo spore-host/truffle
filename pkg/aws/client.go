@@ -145,6 +145,37 @@ type CapacityBlockOptions struct {
 	Verbose       bool
 }
 
+// CapacityBlockOfferingResult represents a PURCHASABLE Capacity Block offering
+// (the answer to "what can I reserve?"), as returned by DescribeCapacityBlock
+// Offerings — distinct from CapacityBlockResult, which represents an EXISTING
+// reservation you already own. The OfferingID is what spawn purchases (spawn#217).
+type CapacityBlockOfferingResult struct {
+	OfferingID       string `json:"offering_id" yaml:"offering_id"`
+	InstanceType     string `json:"instance_type" yaml:"instance_type"`
+	InstanceCount    int32  `json:"instance_count" yaml:"instance_count"`
+	AvailabilityZone string `json:"availability_zone" yaml:"availability_zone"`
+	Region           string `json:"region" yaml:"region"`
+	StartDate        string `json:"start_date" yaml:"start_date"`
+	EndDate          string `json:"end_date" yaml:"end_date"`
+	DurationHours    int32  `json:"duration_hours" yaml:"duration_hours"`
+	UpfrontFee       string `json:"upfront_fee" yaml:"upfront_fee"` // total up-front price (string per AWS)
+	CurrencyCode     string `json:"currency_code" yaml:"currency_code"`
+	Tenancy          string `json:"tenancy,omitempty" yaml:"tenancy,omitempty"`
+}
+
+// CapacityBlockOfferingOptions are the query parameters for discovering
+// purchasable Capacity Block offerings. CapacityDurationHours and InstanceType
+// are required by the AWS DescribeCapacityBlockOfferings API; InstanceCount
+// defaults to 1.
+type CapacityBlockOfferingOptions struct {
+	InstanceType          string // required
+	InstanceCount         int32  // required by us; defaults to 1
+	CapacityDurationHours int32  // required by AWS
+	StartAfter            string // ISO-8601; maps to StartDateRange
+	StartBefore           string // ISO-8601; maps to EndDateRange
+	Verbose               bool
+}
+
 // NewClient creates a new AWS client using the default credential chain.
 func NewClient(ctx context.Context) (*Client, error) {
 	cfg, err := config.LoadDefaultConfig(ctx)
@@ -591,6 +622,114 @@ func containsWildcard(pattern string) bool {
 		}
 	}
 	return false
+}
+
+// GetCapacityBlockOfferings discovers PURCHASABLE Capacity Block offerings across
+// regions via DescribeCapacityBlockOfferings (the "what can I reserve?" query) —
+// distinct from GetCapacityBlocks, which lists blocks you already own. Read-only.
+// The returned OfferingID feeds spawn's purchase command (spawn#217). Price
+// (UpfrontFee + CurrencyCode) comes directly from each offering — no separate
+// pricing lookup needed.
+func (c *Client) GetCapacityBlockOfferings(ctx context.Context, regions []string, opts CapacityBlockOfferingOptions) ([]CapacityBlockOfferingResult, error) {
+	var (
+		results []CapacityBlockOfferingResult
+		mu      sync.Mutex
+		wg      sync.WaitGroup
+	)
+
+	semaphore := make(chan struct{}, 10)
+
+	for _, region := range regions {
+		wg.Add(1)
+		go func(r string) {
+			defer wg.Done()
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }()
+
+			if opts.Verbose {
+				fmt.Fprintf(os.Stderr, "  Checking Capacity Block offerings in: %s\n", r)
+			}
+
+			regionResults, err := c.getRegionCapacityBlockOfferings(ctx, r, opts)
+			if err != nil {
+				if opts.Verbose {
+					fmt.Fprintf(os.Stderr, "  Warning: failed to get Capacity Block offerings for %s: %v\n", r, err)
+				}
+				return
+			}
+
+			if len(regionResults) > 0 {
+				mu.Lock()
+				results = append(results, regionResults...)
+				mu.Unlock()
+			}
+		}(region)
+	}
+
+	wg.Wait()
+	return results, nil
+}
+
+func (c *Client) getRegionCapacityBlockOfferings(ctx context.Context, region string, opts CapacityBlockOfferingOptions) ([]CapacityBlockOfferingResult, error) {
+	cfg := c.cfg
+	cfg.Region = region
+	client := ec2.NewFromConfig(cfg)
+
+	count := opts.InstanceCount
+	if count <= 0 {
+		count = 1
+	}
+
+	input := &ec2.DescribeCapacityBlockOfferingsInput{
+		CapacityDurationHours: aws.Int32(opts.CapacityDurationHours),
+		InstanceType:          stringPtr(opts.InstanceType),
+		InstanceCount:         aws.Int32(count),
+	}
+	if opts.StartAfter != "" {
+		if t, err := time.Parse(time.RFC3339, opts.StartAfter); err == nil {
+			input.StartDateRange = &t
+		}
+	}
+	if opts.StartBefore != "" {
+		if t, err := time.Parse(time.RFC3339, opts.StartBefore); err == nil {
+			input.EndDateRange = &t
+		}
+	}
+
+	var results []CapacityBlockOfferingResult
+
+	paginator := ec2.NewDescribeCapacityBlockOfferingsPaginator(client, input)
+	for paginator.HasMorePages() {
+		output, err := paginator.NextPage(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, o := range output.CapacityBlockOfferings {
+			startDate := ""
+			if o.StartDate != nil {
+				startDate = o.StartDate.Format(time.RFC3339)
+			}
+			endDate := ""
+			if o.EndDate != nil {
+				endDate = o.EndDate.Format(time.RFC3339)
+			}
+			results = append(results, CapacityBlockOfferingResult{
+				OfferingID:       valueOrZero(o.CapacityBlockOfferingId),
+				InstanceType:     valueOrZero(o.InstanceType),
+				InstanceCount:    valueOrZero(o.InstanceCount),
+				AvailabilityZone: valueOrZero(o.AvailabilityZone),
+				Region:           region,
+				StartDate:        startDate,
+				EndDate:          endDate,
+				DurationHours:    valueOrZero(o.CapacityBlockDurationHours),
+				UpfrontFee:       valueOrZero(o.UpfrontFee),
+				CurrencyCode:     valueOrZero(o.CurrencyCode),
+				Tenancy:          string(o.Tenancy),
+			})
+		}
+	}
+
+	return results, nil
 }
 
 func valueOrZero[T any](ptr *T) T {
