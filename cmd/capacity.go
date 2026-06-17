@@ -79,6 +79,12 @@ func runCapacity(cmd *cobra.Command, args []string) error {
 		}))
 	}
 
+	// --blocks: show existing/scheduled Capacity Blocks for ML instead of ODCRs.
+	// (Previously this flag was a no-op — it never reached GetCapacityBlocks.)
+	if crShowBlocks {
+		return runCapacityBlocksOwned(ctx, awsClient, searchRegions)
+	}
+
 	// Get capacity reservations
 	results, err := awsClient.GetCapacityReservations(ctx, searchRegions, aws.CapacityReservationOptions{
 		InstanceTypes: crInstanceTypes,
@@ -219,4 +225,52 @@ func printCapacitySummary(results []aws.CapacityReservationResult) {
 	fmt.Printf("   %s: %d %s (%.1f%% %s)\n", i18n.T("truffle.capacity.summary.available_capacity"), availableCapacity, i18n.T("truffle.capacity.summary.instances"), 100-utilizationPercent, i18n.T("truffle.capacity.summary.free"))
 	fmt.Printf("   %s: %d %s (%.1f%% %s)\n", i18n.T("truffle.capacity.summary.used_capacity"), usedCapacity, i18n.T("truffle.capacity.summary.instances"), utilizationPercent, i18n.T("truffle.capacity.summary.utilized"))
 	fmt.Println()
+}
+
+// runCapacityBlocksOwned lists EXISTING/scheduled Capacity Blocks for ML (the
+// `truffle capacity --blocks` path). For PURCHASABLE offerings, see the
+// `truffle capacity-blocks` command (cmd/capacity_blocks.go).
+func runCapacityBlocksOwned(ctx context.Context, awsClient *aws.Client, searchRegions []string) error {
+	results, err := awsClient.GetCapacityBlocks(ctx, searchRegions, aws.CapacityBlockOptions{
+		InstanceTypes: crInstanceTypes,
+		OnlyActive:    crOnlyActive,
+		Verbose:       verbose,
+	})
+	if err != nil {
+		return i18n.Te("truffle.capacity.error.get_failed", err)
+	}
+	if crGPUOnly {
+		filtered := make([]aws.CapacityBlockResult, 0, len(results))
+		for _, r := range results {
+			if isGPUFamily(extractFamily(r.InstanceType)) {
+				filtered = append(filtered, r)
+			}
+		}
+		results = filtered
+	}
+	if len(results) == 0 {
+		fmt.Println(i18n.T("truffle.capacity.no_results"))
+		return nil
+	}
+	sort.Slice(results, func(i, j int) bool {
+		if results[i].StartDate != results[j].StartDate {
+			return results[i].StartDate < results[j].StartDate
+		}
+		return results[i].InstanceType < results[j].InstanceType
+	})
+	printer := output.NewPrinter(!noColor)
+	switch outputFormat {
+	case "json":
+		return printer.PrintBlocksJSON(results)
+	case "yaml":
+		return printer.PrintBlocksYAML(results)
+	case "csv":
+		return printer.PrintBlocksCSV(results)
+	case "table":
+		return printer.PrintBlocksTable(results)
+	default:
+		return i18n.Te("truffle.capacity.error.unsupported_format", nil, map[string]interface{}{
+			"Format": outputFormat,
+		})
+	}
 }

@@ -24,21 +24,23 @@ import (
 // Finder is a mock implementation of [aws.Finder]. Configure it with
 // [New] and option functions, or set fields directly for simple cases.
 type Finder struct {
-	Regions       []string
-	Instances     []aws.InstanceTypeResult
-	SpotPrices    []aws.SpotPriceResult
-	Reservations  []aws.CapacityReservationResult
-	Blocks        []aws.CapacityBlockResult
-	OnDemandMap   map[string]float64 // key: "instanceType/region"
-	InstanceTypes map[string][]string // key: region
+	Regions        []string
+	Instances      []aws.InstanceTypeResult
+	SpotPrices     []aws.SpotPriceResult
+	Reservations   []aws.CapacityReservationResult
+	Blocks         []aws.CapacityBlockResult
+	BlockOfferings []aws.CapacityBlockOfferingResult
+	OnDemandMap    map[string]float64  // key: "instanceType/region"
+	InstanceTypes  map[string][]string // key: region
 
 	// Error injection: if non-nil, the corresponding method returns this error.
-	SearchErr      error
-	SpotErr        error
-	RegionsErr     error
-	ReservationErr error
-	BlocksErr      error
-	PriceErr       error
+	SearchErr         error
+	SpotErr           error
+	RegionsErr        error
+	ReservationErr    error
+	BlocksErr         error
+	BlockOfferingsErr error
+	PriceErr          error
 }
 
 // compile-time check
@@ -87,6 +89,11 @@ func WithReservations(reservations []aws.CapacityReservationResult) Option {
 // WithBlocks sets the Capacity Blocks returned by GetCapacityBlocks.
 func WithBlocks(blocks []aws.CapacityBlockResult) Option {
 	return func(m *Finder) { m.Blocks = blocks }
+}
+
+// WithBlockOfferings sets the offerings returned by GetCapacityBlockOfferings.
+func WithBlockOfferings(offerings []aws.CapacityBlockOfferingResult) Option {
+	return func(m *Finder) { m.BlockOfferings = offerings }
 }
 
 // WithError injects an error into all methods.
@@ -183,6 +190,13 @@ func (m *Finder) GetCapacityBlocks(_ context.Context, _ []string, _ aws.Capacity
 		return nil, m.BlocksErr
 	}
 	return m.Blocks, nil
+}
+
+func (m *Finder) GetCapacityBlockOfferings(_ context.Context, _ []string, _ aws.CapacityBlockOfferingOptions) ([]aws.CapacityBlockOfferingResult, error) {
+	if m.BlockOfferingsErr != nil {
+		return nil, m.BlockOfferingsErr
+	}
+	return m.BlockOfferings, nil
 }
 
 func (m *Finder) OnDemandPrice(_ context.Context, instanceType, region string) (float64, error) {
