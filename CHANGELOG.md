@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+- README: add the `capacity-blocks` command to the command table and list
+  French in the `--lang` options (both were already supported in the CLI).
+
 ## [0.41.0] - 2026-06-18
 
 ### Added

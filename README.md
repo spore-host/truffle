@@ -82,6 +82,7 @@ truffle find "intel 8 vcpu" -o csv
 | `spot <pattern>` | Spot pricing with savings vs on-demand |
 | `az <pattern>` | AZ-first availability view |
 | `capacity` | On-demand capacity reservations (ODCRs) |
+| `capacity-blocks` | Discover purchasable EC2 Capacity Block for ML offerings |
 | `list` | List instance families or sizes |
 | `quotas` | EC2 and SageMaker service quotas |
 | `app list` | Browse application catalog (no credentials needed) |
@@ -95,7 +96,7 @@ truffle find "intel 8 vcpu" -o csv
 | `-r, --regions` | Filter by regions (comma-separated) |
 | `--no-emoji` | Disable emoji in output |
 | `--no-color` | Disable colorized output |
-| `--lang` | Language: `en`, `es`, `pt`, `ja`, `de` |
+| `--lang` | Language: `en`, `es`, `fr`, `de`, `ja`, `pt` |
 
 ## Go Library
 
