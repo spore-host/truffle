@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fatih/color"
 	"github.com/spore-host/truffle/pkg/aws"
@@ -457,5 +458,43 @@ func TestPrintTable_Empty(t *testing.T) {
 	})
 	if !strings.ContainsAny(out, boxChars) {
 		t.Errorf("expected at least header borders for empty table:\n%s", out)
+	}
+}
+
+func TestFormatLocalWindow(t *testing.T) {
+	// Pin the local zone to UTC so the assertions are deterministic regardless of
+	// where the test runs.
+	orig := time.Local
+	time.Local = time.UTC
+	defer func() { time.Local = orig }()
+
+	cases := []struct {
+		name, start, end, want string
+	}{
+		{
+			name:  "same local day drops the end date",
+			start: "2026-06-18T04:30:00Z",
+			end:   "2026-06-18T11:30:00Z",
+			want:  "Jun 18 04:30 → 11:30 UTC",
+		},
+		{
+			name:  "multi-day keeps the end date",
+			start: "2026-06-18T11:30:00Z",
+			end:   "2026-06-19T11:30:00Z",
+			want:  "Jun 18 11:30 → Jun 19 11:30 UTC",
+		},
+		{
+			name:  "bad start falls back to raw",
+			start: "not-a-time",
+			end:   "2026-06-19T11:30:00Z",
+			want:  "not-a-time",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := formatLocalWindow(c.start, c.end); got != c.want {
+				t.Errorf("formatLocalWindow(%q,%q) = %q, want %q", c.start, c.end, got, c.want)
+			}
+		})
 	}
 }

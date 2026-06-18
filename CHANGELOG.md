@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `capacity-blocks` gains **`--days`** (the natural unit for Capacity Blocks for ML —
+  `--days 1` instead of `--duration-hours 24`) and **`--start-date YYYY-MM-DD`** to
+  search for blocks starting on a given calendar day without hand-building RFC3339
+  timestamps. `--days` overrides `--duration-hours`.
+- `capacity-blocks --sort price|start` orders offerings cheapest-first (default) or
+  soonest-first. (The previous output claimed cheapest-first but actually sorted by
+  start date.)
+
+### Changed
+- `capacity-blocks` now shows a single **WINDOW (LOCAL)** column in your local
+  timezone (e.g. `Jun 18 04:30 → Jun 19 04:30 PDT`) instead of two raw UTC ISO-8601
+  `START`/`END` columns — far easier to read, and the redundant end-date is dropped
+  when the window stays within one local day. Same for the owned-blocks table
+  (`capacity --blocks`).
+
+### Fixed
+- `--start-date` derives a search window that accounts for the API's `EndDateRange`
+  being the *latest end* (not "starts before"): a block that starts on the chosen
+  day runs its full duration and ends up to ~12h into a later day (all blocks end at
+  11:30 UTC), so the window now covers start-of-day + duration + a cushion. Without
+  this, the exact block you asked for was filtered out.
+
 ## [0.40.0] - 2026-06-17
 
 ### Added

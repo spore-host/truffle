@@ -3,8 +3,11 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -17,8 +20,11 @@ var (
 	cboInstanceType  string
 	cboInstanceCount int
 	cboDurationHours int
+	cboDays          int
+	cboStartDate     string
 	cboStartAfter    string
 	cboStartBefore   string
+	cboSort          string
 )
 
 var capacityBlocksCmd = &cobra.Command{
@@ -27,15 +33,17 @@ var capacityBlocksCmd = &cobra.Command{
 	Long: `Discover purchasable EC2 Capacity Block for ML offerings (read-only).
 
 This queries DescribeCapacityBlockOfferings — "what can I reserve?" — and shows
-each offering's id, instance type/count, AZ, start/end, duration, and up-front
-price. The offering id is what 'spawn capacity-block purchase' reserves.
+each offering's id, instance type/count, AZ, reservation window (in your local
+timezone), duration, and up-front price. The offering id is what 'spawn
+capacity-block purchase' reserves. Offerings are listed cheapest-first by default
+(--sort start to order by start time instead).
 
 For Capacity Blocks you ALREADY own, use 'truffle capacity --blocks' instead.
 
 Examples:
   truffle capacity-blocks --instance-type p5.48xlarge --count 1 --duration-hours 24
   truffle capacity-blocks --instance-type p5.48xlarge --count 2 --duration-hours 48 \
-    --region us-east-1 --output json`,
+    --region us-east-1 --sort start --output json`,
 	RunE: runCapacityBlocksOfferings,
 }
 
@@ -44,9 +52,12 @@ func init() {
 
 	capacityBlocksCmd.Flags().StringVar(&cboInstanceType, "instance-type", "", "Instance type to find offerings for (required, e.g. p5.48xlarge)")
 	capacityBlocksCmd.Flags().IntVar(&cboInstanceCount, "count", 1, "Number of instances in the block")
-	capacityBlocksCmd.Flags().IntVar(&cboDurationHours, "duration-hours", 0, "Capacity Block duration in hours (required, e.g. 24)")
+	capacityBlocksCmd.Flags().IntVar(&cboDurationHours, "duration-hours", 0, "Capacity Block duration in hours (e.g. 24); use --days for whole days")
+	capacityBlocksCmd.Flags().IntVar(&cboDays, "days", 0, "Capacity Block duration in days (natural unit for CB-for-ML; e.g. --days 1). Overrides --duration-hours")
+	capacityBlocksCmd.Flags().StringVar(&cboStartDate, "start-date", "", "Search for blocks starting on this calendar day (YYYY-MM-DD), in UTC")
 	capacityBlocksCmd.Flags().StringVar(&cboStartAfter, "start-after", "", "Only offerings starting after this time (RFC3339, e.g. 2026-07-01T00:00:00Z)")
 	capacityBlocksCmd.Flags().StringVar(&cboStartBefore, "start-before", "", "Only offerings ending before this time (RFC3339)")
+	capacityBlocksCmd.Flags().StringVar(&cboSort, "sort", "price", "Sort offerings by: price (cheapest first) or start (soonest first)")
 	capacityBlocksCmd.Flags().DurationVar(&timeout, "timeout", 5*time.Minute, "Timeout for AWS API calls")
 }
 
@@ -54,8 +65,42 @@ func runCapacityBlocksOfferings(cmd *cobra.Command, args []string) error {
 	if cboInstanceType == "" {
 		return fmt.Errorf("--instance-type is required (e.g. --instance-type p5.48xlarge)")
 	}
-	if cboDurationHours <= 0 {
-		return fmt.Errorf("--duration-hours is required and must be > 0 (e.g. --duration-hours 24)")
+	// --days is the natural unit for CB-for-ML (the console asks for days/weeks);
+	// it just expands to hours. It takes precedence over --duration-hours.
+	durationHours := cboDurationHours
+	if cboDays > 0 {
+		durationHours = cboDays * 24
+	}
+	if durationHours <= 0 {
+		return fmt.Errorf("specify a duration with --days (e.g. --days 1) or --duration-hours (e.g. --duration-hours 24)")
+	}
+	if cboSort != "price" && cboSort != "start" {
+		return fmt.Errorf("--sort must be 'price' or 'start' (got %q)", cboSort)
+	}
+
+	// --start-date is a convenience for "blocks starting on this calendar day": it
+	// derives the start-after/start-before window so the user doesn't hand-build
+	// RFC3339 timestamps. Explicit --start-after/--start-before win if also given.
+	//
+	// Note the API's EndDateRange is the *latest end*, not "starts before": a block
+	// that starts on the chosen day RUNS for `durationHours` and ends up to ~12h
+	// into a later day (all blocks end at 11:30 UTC). So the end of the search
+	// window must cover start-of-day + duration + a 1-day cushion, or we'd filter
+	// out the very block we asked for (see truffle#69).
+	startAfter, startBefore := cboStartAfter, cboStartBefore
+	if cboStartDate != "" {
+		day, derr := time.Parse("2006-01-02", cboStartDate)
+		if derr != nil {
+			return fmt.Errorf("--start-date must be YYYY-MM-DD (got %q): %w", cboStartDate, derr)
+		}
+		day = day.UTC()
+		if startAfter == "" {
+			startAfter = day.Format(time.RFC3339)
+		}
+		if startBefore == "" {
+			endWindow := day.Add(time.Duration(durationHours)*time.Hour + 24*time.Hour)
+			startBefore = endWindow.Format(time.RFC3339)
+		}
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -77,9 +122,9 @@ func runCapacityBlocksOfferings(cmd *cobra.Command, args []string) error {
 	results, err := awsClient.GetCapacityBlockOfferings(ctx, searchRegions, aws.CapacityBlockOfferingOptions{
 		InstanceType:          cboInstanceType,
 		InstanceCount:         int32(cboInstanceCount),
-		CapacityDurationHours: int32(cboDurationHours),
-		StartAfter:            cboStartAfter,
-		StartBefore:           cboStartBefore,
+		CapacityDurationHours: int32(durationHours),
+		StartAfter:            startAfter,
+		StartBefore:           startBefore,
 		Verbose:               verbose,
 	})
 	if err != nil {
@@ -91,17 +136,15 @@ func runCapacityBlocksOfferings(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Sort cheapest-first by start date then offering id (stable, predictable).
-	sort.Slice(results, func(i, j int) bool {
-		if results[i].StartDate != results[j].StartDate {
-			return results[i].StartDate < results[j].StartDate
-		}
-		return results[i].OfferingID < results[j].OfferingID
-	})
+	// Sort the offerings. Default is cheapest-first (--sort price), since the
+	// up-front fee is usually the deciding factor; --sort start orders by the
+	// reservation start time instead. Ties break on the other key then offering id
+	// for a stable, predictable order.
+	sortOfferings(results, cboSort)
 
 	if outputFormat == "table" {
 		fmt.Fprintf(os.Stderr, "Found %d Capacity Block offering(s) for %s ×%d (%dh). Purchase with: spawn capacity-block purchase <offering-id>\n\n",
-			len(results), cboInstanceType, cboInstanceCount, cboDurationHours)
+			len(results), cboInstanceType, cboInstanceCount, durationHours)
 	}
 
 	printer := output.NewPrinter(!noColor)
@@ -119,4 +162,41 @@ func runCapacityBlocksOfferings(cmd *cobra.Command, args []string) error {
 			"Format": outputFormat,
 		})
 	}
+}
+
+// parseFee converts an offering's up-front fee string (e.g. "830.5900") to a
+// float for numeric sorting. An unparseable/empty fee sorts last (+Inf) so real
+// priced offerings always come first under --sort price.
+func parseFee(s string) float64 {
+	f, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
+	if err != nil {
+		return math.Inf(1)
+	}
+	return f
+}
+
+// sortOfferings orders offerings by the chosen key. "price" sorts cheapest-first
+// (up-front fee), tie-breaking on start then offering id; "start" sorts soonest-
+// first, tie-breaking on fee then offering id. Both are fully deterministic.
+func sortOfferings(results []aws.CapacityBlockOfferingResult, by string) {
+	sort.Slice(results, func(i, j int) bool {
+		a, b := results[i], results[j]
+		if by == "start" {
+			if a.StartDate != b.StartDate {
+				return a.StartDate < b.StartDate
+			}
+			if fa, fb := parseFee(a.UpfrontFee), parseFee(b.UpfrontFee); fa != fb {
+				return fa < fb
+			}
+			return a.OfferingID < b.OfferingID
+		}
+		// default: price
+		if fa, fb := parseFee(a.UpfrontFee), parseFee(b.UpfrontFee); fa != fb {
+			return fa < fb
+		}
+		if a.StartDate != b.StartDate {
+			return a.StartDate < b.StartDate
+		}
+		return a.OfferingID < b.OfferingID
+	})
 }
