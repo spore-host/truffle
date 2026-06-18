@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `capacity-blocks` gains **`--days`** (the natural unit for Capacity Blocks for ML —
+  `--days 1` instead of `--duration-hours 24`) and **`--start-date YYYY-MM-DD`** to
+  search for blocks starting on a given calendar day without hand-building RFC3339
+  timestamps. `--days` overrides `--duration-hours`.
+- `capacity-blocks --sort price|start` orders offerings cheapest-first (default) or
+  soonest-first. (The previous output claimed cheapest-first but actually sorted by
+  start date.)
+
+### Changed
+- `capacity-blocks` now **searches a date window by default** (now → the soonest a
+  block of the requested duration could end) instead of only the immediate instant,
+  so a bare query finds near-future inventory it previously missed (#69).
+- `capacity-blocks` now shows a single **WINDOW (LOCAL)** column in your local
+  timezone (e.g. `Jun 18 04:30 → Jun 19 04:30 PDT`) instead of two raw UTC ISO-8601
+  `START`/`END` columns — far easier to read, and the redundant end-date is dropped
+  when the window stays within one local day. Same for the owned-blocks table
+  (`capacity --blocks`).
+- `capacity-blocks --duration-hours` is **rounded up to a valid Capacity Block
+  duration** (1-day steps to 14 days, then 7-day steps to 182), with a notice,
+  instead of forwarding an invalid value and surfacing AWS's opaque "duration is not
+  valid" error. Durations over 182 days are rejected with a clear message (#69).
+- **Renamed `--start-before` → `--end-by`** to match the API's real semantics: the
+  underlying `EndDateRange` is the *latest block end*, not "starts before". The old
+  name silently constrained the end date and could exclude the very block requested.
+
+### Fixed
+- `--start-date` (and the default window) derive their end bound accounting for the
+  API's `EndDateRange` being the *latest end*: a block that starts on the chosen day
+  runs its full duration and ends up to ~12h into a later day (all blocks end at
+  11:30 UTC), so the window covers start-of-day + duration + a cushion. Without this,
+  the exact block you asked for was filtered out. Closes #69.
+
 ## [0.40.0] - 2026-06-17
 
 ### Added

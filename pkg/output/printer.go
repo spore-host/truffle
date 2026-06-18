@@ -404,6 +404,33 @@ func formatTimestamp(ts string) string {
 	return t.Format("Jan 02 15:04")
 }
 
+// formatLocalWindow renders a start→end pair as a compact, local-timezone window
+// for the Capacity Block tables. Capacity Blocks are returned in UTC (and all end
+// at 11:30 UTC), so showing two full ISO-8601 UTC strings per row is both noisy
+// and hard to relate to the operator's clock. We convert to the local zone and,
+// when the window stays within one local day, drop the redundant date on the end:
+//
+//	Jun 18 04:30 → 11:30 PDT          (same local day)
+//	Jun 18 04:30 → Jun 19 04:30 PDT   (spans local days)
+//
+// On a parse failure we fall back to the raw start string so nothing is hidden.
+func formatLocalWindow(start, end string) string {
+	st, err := time.Parse(time.RFC3339, start)
+	if err != nil {
+		return start
+	}
+	st = st.Local()
+	et, err := time.Parse(time.RFC3339, end)
+	if err != nil {
+		return st.Format("Jan 02 15:04 MST")
+	}
+	et = et.Local()
+	if st.YearDay() == et.YearDay() && st.Year() == et.Year() {
+		return fmt.Sprintf("%s → %s %s", st.Format("Jan 02 15:04"), et.Format("15:04"), et.Format("MST"))
+	}
+	return fmt.Sprintf("%s → %s %s", st.Format("Jan 02 15:04"), et.Format("Jan 02 15:04"), et.Format("MST"))
+}
+
 // PrintSpotJSON outputs Spot pricing results as JSON
 func (p *Printer) PrintSpotJSON(results []aws.SpotPriceResult) error {
 	encoder := json.NewEncoder(os.Stdout)
@@ -529,7 +556,7 @@ func (p *Printer) PrintCapacityCSV(results []aws.CapacityReservationResult) erro
 
 // PrintBlockOfferingsTable renders purchasable Capacity Block offerings.
 func (p *Printer) PrintBlockOfferingsTable(results []aws.CapacityBlockOfferingResult) error {
-	headers := []string{"OFFERING ID", "TYPE", "COUNT", "AZ", "START", "END", "HOURS", "UPFRONT", "CCY"}
+	headers := []string{"OFFERING ID", "TYPE", "COUNT", "AZ", "WINDOW (LOCAL)", "HOURS", "UPFRONT", "CCY"}
 	table := newTable(headers, p.useColor)
 	for _, r := range results {
 		table.append([]string{
@@ -537,8 +564,7 @@ func (p *Printer) PrintBlockOfferingsTable(results []aws.CapacityBlockOfferingRe
 			r.InstanceType,
 			fmt.Sprintf("%d", r.InstanceCount),
 			r.AvailabilityZone,
-			r.StartDate,
-			r.EndDate,
+			formatLocalWindow(r.StartDate, r.EndDate),
 			fmt.Sprintf("%d", r.DurationHours),
 			r.UpfrontFee,
 			r.CurrencyCode,
@@ -587,7 +613,7 @@ func (p *Printer) PrintBlockOfferingsCSV(results []aws.CapacityBlockOfferingResu
 
 // PrintBlocksTable renders owned/scheduled Capacity Block reservations.
 func (p *Printer) PrintBlocksTable(results []aws.CapacityBlockResult) error {
-	headers := []string{"BLOCK ID", "TYPE", "COUNT", "AZ", "START", "END", "HOURS", "STATE"}
+	headers := []string{"BLOCK ID", "TYPE", "COUNT", "AZ", "WINDOW (LOCAL)", "HOURS", "STATE"}
 	table := newTable(headers, p.useColor)
 	for _, r := range results {
 		table.append([]string{
@@ -595,8 +621,7 @@ func (p *Printer) PrintBlocksTable(results []aws.CapacityBlockResult) error {
 			r.InstanceType,
 			fmt.Sprintf("%d", r.InstanceCount),
 			r.AvailabilityZone,
-			r.StartDate,
-			r.EndDate,
+			formatLocalWindow(r.StartDate, r.EndDate),
 			fmt.Sprintf("%d", r.DurationHours),
 			r.State,
 		})

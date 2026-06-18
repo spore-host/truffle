@@ -171,8 +171,8 @@ type CapacityBlockOfferingOptions struct {
 	InstanceType          string // required
 	InstanceCount         int32  // required by us; defaults to 1
 	CapacityDurationHours int32  // required by AWS
-	StartAfter            string // ISO-8601; maps to StartDateRange
-	StartBefore           string // ISO-8601; maps to EndDateRange
+	StartAfter            string // ISO-8601; earliest block start → StartDateRange
+	EndBy                 string // ISO-8601; latest block end → EndDateRange
 	Verbose               bool
 }
 
@@ -690,8 +690,8 @@ func (c *Client) getRegionCapacityBlockOfferings(ctx context.Context, region str
 			input.StartDateRange = &t
 		}
 	}
-	if opts.StartBefore != "" {
-		if t, err := time.Parse(time.RFC3339, opts.StartBefore); err == nil {
+	if opts.EndBy != "" {
+		if t, err := time.Parse(time.RFC3339, opts.EndBy); err == nil {
 			input.EndDateRange = &t
 		}
 	}
