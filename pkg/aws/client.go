@@ -12,6 +12,7 @@ package aws
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"regexp"
@@ -285,10 +286,27 @@ func (c *Client) SearchInstanceTypes(ctx context.Context, regions []string, matc
 	wg.Wait()
 	close(errCh)
 
-	// Collect any errors
+	// Collect any per-region errors. A total failure (expired creds, throttling,
+	// an SCP denying the API) must not masquerade as a legitimate empty result —
+	// truffle is the discovery authority spawn/lagotto consume, so a masked
+	// failure makes callers conclude a type/region is unavailable when the query
+	// never actually ran (#63).
+	var regionErrs []error
 	for err := range errCh {
-		if opts.Verbose {
-			fmt.Fprintf(os.Stderr, "⚠️  Warning: %v\n", err)
+		regionErrs = append(regionErrs, err)
+	}
+
+	if len(regions) > 0 && len(regionErrs) == len(regions) {
+		// Every region failed — surface it rather than returning empty success.
+		return results, fmt.Errorf("all %d region queries failed: %w", len(regions), errors.Join(regionErrs...))
+	}
+
+	// Partial failure: some regions succeeded. Always warn (not just in Verbose)
+	// so a silently-degraded result is visible.
+	if len(regionErrs) > 0 {
+		fmt.Fprintf(os.Stderr, "⚠️  Warning: %d of %d region queries failed; results may be incomplete:\n", len(regionErrs), len(regions))
+		for _, err := range regionErrs {
+			fmt.Fprintf(os.Stderr, "    %v\n", err)
 		}
 	}
 
@@ -762,6 +780,8 @@ func (c *Client) GetSpotPricing(ctx context.Context, instances []InstanceTypeRes
 		regionInstances[inst.Region] = append(regionInstances[inst.Region], inst)
 	}
 
+	errCh := make(chan error, len(regionInstances))
+
 	// Limit concurrent region queries
 	semaphore := make(chan struct{}, 10)
 
@@ -778,9 +798,7 @@ func (c *Client) GetSpotPricing(ctx context.Context, instances []InstanceTypeRes
 
 			regionResults, err := c.getRegionSpotPricing(ctx, r, insts, opts)
 			if err != nil {
-				if opts.Verbose {
-					fmt.Fprintf(os.Stderr, "  Warning: failed to get Spot pricing for %s: %v\n", r, err)
-				}
+				errCh <- fmt.Errorf("region %s: %w", r, err)
 				return
 			}
 
@@ -793,6 +811,26 @@ func (c *Client) GetSpotPricing(ctx context.Context, instances []InstanceTypeRes
 	}
 
 	wg.Wait()
+	close(errCh)
+
+	// As with SearchInstanceTypes: a total failure must not look like "no spot
+	// data available" (#63).
+	var regionErrs []error
+	for err := range errCh {
+		regionErrs = append(regionErrs, err)
+	}
+
+	nRegions := len(regionInstances)
+	if nRegions > 0 && len(regionErrs) == nRegions {
+		return results, fmt.Errorf("all %d region Spot price queries failed: %w", nRegions, errors.Join(regionErrs...))
+	}
+	if len(regionErrs) > 0 {
+		fmt.Fprintf(os.Stderr, "⚠️  Warning: %d of %d region Spot price queries failed; results may be incomplete:\n", len(regionErrs), nRegions)
+		for _, err := range regionErrs {
+			fmt.Fprintf(os.Stderr, "    %v\n", err)
+		}
+	}
+
 	return results, nil
 }
 
@@ -816,7 +854,12 @@ func (c *Client) getRegionSpotPricing(ctx context.Context, region string, instan
 		}
 	}
 
-	// Query each instance type
+	// Query each instance type. Track query failures so that a region where
+	// *every* query failed (e.g. expired creds, throttling) reports an error to
+	// the caller instead of an empty slice — otherwise a total failure looks
+	// like "no spot data available" (#63).
+	var lastErr error
+	failed := 0
 	for _, inst := range deduped {
 		// When the caller asks for savings, fetch the on-demand rate once per
 		// instance type (it does not vary by AZ) and reuse it across this type's AZs.
@@ -836,7 +879,9 @@ func (c *Client) getRegionSpotPricing(ctx context.Context, region string, instan
 
 		output, err := client.DescribeSpotPriceHistory(ctx, input)
 		if err != nil {
-			continue // Skip on error
+			lastErr = err
+			failed++
+			continue // Skip this type; a per-type failure is tolerated unless all fail.
 		}
 
 		// When lookback is > 1 hour, return all price history points (for trend analysis).
@@ -910,6 +955,12 @@ func (c *Client) getRegionSpotPricing(ctx context.Context, region string, instan
 				results = append(results, result)
 			}
 		}
+	}
+
+	// If we attempted at least one query and every one failed, the region query
+	// failed — don't return an empty-but-successful result (#63).
+	if len(deduped) > 0 && failed == len(deduped) {
+		return nil, fmt.Errorf("all %d Spot price queries in %s failed: %w", failed, region, lastErr)
 	}
 
 	return results, nil

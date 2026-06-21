@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `SearchInstanceTypes` and `GetSpotPricing` no longer report success when
+  *every* region query fails (#63). A total failure (expired credentials,
+  throttling, an SCP denying the API) previously returned an empty result that
+  callers could not distinguish from a legitimate "no matches", so truffle —
+  the discovery authority spawn/lagotto consume — could silently conclude a
+  type/region was unavailable when the query never ran. Now an all-regions
+  failure returns an error, and a partial failure prints a warning to stderr
+  (not only under `--verbose`).
+
 ### Documentation
 - README: add the `capacity-blocks` command to the command table and list
   French in the `--lang` options (both were already supported in the CLI).
