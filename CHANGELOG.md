@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- An exact-type search for an instance type that isn't offered in a region is
+  treated as a clean no-match, not a region failure (#64). `DescribeInstanceTypes`
+  with an explicit type filter returns `InvalidInstanceType`/
+  `InvalidParameterValue` for an unavailable type; that's now classified as
+  no-match. (Matters more now that an all-regions failure returns an error —
+  otherwise searching for an unavailable type would hard-fail.)
+- `CanLaunch` no longer overstates Spot headroom (#64). Current Spot usage isn't
+  tracked (usage is only subtracted from the on-demand quota), so the Spot path
+  previously treated usage as zero and returned a confident "ok". It now confirms
+  the request fits the full Spot quota but states that remaining headroom is
+  unverified rather than implying it checked usage.
 - `SearchInstanceTypes` and `GetSpotPricing` no longer report success when
   *every* region query fails (#63). A total failure (expired credentials,
   throttling, an SCP denying the API) previously returned an empty result that

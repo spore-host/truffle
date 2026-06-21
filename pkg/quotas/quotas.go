@@ -298,11 +298,23 @@ func (c *Client) CanLaunch(instanceType string, vCPUs int32, quotas *QuotaInfo, 
 	if spot {
 		quota = quotas.Spot[family]
 		quotaType = "Spot"
-	} else {
-		quota = quotas.OnDemand[family]
-		usage = quotas.Usage[family]
-		quotaType = "On-Demand"
+		// Current Spot usage is NOT tracked: getCurrentUsage counts running
+		// instances without distinguishing lifecycle, and it's only subtracted
+		// from the on-demand quota. So for Spot we can confirm the quota exists
+		// and that the request fits the *full* quota, but we can't confirm
+		// remaining headroom. Don't imply we did.
+		if quota == 0 {
+			return false, fmt.Sprintf("Spot quota for %s instances is 0 (request quota increase)", family)
+		}
+		if vCPUs > quota {
+			return false, fmt.Sprintf("Need %d vCPUs but the Spot %s quota is only %d", vCPUs, family, quota)
+		}
+		return true, fmt.Sprintf("fits Spot %s quota (%d vCPUs); current Spot usage is not tracked, so remaining headroom is unverified", family, quota)
 	}
+
+	quota = quotas.OnDemand[family]
+	usage = quotas.Usage[family]
+	quotaType = "On-Demand"
 
 	available := quota - usage
 

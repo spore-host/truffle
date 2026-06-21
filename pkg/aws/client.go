@@ -24,6 +24,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	smithy "github.com/aws/smithy-go"
 	"github.com/spore-host/truffle/pkg/spawn"
 )
 
@@ -331,6 +332,15 @@ func (c *Client) searchInRegion(ctx context.Context, region string, matcher *reg
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
+			// When the caller searched for specific instance type(s) via the API
+			// filter, a type that simply isn't offered in this region comes back
+			// as InvalidInstanceType / InvalidParameterValue. That's a legitimate
+			// "no match here", not a region failure — returning it as an error
+			// would (post-#63) turn an unavailable-type search into a hard failure
+			// when every searched region lacks the type.
+			if len(input.InstanceTypes) > 0 && isInstanceTypeNotOffered(err) {
+				return nil, nil
+			}
 			return nil, err
 		}
 
@@ -609,6 +619,22 @@ func extractFamily(instanceType string) string {
 		}
 	}
 	return instanceType
+}
+
+// isInstanceTypeNotOffered reports whether an error from DescribeInstanceTypes
+// (called with an explicit InstanceTypes filter) means the requested type simply
+// isn't offered in that region — AWS returns InvalidInstanceType or
+// InvalidParameterValue for that case. Such an error is a clean "no match here",
+// not a failed query.
+func isInstanceTypeNotOffered(err error) bool {
+	var apiErr smithy.APIError
+	if errors.As(err, &apiErr) {
+		switch apiErr.ErrorCode() {
+		case "InvalidInstanceType", "InvalidParameterValue":
+			return true
+		}
+	}
+	return false
 }
 
 // extractSpecificTypes analyzes regex and returns specific instance types if pattern is exact

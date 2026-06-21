@@ -8,6 +8,7 @@ import (
 
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
+	smithy "github.com/aws/smithy-go"
 )
 
 // newUnreachableClient returns a Client whose AWS calls all fail (the base
@@ -62,5 +63,29 @@ func TestGetSpotPricing_AllRegionsFail(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "region Spot price queries failed") {
 		t.Errorf("error should explain the total failure, got: %v", err)
+	}
+}
+
+// TestIsInstanceTypeNotOffered classifies the AWS errors that mean "this type
+// isn't offered in this region" so an exact-type search returns no-match rather
+// than a region failure (#64).
+func TestIsInstanceTypeNotOffered(t *testing.T) {
+	tests := []struct {
+		code string
+		want bool
+	}{
+		{"InvalidInstanceType", true},
+		{"InvalidParameterValue", true},
+		{"RequestLimitExceeded", false},
+		{"UnauthorizedOperation", false},
+	}
+	for _, tt := range tests {
+		err := &smithy.GenericAPIError{Code: tt.code, Message: "x"}
+		if got := isInstanceTypeNotOffered(err); got != tt.want {
+			t.Errorf("isInstanceTypeNotOffered(%s) = %v, want %v", tt.code, got, tt.want)
+		}
+	}
+	if isInstanceTypeNotOffered(nil) {
+		t.Error("nil error should not be classified as not-offered")
 	}
 }
