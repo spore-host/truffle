@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **`truffle find trn1.32xlarge` (and other accelerator types) now works.** The
+  single-word instance-type detector only recognized single-letter family
+  prefixes (`m7i`, `p5`), so multi-letter accelerator families — Trainium
+  (`trn1`/`trn2`), Inferentia (`inf1`/`inf2`), Habana (`dl1`), video (`vt1`) —
+  fell through to the natural-language parser, which matched *every* instance
+  type and made `find` hang or return the whole catalog instead of the one type.
+  `find` now routes these to the same fast exact-lookup path `search` already
+  used. (`truffle search` was unaffected.)
 - An exact-type search for an instance type that isn't offered in a region is
   treated as a clean no-match, not a region failure (#64). `DescribeInstanceTypes`
   with an explicit type filter returns `InvalidInstanceType`/

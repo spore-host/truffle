@@ -9,13 +9,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/spf13/cobra"
 	"github.com/spore-host/libs/catalog"
 	"github.com/spore-host/libs/i18n"
 	"github.com/spore-host/truffle/pkg/aws"
 	"github.com/spore-host/truffle/pkg/find"
 	"github.com/spore-host/truffle/pkg/output"
 	"github.com/spore-host/truffle/pkg/progress"
-	"github.com/spf13/cobra"
 )
 
 var (
@@ -422,9 +422,16 @@ func looksLikePattern(query string) bool {
 	if looksLikeRegex(query) {
 		return true
 	}
-	// Single word that looks like an instance type (e.g. "m7i.large", "c6i")
+	// Single word that looks like an instance type (e.g. "m7i.large", "c6i",
+	// "trn1.32xlarge"). The family prefix may be MULTIPLE letters before the
+	// generation digit — AWS accelerator families are trn1/trn2 (Trainium),
+	// inf1/inf2 (Inferentia), dl1 (Habana), vt1 (video). The old `^[a-z]\d`
+	// (single leading letter) silently misrouted those to the natural-language
+	// parser, which emitted a ".*" match-everything pattern and hung/returned the
+	// whole catalog (#69-class bug). Match one-or-more leading letters + a
+	// generation digit instead.
 	if !strings.Contains(query, " ") {
-		if matched, _ := regexp.MatchString(`^[a-z]\d`, query); matched {
+		if matched, _ := regexp.MatchString(`^[a-z]+\d`, query); matched {
 			return true
 		}
 	}
