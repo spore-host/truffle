@@ -11,6 +11,37 @@ import (
 	"github.com/spore-host/truffle/pkg/find"
 )
 
+// TestLooksLikePattern_AcceleratorFamilies guards the #69-class routing bug:
+// multi-letter accelerator families (trn/inf/dl/vt) must be recognized as
+// instance-type patterns and take the fast exact-lookup path, NOT fall through
+// to the natural-language parser (which emits a ".*" match-everything pattern and
+// hangs / returns the whole catalog).
+func TestLooksLikePattern_AcceleratorFamilies(t *testing.T) {
+	wantPattern := []string{
+		// accelerator families that used to misroute
+		"trn1.32xlarge", "trn1.2xlarge", "trn1n.32xlarge", "trn2.48xlarge",
+		"inf1.xlarge", "inf2.48xlarge", "dl1.24xlarge", "vt1.3xlarge",
+		// conventional single-letter families must still work
+		"m7i.large", "c6i", "p5.48xlarge", "g5.xlarge", "r7g.medium",
+		// explicit glob
+		"m7*",
+	}
+	for _, q := range wantPattern {
+		if !looksLikePattern(q) {
+			t.Errorf("looksLikePattern(%q) = false, want true (should take the exact/pattern path)", q)
+		}
+	}
+
+	wantNaturalLanguage := []string{
+		"8 cpus 32gb", "gpu instances", "cheapest with 4 gpus", "trainium",
+	}
+	for _, q := range wantNaturalLanguage {
+		if looksLikePattern(q) {
+			t.Errorf("looksLikePattern(%q) = true, want false (should take the NL parser path)", q)
+		}
+	}
+}
+
 func TestWildcardToRegex(t *testing.T) {
 	tests := []struct {
 		pattern string
