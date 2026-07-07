@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- **Bumped `golang.org/x/net` to v0.55.0** to clear five HIGH advisories in the
+  v0.52.0 transitive dependency (CVE-2026-25681/27136/33814/39821/42502 —
+  `x/net/html` arbitrary-code and related). Also pulls `x/sys` v0.45.0 and
+  `x/text` v0.37.0. No code change; restores the Trivy scan to green.
+- **Pinned all GitHub Actions to commit SHAs** (with version comments) in the
+  CI/security/release workflows, and pinned `trivy-action` from the mutable
+  `@master` to a release. Clears the Semgrep `github-actions-mutable-action-tag`
+  finding and hardens the CI supply chain against tag hijacking.
+
 ### Fixed
 - **`truffle find trn1.32xlarge` (and other accelerator types) now works.** The
   single-word instance-type detector only recognized single-letter family
