@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Security
+- **Pinned the CI/release Go toolchain to 1.26.5** to clear GO-2026-5856, a
+  `crypto/tls` standard-library advisory present in go1.26.4. Builds now link the
+  patched stdlib and govulncheck is green.
 - **Bumped `golang.org/x/net` to v0.55.0** to clear five HIGH advisories in the
   v0.52.0 transitive dependency (CVE-2026-25681/27136/33814/39821/42502 —
   `x/net/html` arbitrary-code and related). Also pulls `x/sys` v0.45.0 and
