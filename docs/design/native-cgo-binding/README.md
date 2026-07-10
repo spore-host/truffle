@@ -1,19 +1,34 @@
-# Truffle Python Bindings (Native cgo)
+# Truffle Python Bindings (Native cgo) — DESIGN NOTES, NOT SHIPPED
 
-**High-performance** Python wrapper for [Truffle](https://github.com/spore-host/truffle) using native Go library via cgo.
+> ⚠️ **This is an unfinished design exploration, not a usable package.** The
+> native Go library (`native.go`) and the `truffle/` Python wrapper it describes
+> **were never committed** — only these notes, a `setup.py`, a `Makefile`, and a
+> `test_native.py` exist. As a result: `pip install` / `make build` fail, and
+> `from truffle import Truffle` raises `ImportError`. The performance numbers
+> below (~1ms, "10-50x faster") are *design targets*, never measured.
+>
+> **For Python access to spore.host today, use the supported SDK:**
+> [`pip install spore-host`](https://github.com/spore-host/python-sdk) — it wraps
+> the hosted REST API (`spore.truffle.find(...)`, `spore.spawn.launch(...)`).
+>
+> These notes are retained under `docs/design/` in case the native-CGO approach
+> is revisited. They are **not** an installable binding. Tracked in
+> [truffle#76](https://github.com/spore-host/truffle/issues/76).
 
-## 🚀 Performance
+---
 
-**Native cgo bindings** - not subprocess!
+Original design notes follow (aspirational; code not implemented).
+
+## Performance (design target — never measured)
+
+The goal was native cgo bindings instead of subprocess:
 
 | Method | Call Overhead | Memory |
 |--------|--------------|--------|
-| **Native cgo** | **~1ms** | **Shared** |
+| **Native cgo** (target) | **~1ms** | **Shared** |
 | Subprocess | ~20-50ms | Isolated |
 
-**10-50x faster** than subprocess-based wrappers!
-
-## Installation
+## Installation (aspirational — does not work: no `native.go`/wrapper committed)
 
 ### 1. Install Go Compiler
 
@@ -30,10 +45,8 @@ sudo apt install golang-go
 ### 2. Install Python Package
 
 ```bash
-pip install truffle-aws
+pip install truffle-aws   # NOTE: not published / not buildable — see banner above
 ```
-
-The Go library is **automatically compiled** during pip install!
 
 ## Quick Start
 
@@ -445,12 +458,14 @@ ruff check truffle
 
 ## License
 
-MIT License - see [LICENSE](../../LICENSE) file
+Apache-2.0 — see the repo [LICENSE](../../../LICENSE). (The stray `setup.py` in
+this dir still declares MIT + placeholder authorship; it is not published, so the
+repo's Apache-2.0 governs.)
 
 ## Links
 
+- **Supported Python SDK**: https://github.com/spore-host/python-sdk (`pip install spore-host`)
 - **Main Project**: https://github.com/spore-host/truffle
-- **Documentation**: https://github.com/spore-host/truffle/tree/main/bindings/python
 - **Issues**: https://github.com/spore-host/truffle/issues
 
 ## Related

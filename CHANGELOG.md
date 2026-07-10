@@ -50,6 +50,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (not only under `--verbose`).
 
 ### Documentation
+- **Demoted the never-shipped native-CGO Python binding to design notes** (#76).
+  `bindings/python/` presented an installable, "10-50× faster" binding, but the
+  Go library (`native.go`) and Python wrapper were never committed — `pip install`
+  and `from truffle import Truffle` both failed. Moved to
+  `docs/design/native-cgo-binding/` with a clear "not shipped, use the spore-host
+  SDK" banner, and the README now points Python users at
+  [`pip install spore-host`](https://github.com/spore-host/python-sdk).
 - README: add the `capacity-blocks` command to the command table and list
   French in the `--lang` options (both were already supported in the CLI).
 
