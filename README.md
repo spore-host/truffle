@@ -133,9 +133,15 @@ mock := awsmock.New(
 // Use mock anywhere an aws.Finder is accepted.
 ```
 
-## Python Bindings
+## Python
 
-CGO bindings for Python are available in [`bindings/python/`](bindings/python/).
+Use the **[spore-host SDK](https://github.com/spore-host/python-sdk)**
+(`pip install spore-host`) for Python access — `spore.truffle.find(...)` wraps
+truffle's discovery via the hosted REST API.
+
+(An earlier native-CGO binding experiment was never completed; its design notes
+live in [`docs/design/native-cgo-binding/`](docs/design/native-cgo-binding/) —
+not an installable package. See truffle#76.)
 
 ## Documentation
 
