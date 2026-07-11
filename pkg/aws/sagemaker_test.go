@@ -200,3 +200,12 @@ func TestSearchSageMaker_AllRegionsFail(t *testing.T) {
 		t.Errorf("error should explain the total failure, got: %v", err)
 	}
 }
+
+// TestClient_DefaultSageMakerTypeLister verifies the client lazily installs the
+// default Service Quotas-backed lister when none is injected.
+func TestClient_DefaultSageMakerTypeLister(t *testing.T) {
+	c := &Client{}
+	if c.sageMakerTypeLister() == nil {
+		t.Fatal("sageMakerTypeLister() returned nil default")
+	}
+}

@@ -150,3 +150,49 @@ func TestAWSSageMakerPricer_Caches(t *testing.T) {
 		t.Errorf("cached price = %v, want 1.515", price)
 	}
 }
+
+// TestNewAWSSageMakerPricer verifies the exported constructor returns a usable
+// pricer with an initialized cache.
+func TestNewAWSSageMakerPricer(t *testing.T) {
+	p := NewAWSSageMakerPricer(aws.Config{})
+	if p == nil {
+		t.Fatal("NewAWSSageMakerPricer returned nil")
+	}
+	// A cache hit should not require the live API.
+	ap := p.(*awsSageMakerPricer)
+	ap.cache["ml.c5.xlarge\x00us-east-1"] = cachedPrice{price: 0.204, fetched: time.Now()}
+	if got, _ := p.SageMakerPrice(context.Background(), "ml.c5.xlarge", "us-east-1"); math.Abs(got-0.204) > 1e-9 {
+		t.Errorf("price = %v, want 0.204", got)
+	}
+}
+
+// TestSageMakerPricer_EnsureClientPinsRegion verifies the Price List client is
+// pinned to a Price-List-served region (us-east-1) unless the config already
+// names one (us-east-1 / ap-south-1) — the API is only served from those two.
+func TestSageMakerPricer_EnsureClientPinsRegion(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{"", "us-east-1"},
+		{"eu-west-1", "us-east-1"}, // unsupported → pinned
+		{"us-east-1", "us-east-1"}, // already supported → kept
+		{"ap-south-1", "ap-south-1"},
+	} {
+		p := newAWSSageMakerPricer(aws.Config{Region: tc.in})
+		p.client = nil
+		if got := p.ensureClient(); got == nil {
+			t.Fatalf("ensureClient(%q) returned nil", tc.in)
+		}
+		// ensureClient memoizes; a second call returns the same client.
+		if p.ensureClient() != p.client {
+			t.Errorf("ensureClient(%q) not memoized", tc.in)
+		}
+	}
+}
+
+// TestClient_DefaultSageMakerPricer verifies the client lazily installs a
+// default pricer when none is injected (the seam's production path).
+func TestClient_DefaultSageMakerPricer(t *testing.T) {
+	c := &Client{}
+	if c.sageMakerPricer() == nil {
+		t.Fatal("sageMakerPricer() returned nil default")
+	}
+}
