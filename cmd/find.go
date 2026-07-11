@@ -25,6 +25,7 @@ var (
 	findApp       string // --app flag: application name from catalog
 	findExact     bool   // --exact flag: match exact vCPU and memory instead of minimum
 	findPickFirst bool
+	findService   string // --service flag: "ec2" (default) or "sagemaker"
 )
 
 var findCmd = &cobra.Command{
@@ -68,6 +69,7 @@ func init() {
 	findCmd.Flags().StringVar(&findApp, "app", "", "Application name from catalog (e.g. paraview, igv)")
 	findCmd.Flags().BoolVar(&findExact, "exact", false, "Match exact vCPU and memory values instead of minimum")
 	findCmd.Flags().BoolVar(&findPickFirst, "pick-first", false, "Output only the top result's instance type (useful for piping to spawn)")
+	findCmd.Flags().StringVar(&findService, "service", "ec2", "Instance namespace to search: ec2 or sagemaker (ml.* types)")
 }
 
 func runFind(cmd *cobra.Command, args []string) error {
@@ -88,10 +90,15 @@ func runFind(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("query or --app required")
 	}
 
+	service, err := validateServiceFlag(findService)
+	if err != nil {
+		return err
+	}
+
 	// Auto-detect: if query looks like a pattern (glob or regex), route to
 	// the pattern-matching path instead of NL parsing.
 	if looksLikePattern(queryStr) {
-		return runSearchWithPattern(queryStr)
+		return runSearchWithPattern(queryStr, service)
 	}
 
 	// Parse query
@@ -180,7 +187,12 @@ func runFind(cmd *cobra.Command, args []string) error {
 	}
 
 	// Execute search
-	results, err := client.SearchInstanceTypes(ctx, searchRegions, criteria.InstanceTypePattern, criteria.FilterOptions)
+	var results []aws.InstanceTypeResult
+	if service == "sagemaker" {
+		results, err = client.SearchSageMakerInstanceTypes(ctx, searchRegions, criteria.InstanceTypePattern, criteria.FilterOptions)
+	} else {
+		results, err = client.SearchInstanceTypes(ctx, searchRegions, criteria.InstanceTypePattern, criteria.FilterOptions)
+	}
 
 	if spinner != nil {
 		spinner.Stop()
@@ -190,10 +202,13 @@ func runFind(cmd *cobra.Command, args []string) error {
 		return i18n.Te("truffle.search.error.search_failed", err)
 	}
 
-	// Populate on-demand pricing
-	for idx := range results {
-		price, _ := client.OnDemandPrice(ctx, results[idx].InstanceType, results[idx].Region)
-		results[idx].OnDemandPrice = price
+	// Populate on-demand pricing. SageMaker ml.* pricing is a separate offer
+	// (out of scope here — issue #80), so skip the EC2 pricer for it.
+	if service != "sagemaker" {
+		for idx := range results {
+			price, _ := client.OnDemandPrice(ctx, results[idx].InstanceType, results[idx].Region)
+			results[idx].OnDemandPrice = price
+		}
 	}
 
 	// Sort results based on qualitative preference or default (newest gen first)
@@ -439,7 +454,7 @@ func looksLikePattern(query string) bool {
 }
 
 // runSearchWithPattern runs a pattern-based search (the same logic as the search command).
-func runSearchWithPattern(pattern string) error {
+func runSearchWithPattern(pattern, service string) error {
 	regexPattern := patternToRegex(pattern)
 	matcher, err := regexp.Compile(regexPattern)
 	if err != nil {
@@ -474,10 +489,16 @@ func runSearchWithPattern(pattern string) error {
 		spinner.Start()
 	}
 
-	results, err := awsClient.SearchInstanceTypes(ctx, searchRegions, matcher, aws.FilterOptions{
+	patternFilterOpts := aws.FilterOptions{
 		IncludeAZs: !findSkipAZs,
 		Verbose:    verbose,
-	})
+	}
+	var results []aws.InstanceTypeResult
+	if service == "sagemaker" {
+		results, err = awsClient.SearchSageMakerInstanceTypes(ctx, searchRegions, matcher, patternFilterOpts)
+	} else {
+		results, err = awsClient.SearchInstanceTypes(ctx, searchRegions, matcher, patternFilterOpts)
+	}
 
 	if spinner != nil {
 		spinner.Stop()

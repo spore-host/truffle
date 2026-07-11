@@ -34,6 +34,9 @@ type Client struct {
 
 	pricerOnce sync.Once
 	pricer     OnDemandPricer // on-demand price source; lazily initialized, override with SetOnDemandPricer
+
+	smListerOnce sync.Once
+	smLister     SageMakerTypeLister // offered ml.* type source; lazily initialized, override with SetSageMakerTypeLister
 }
 
 // InstanceTypeResult represents an instance type's availability and specifications
@@ -55,6 +58,7 @@ type InstanceTypeResult struct {
 	OnDemandPrice   float64  `json:"on_demand_price,omitempty" yaml:"on_demand_price,omitempty"`             // On-demand $/hr; 0 if not yet fetched
 	SpawnSupported  bool     `json:"spawn_supported,omitempty" yaml:"spawn_supported,omitempty"`             // True if spawn can launch instances in this region
 	NestedVirt      bool     `json:"nested_virtualization,omitempty" yaml:"nested_virtualization,omitempty"` // True if the type supports nested virtualization (KVM/Hyper-V in-instance)
+	Service         string   `json:"service,omitempty" yaml:"service,omitempty"`                             // Offering namespace: "" / "ec2" (default) or "sagemaker" for ml.* types
 }
 
 // SpotPriceResult represents a Spot instance price observation for one AZ,
@@ -357,48 +361,8 @@ func (c *Client) searchInRegion(ctx context.Context, region string, matcher *reg
 				continue
 			}
 
-			cores := valueOrZero(it.VCpuInfo.DefaultCores)
-			threadsPerCore := valueOrZero(it.VCpuInfo.DefaultThreadsPerCore)
-			if threadsPerCore == 0 {
-				threadsPerCore = 1
-			}
-
-			result := InstanceTypeResult{
-				InstanceType:   instanceType,
-				Region:         region,
-				VCPUs:          valueOrZero(it.VCpuInfo.DefaultVCpus),
-				PhysicalCores:  cores,
-				ThreadsPerCore: threadsPerCore,
-				MemoryMiB:      valueOrZero(it.MemoryInfo.SizeInMiB),
-				InstanceFamily: extractFamily(instanceType),
-				SpawnSupported: spawn.IsSpawnSupported(region),
-			}
-
-			// Get architecture + nested-virtualization support
-			if len(it.ProcessorInfo.SupportedArchitectures) > 0 {
-				result.Architecture = string(it.ProcessorInfo.SupportedArchitectures[0])
-			}
-			result.NestedVirt = supportsNestedVirt(it)
-
-			// Get GPU info
-			if it.GpuInfo != nil && len(it.GpuInfo.Gpus) > 0 {
-				for _, gpu := range it.GpuInfo.Gpus {
-					result.GPUs += valueOrZero(gpu.Count)
-					if gpu.Name != nil {
-						result.GPUModel = *gpu.Name
-					}
-					if gpu.Manufacturer != nil {
-						result.GPUManufacturer = *gpu.Manufacturer
-					}
-					if gpu.MemoryInfo != nil && gpu.MemoryInfo.SizeInMiB != nil {
-						result.GPUMemoryMiB = int64(*gpu.MemoryInfo.SizeInMiB) * int64(valueOrZero(gpu.Count))
-					}
-				}
-				// Use total if per-GPU not available
-				if result.GPUMemoryMiB == 0 && it.GpuInfo.TotalGpuMemoryInMiB != nil {
-					result.GPUMemoryMiB = int64(valueOrZero(it.GpuInfo.TotalGpuMemoryInMiB))
-				}
-			}
+			result := buildResultFromEC2(it, instanceType, region)
+			result.SpawnSupported = spawn.IsSpawnSupported(region)
 
 			// Get availability zones if requested
 			if opts.IncludeAZs {
@@ -413,6 +377,60 @@ func (c *Client) searchInRegion(ctx context.Context, region string, matcher *reg
 	}
 
 	return results, nil
+}
+
+// buildResultFromEC2 maps an EC2 DescribeInstanceTypes record into an
+// InstanceTypeResult, populating vCPU/memory/architecture/GPU specs. The
+// displayType is the name used for InstanceType and family extraction — for
+// EC2 it's the raw type (e.g. "g5.2xlarge"); the SageMaker path passes the
+// "ml."-prefixed name (e.g. "ml.g5.2xlarge") so the row reads in the ml.*
+// namespace while still deriving specs from the underlying EC2 type.
+// It does not set SpawnSupported, AvailableAZs, OnDemandPrice, or Service —
+// callers own those.
+func buildResultFromEC2(it types.InstanceTypeInfo, displayType, region string) InstanceTypeResult {
+	cores := valueOrZero(it.VCpuInfo.DefaultCores)
+	threadsPerCore := valueOrZero(it.VCpuInfo.DefaultThreadsPerCore)
+	if threadsPerCore == 0 {
+		threadsPerCore = 1
+	}
+
+	result := InstanceTypeResult{
+		InstanceType:   displayType,
+		Region:         region,
+		VCPUs:          valueOrZero(it.VCpuInfo.DefaultVCpus),
+		PhysicalCores:  cores,
+		ThreadsPerCore: threadsPerCore,
+		MemoryMiB:      valueOrZero(it.MemoryInfo.SizeInMiB),
+		InstanceFamily: extractFamily(displayType),
+	}
+
+	// Get architecture + nested-virtualization support
+	if len(it.ProcessorInfo.SupportedArchitectures) > 0 {
+		result.Architecture = string(it.ProcessorInfo.SupportedArchitectures[0])
+	}
+	result.NestedVirt = supportsNestedVirt(it)
+
+	// Get GPU info
+	if it.GpuInfo != nil && len(it.GpuInfo.Gpus) > 0 {
+		for _, gpu := range it.GpuInfo.Gpus {
+			result.GPUs += valueOrZero(gpu.Count)
+			if gpu.Name != nil {
+				result.GPUModel = *gpu.Name
+			}
+			if gpu.Manufacturer != nil {
+				result.GPUManufacturer = *gpu.Manufacturer
+			}
+			if gpu.MemoryInfo != nil && gpu.MemoryInfo.SizeInMiB != nil {
+				result.GPUMemoryMiB = int64(*gpu.MemoryInfo.SizeInMiB) * int64(valueOrZero(gpu.Count))
+			}
+		}
+		// Use total if per-GPU not available
+		if result.GPUMemoryMiB == 0 && it.GpuInfo.TotalGpuMemoryInMiB != nil {
+			result.GPUMemoryMiB = int64(valueOrZero(it.GpuInfo.TotalGpuMemoryInMiB))
+		}
+	}
+
+	return result
 }
 
 func (c *Client) getAvailabilityZones(ctx context.Context, region, instanceType string) ([]string, error) {

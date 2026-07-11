@@ -25,8 +25,22 @@ var (
 	searchNestedV   bool
 	searchPickFirst bool
 	searchShowPrice bool
+	searchService   string
 	timeout         time.Duration
 )
+
+// validateServiceFlag normalizes and validates the --service value shared by
+// the find and search commands. Empty defaults to "ec2".
+func validateServiceFlag(s string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "", "ec2":
+		return "ec2", nil
+	case "sagemaker":
+		return "sagemaker", nil
+	default:
+		return "", fmt.Errorf("unknown --service %q (want \"ec2\" or \"sagemaker\")", s)
+	}
+}
 
 var searchCmd = &cobra.Command{
 	Use:        "search [instance-type-pattern]",
@@ -47,6 +61,7 @@ func init() {
 	searchCmd.Flags().BoolVar(&searchNestedV, "nested-virtualization", false, "Only types supporting nested virtualization (KVM/Hyper-V in-instance)")
 	searchCmd.Flags().BoolVar(&searchPickFirst, "pick-first", false, "Output only the top result's instance type (useful for piping to spawn)")
 	searchCmd.Flags().BoolVar(&searchShowPrice, "show-price", false, "Show on-demand pricing (uses static pricing data)")
+	searchCmd.Flags().StringVar(&searchService, "service", "ec2", "Instance namespace to search: ec2 or sagemaker (ml.* types)")
 	searchCmd.Flags().DurationVar(&timeout, "timeout", 5*time.Minute, "Timeout for AWS API calls")
 
 	// Register completion for instance type argument
@@ -59,6 +74,11 @@ func init() {
 
 func runSearch(cmd *cobra.Command, args []string) error {
 	pattern := args[0]
+
+	service, err := validateServiceFlag(searchService)
+	if err != nil {
+		return err
+	}
 
 	// Convert pattern to regex: if the pattern contains regex metacharacters
 	// (brackets, +, unescaped dots not followed by *), treat it as a regex.
@@ -120,7 +140,7 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	}
 
 	// Search for instance types
-	results, err := awsClient.SearchInstanceTypes(ctx, searchRegions, matcher, aws.FilterOptions{
+	filterOpts := aws.FilterOptions{
 		IncludeAZs:     !skipAZs, // AZs included by default
 		Architecture:   architecture,
 		MinVCPUs:       minVCPUs,
@@ -128,7 +148,13 @@ func runSearch(cmd *cobra.Command, args []string) error {
 		InstanceFamily: instanceFamily,
 		NestedVirt:     searchNestedV,
 		Verbose:        verbose,
-	})
+	}
+	var results []aws.InstanceTypeResult
+	if service == "sagemaker" {
+		results, err = awsClient.SearchSageMakerInstanceTypes(ctx, searchRegions, matcher, filterOpts)
+	} else {
+		results, err = awsClient.SearchInstanceTypes(ctx, searchRegions, matcher, filterOpts)
+	}
 
 	if spinner != nil {
 		spinner.Stop()
@@ -154,8 +180,10 @@ func runSearch(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Populate on-demand pricing if requested
-	if searchShowPrice {
+	// Populate on-demand pricing if requested. SageMaker ml.* pricing comes from
+	// a separate offer (AmazonSageMaker) and is out of scope here (issue #80), so
+	// the EC2 on-demand pricer is not used for it — leave the price blank.
+	if searchShowPrice && service != "sagemaker" {
 		for idx := range results {
 			price, _ := awsClient.OnDemandPrice(ctx, results[idx].InstanceType, results[idx].Region)
 			results[idx].OnDemandPrice = price

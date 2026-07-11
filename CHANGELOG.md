@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **SageMaker `ml.*` instance discovery in `search` and `find`** (#79). Pass
+  `--service sagemaker` to search the SageMaker namespace instead of EC2:
+  `truffle search --service sagemaker "ml.g5.*"` lists the `ml.*` instance types
+  offered in each region (from Service Quotas, the authoritative source — there
+  is no SageMaker `DescribeInstanceTypes`), with vCPU/memory/GPU/architecture
+  specs derived from the underlying EC2 type. Results are tagged
+  `service: "sagemaker"` in JSON/YAML and flagged in the table footer. Pricing is
+  not yet included (the SageMaker offer is billed separately — tracked in #80),
+  so the `$/hr` column reads `N/A` by design. Default behavior (`--service ec2`)
+  is unchanged.
+
 ### Security
 - **Pinned the CI/release Go toolchain to 1.26.5** to clear GO-2026-5856, a
   `crypto/tls` standard-library advisory present in go1.26.4. Builds now link the
