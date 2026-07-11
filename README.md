@@ -65,6 +65,10 @@ truffle quotas --regions us-east-1 -o json
 # Check SageMaker quotas
 truffle quotas --service sagemaker --family g5 --regions us-west-2
 
+# Discover SageMaker ml.* instance types (specs, pricing, managed-spot eligibility)
+truffle find "ml.g5.*" --service sagemaker --regions us-east-1
+truffle find "ml.g5.*" --service sagemaker --show-quota --regions us-east-1
+
 # Find available capacity reservations
 truffle capacity --gpu-only
 
@@ -77,8 +81,8 @@ truffle find "intel 8 vcpu" -o csv
 
 | Command | Description |
 |---------|-------------|
-| `search <pattern>` | Search by glob (`m7i*`) or regex (`c[6-8]i\.large`) |
-| `find <query>` | Natural language search (`amd epyc 32 cores 64gb`) |
+| `search <pattern>` | Search by glob (`m7i*`) or regex (`c[6-8]i\.large`); `--service sagemaker` for `ml.*` types |
+| `find <query>` | Natural language search (`amd epyc 32 cores 64gb`); `--service sagemaker` for `ml.*` types |
 | `spot <pattern>` | Spot pricing with savings vs on-demand |
 | `az <pattern>` | AZ-first availability view |
 | `capacity` | On-demand capacity reservations (ODCRs) |
@@ -146,6 +150,8 @@ not an installable package. See truffle#76.)
 ## Documentation
 
 Full reference at **[spore.host/docs](https://spore.host/docs/tools/truffle)**.
+
+- [SageMaker (`ml.*`) instance discovery](docs/sagemaker.md) — `--service sagemaker`, pricing, managed-spot eligibility, quotas.
 
 ## License
 
