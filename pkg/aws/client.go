@@ -37,6 +37,9 @@ type Client struct {
 
 	smListerOnce sync.Once
 	smLister     SageMakerTypeLister // offered ml.* type source; lazily initialized, override with SetSageMakerTypeLister
+
+	smPricerOnce sync.Once
+	smPricer     SageMakerPricer // ml.* on-demand price source; lazily initialized, override with SetSageMakerPricer
 }
 
 // InstanceTypeResult represents an instance type's availability and specifications

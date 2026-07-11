@@ -202,13 +202,17 @@ func runFind(cmd *cobra.Command, args []string) error {
 		return i18n.Te("truffle.search.error.search_failed", err)
 	}
 
-	// Populate on-demand pricing. SageMaker ml.* pricing is a separate offer
-	// (out of scope here — issue #80), so skip the EC2 pricer for it.
-	if service != "sagemaker" {
-		for idx := range results {
-			price, _ := client.OnDemandPrice(ctx, results[idx].InstanceType, results[idx].Region)
-			results[idx].OnDemandPrice = price
+	// Populate on-demand pricing. SageMaker ml.* types are priced under a
+	// distinct offer (AmazonSageMaker) with a management premium, so they use a
+	// separate pricer keyed on the ml.*-prefixed name.
+	for idx := range results {
+		var price float64
+		if service == "sagemaker" {
+			price, _ = client.SageMakerPrice(ctx, results[idx].InstanceType, results[idx].Region)
+		} else {
+			price, _ = client.OnDemandPrice(ctx, results[idx].InstanceType, results[idx].Region)
 		}
+		results[idx].OnDemandPrice = price
 	}
 
 	// Sort results based on qualitative preference or default (newest gen first)
@@ -525,6 +529,17 @@ func runSearchWithPattern(pattern, service string) error {
 		return nil
 	}
 
+	// SageMaker ml.* types are priced under a distinct offer (AmazonSageMaker);
+	// populate their $/hr so the pattern path shows the management-premium rate.
+	showPrice := false
+	if service == "sagemaker" {
+		showPrice = true
+		for idx := range results {
+			price, _ := awsClient.SageMakerPrice(ctx, results[idx].InstanceType, results[idx].Region)
+			results[idx].OnDemandPrice = price
+		}
+	}
+
 	if findPickFirst {
 		fmt.Println(results[0].InstanceType)
 		return nil
@@ -539,7 +554,7 @@ func runSearchWithPattern(pattern, service string) error {
 	case "csv":
 		return printer.PrintCSV(results)
 	case "table":
-		return printer.PrintTable(results, !findSkipAZs, false)
+		return printer.PrintTable(results, !findSkipAZs, showPrice)
 	default:
 		return fmt.Errorf("unsupported output format: %s", outputFormat)
 	}
