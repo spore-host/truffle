@@ -380,6 +380,51 @@ func TestPrintTable_SpawnSupportedFooter(t *testing.T) {
 	}
 }
 
+func TestPrintTable_SageMakerSpotEligibleAndFooter(t *testing.T) {
+	q := 4.0
+	results := []aws.InstanceTypeResult{
+		{
+			InstanceType: "ml.g5.2xlarge", Region: "us-east-1", VCPUs: 8, MemoryMiB: 32768,
+			Architecture: "x86_64", OnDemandPrice: 1.515, Service: "sagemaker",
+			ManagedSpotEligible: true, TrainingJobQuota: &q,
+		},
+	}
+	out := captureStdout(t, func() {
+		_ = NewPrinter(false).PrintTableWithQuota(results, false, true)
+	})
+	// Spot-Eligible column + marker.
+	if !strings.Contains(out, "Spot-Eligible") {
+		t.Errorf("expected Spot-Eligible column:\n%s", out)
+	}
+	// Train Quota column shows the limit.
+	if !strings.Contains(out, "Train Quota") {
+		t.Errorf("expected Train Quota column:\n%s", out)
+	}
+	// SageMaker footer + managed-spot note.
+	if !strings.Contains(out, "SageMaker ml.* types") {
+		t.Errorf("expected SageMaker footer:\n%s", out)
+	}
+	if !strings.Contains(out, "managed spot training") {
+		t.Errorf("expected managed-spot footer note:\n%s", out)
+	}
+}
+
+func TestPrintTable_NoQuotaColumnWithoutFlag(t *testing.T) {
+	q := 4.0
+	results := []aws.InstanceTypeResult{
+		{
+			InstanceType: "ml.g5.2xlarge", Region: "us-east-1", VCPUs: 8, MemoryMiB: 32768,
+			Architecture: "x86_64", Service: "sagemaker", TrainingJobQuota: &q,
+		},
+	}
+	out := captureStdout(t, func() {
+		_ = NewPrinter(false).PrintTable(results, false, false) // no quota
+	})
+	if strings.Contains(out, "Train Quota") {
+		t.Errorf("Train Quota column should be absent without --show-quota:\n%s", out)
+	}
+}
+
 func TestPrintTable_ColorMode(t *testing.T) {
 	// fatih/color disables ANSI when stdout is not a TTY (our capture pipe).
 	// Force it on so we exercise the colored render path, then restore.

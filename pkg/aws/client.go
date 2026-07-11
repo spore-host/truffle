@@ -62,6 +62,10 @@ type InstanceTypeResult struct {
 	SpawnSupported  bool     `json:"spawn_supported,omitempty" yaml:"spawn_supported,omitempty"`             // True if spawn can launch instances in this region
 	NestedVirt      bool     `json:"nested_virtualization,omitempty" yaml:"nested_virtualization,omitempty"` // True if the type supports nested virtualization (KVM/Hyper-V in-instance)
 	Service         string   `json:"service,omitempty" yaml:"service,omitempty"`                             // Offering namespace: "" / "ec2" (default) or "sagemaker" for ml.* types
+
+	// SageMaker-only fields (populated when Service == "sagemaker"):
+	ManagedSpotEligible bool     `json:"managed_spot_eligible,omitempty" yaml:"managed_spot_eligible,omitempty"` // Type can be used with managed spot training (has a "spot training job usage" quota). Managed spot is a billed-time discount (up to 90%), not a spot market — there is no per-type spot price.
+	TrainingJobQuota    *float64 `json:"training_job_quota,omitempty" yaml:"training_job_quota,omitempty"`       // Account limit for "training job usage" of this type; nil when the region exposes no such quota. 0 means an increase must be requested before launching.
 }
 
 // SpotPriceResult represents a Spot instance price observation for one AZ,
