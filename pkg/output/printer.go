@@ -271,6 +271,26 @@ func (p *Printer) PrintTable(results []aws.InstanceTypeResult, includeAZs bool, 
 		}
 	}
 
+	// Note SageMaker (ml.*) results: they run on the underlying EC2 hardware but
+	// are billed under the AmazonSageMaker offer, which truffle does not price
+	// yet (issue #80) — so the $/hr column reads N/A by design, not by failure.
+	hasSageMaker := false
+	for _, r := range deduped {
+		if r.Service == "sagemaker" {
+			hasSageMaker = true
+			break
+		}
+	}
+	if hasSageMaker {
+		fmt.Println()
+		note := "  🤖 SageMaker ml.* types: specs shown from the underlying EC2 type; pricing not yet available"
+		if p.useColor {
+			fmt.Println(color.New(color.FgCyan).Sprint(note))
+		} else {
+			fmt.Println(note)
+		}
+	}
+
 	return nil
 }
 

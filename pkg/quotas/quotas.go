@@ -17,6 +17,7 @@ package quotas
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -513,6 +514,40 @@ type ServiceQuotasLister interface {
 	ListSageMakerInstanceQuotas(ctx context.Context, region string) ([]SageMakerQuota, error)
 }
 
+// OfferedSageMakerTypes returns the deduplicated, sorted set of ml.* instance
+// types offered in a region, derived from its SageMaker service quotas. Quota
+// names look like "ml.g5.2xlarge for processing job usage"; the instance type
+// is the part before " for " (matching the parse in cmd/quotas.go). Names with
+// no " for " separator are used verbatim (they are already bare ml.* types).
+//
+// There is no SageMaker equivalent of EC2 DescribeInstanceTypes, so Service
+// Quotas is the authoritative source for which ml.* types exist in a region.
+func OfferedSageMakerTypes(ctx context.Context, lister ServiceQuotasLister, region string) ([]string, error) {
+	quotas, err := lister.ListSageMakerInstanceQuotas(ctx, region)
+	if err != nil {
+		return nil, err
+	}
+
+	seen := make(map[string]struct{})
+	for _, q := range quotas {
+		instanceType := q.Name
+		if idx := strings.Index(instanceType, " for "); idx != -1 {
+			instanceType = instanceType[:idx]
+		}
+		if !strings.HasPrefix(instanceType, "ml.") {
+			continue
+		}
+		seen[instanceType] = struct{}{}
+	}
+
+	types := make([]string, 0, len(seen))
+	for t := range seen {
+		types = append(types, t)
+	}
+	sort.Strings(types)
+	return types, nil
+}
+
 // ServiceQuotasClient wraps the AWS Service Quotas API for SageMaker queries.
 type ServiceQuotasClient struct {
 	cfg aws.Config
@@ -525,6 +560,13 @@ func NewServiceQuotasClient(ctx context.Context) (*ServiceQuotasClient, error) {
 		return nil, fmt.Errorf("load AWS config: %w", err)
 	}
 	return &ServiceQuotasClient{cfg: cfg}, nil
+}
+
+// NewServiceQuotasClientFromConfig creates a service-quotas client from an
+// injected aws.Config. Use this to share a config (e.g. a test's Substrate
+// emulator, or an already-loaded config) rather than loading a fresh one.
+func NewServiceQuotasClientFromConfig(cfg aws.Config) *ServiceQuotasClient {
+	return &ServiceQuotasClient{cfg: cfg}
 }
 
 // ListSageMakerInstanceQuotas returns all SageMaker ml.* instance quota entries
