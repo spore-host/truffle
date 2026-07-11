@@ -77,10 +77,10 @@ type QuotaInfo struct {
 	// Current usage — vCPUs currently in use (running + pending) per family
 	Usage map[QuotaFamily]int32
 
-	RunningInstances    int32     // Current count of running+pending instances in this region
-	RunningInstancesMax int32     // Per-region instance count limit (typically 20 for new accounts)
-	LastUpdated         time.Time // When this snapshot was fetched
-	CredentialsAvailable bool     // False when quotas were estimated due to missing credentials
+	RunningInstances     int32     // Current count of running+pending instances in this region
+	RunningInstancesMax  int32     // Per-region instance count limit (typically 20 for new accounts)
+	LastUpdated          time.Time // When this snapshot was fetched
+	CredentialsAvailable bool      // False when quotas were estimated due to missing credentials
 }
 
 // Client handles quota operations
@@ -190,7 +190,7 @@ func (c *Client) GetQuotas(ctx context.Context, region string) (*QuotaInfo, erro
 	if err == nil {
 		info.RunningInstances = runningCount
 	}
-	
+
 	// Running instances quota is typically 20 by default
 	info.RunningInstancesMax = 20 // Could query this too
 
@@ -514,37 +514,90 @@ type ServiceQuotasLister interface {
 	ListSageMakerInstanceQuotas(ctx context.Context, region string) ([]SageMakerQuota, error)
 }
 
-// OfferedSageMakerTypes returns the deduplicated, sorted set of ml.* instance
-// types offered in a region, derived from its SageMaker service quotas. Quota
-// names look like "ml.g5.2xlarge for processing job usage"; the instance type
-// is the part before " for " (matching the parse in cmd/quotas.go). Names with
-// no " for " separator are used verbatim (they are already bare ml.* types).
-//
-// There is no SageMaker equivalent of EC2 DescribeInstanceTypes, so Service
-// Quotas is the authoritative source for which ml.* types exist in a region.
-func OfferedSageMakerTypes(ctx context.Context, lister ServiceQuotasLister, region string) ([]string, error) {
+// Quota-name job-type suffixes (the part after " for " in a SageMaker instance
+// quota name, e.g. "ml.g5.2xlarge for training job usage").
+const (
+	sageMakerJobTraining  = "training job usage"
+	sageMakerJobSpotTrain = "spot training job usage"
+)
+
+// SageMakerTypeQuota summarizes the per-type SageMaker service quotas relevant
+// to discovery, extracted from the region's quota list without extra API calls.
+type SageMakerTypeQuota struct {
+	// InstanceType is the ml.*-prefixed type, e.g. "ml.g5.2xlarge".
+	InstanceType string
+	// TrainingJobLimit is the account limit for "training job usage" (the count
+	// of concurrent instances of this type in training jobs). -1 when the region
+	// exposes no training-job quota for the type.
+	TrainingJobLimit float64
+	// ManagedSpotEligible is true when the region exposes a "spot training job
+	// usage" quota for the type — i.e. the type can be used with managed spot
+	// training. (Managed spot is a billed-time discount, not a spot market, so
+	// there is no per-type spot price to report; this only marks eligibility.)
+	ManagedSpotEligible bool
+}
+
+// OfferedSageMakerTypesDetailed returns per-type quota summaries for the ml.*
+// instance types offered in a region, sorted by instance type. Quota names look
+// like "ml.g5.2xlarge for training job usage"; the type is the part before
+// " for " and the job type is the remainder. There is no SageMaker equivalent
+// of EC2 DescribeInstanceTypes, so Service Quotas is the authoritative source
+// for which ml.* types exist in a region — and, folded in here, for their
+// per-type limits and managed-spot eligibility.
+func OfferedSageMakerTypesDetailed(ctx context.Context, lister ServiceQuotasLister, region string) ([]SageMakerTypeQuota, error) {
 	quotas, err := lister.ListSageMakerInstanceQuotas(ctx, region)
 	if err != nil {
 		return nil, err
 	}
 
-	seen := make(map[string]struct{})
+	byType := make(map[string]*SageMakerTypeQuota)
+	get := func(t string) *SageMakerTypeQuota {
+		q, ok := byType[t]
+		if !ok {
+			q = &SageMakerTypeQuota{InstanceType: t, TrainingJobLimit: -1}
+			byType[t] = q
+		}
+		return q
+	}
+
 	for _, q := range quotas {
-		instanceType := q.Name
+		instanceType, jobType := q.Name, ""
 		if idx := strings.Index(instanceType, " for "); idx != -1 {
+			jobType = instanceType[idx+len(" for "):]
 			instanceType = instanceType[:idx]
 		}
 		if !strings.HasPrefix(instanceType, "ml.") {
 			continue
 		}
-		seen[instanceType] = struct{}{}
+		entry := get(instanceType)
+		switch jobType {
+		case sageMakerJobTraining:
+			entry.TrainingJobLimit = q.Value
+		case sageMakerJobSpotTrain:
+			entry.ManagedSpotEligible = true
+		}
 	}
 
-	types := make([]string, 0, len(seen))
-	for t := range seen {
-		types = append(types, t)
+	out := make([]SageMakerTypeQuota, 0, len(byType))
+	for _, q := range byType {
+		out = append(out, *q)
 	}
-	sort.Strings(types)
+	sort.Slice(out, func(i, j int) bool { return out[i].InstanceType < out[j].InstanceType })
+	return out, nil
+}
+
+// OfferedSageMakerTypes returns the deduplicated, sorted set of ml.* instance
+// types offered in a region. It is a thin wrapper over
+// [OfferedSageMakerTypesDetailed] for callers that only need the type names.
+func OfferedSageMakerTypes(ctx context.Context, lister ServiceQuotasLister, region string) ([]string, error) {
+	detailed, err := OfferedSageMakerTypesDetailed(ctx, lister, region)
+	if err != nil {
+		return nil, err
+	}
+	types := make([]string, len(detailed))
+	for i, d := range detailed {
+		types[i] = d.InstanceType
+	}
 	return types, nil
 }
 

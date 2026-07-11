@@ -14,16 +14,17 @@ import (
 	"github.com/spore-host/truffle/pkg/quotas"
 )
 
-// SageMakerTypeLister returns the set of SageMaker ml.* instance types offered
-// in a region. There is no SageMaker equivalent of EC2 DescribeInstanceTypes,
+// SageMakerTypeLister returns the SageMaker ml.* instance types offered in a
+// region, with their per-type quota detail (training-job limit, managed-spot
+// eligibility). There is no SageMaker equivalent of EC2 DescribeInstanceTypes,
 // so the authoritative source is Service Quotas (which lists a quota per ml.*
 // type). Implementations should be safe for concurrent use.
 //
 // The default implementation queries Service Quotas via pkg/quotas; embedders
 // and tests can inject their own with [Client.SetSageMakerTypeLister].
 type SageMakerTypeLister interface {
-	// OfferedTypes returns the ml.*-prefixed instance types offered in region.
-	OfferedTypes(ctx context.Context, region string) ([]string, error)
+	// OfferedTypes returns the ml.*-prefixed types offered in region, with quota detail.
+	OfferedTypes(ctx context.Context, region string) ([]quotas.SageMakerTypeQuota, error)
 }
 
 // quotaSageMakerLister is the default SageMakerTypeLister, backed by the AWS
@@ -32,8 +33,8 @@ type quotaSageMakerLister struct {
 	c *quotas.ServiceQuotasClient
 }
 
-func (q quotaSageMakerLister) OfferedTypes(ctx context.Context, region string) ([]string, error) {
-	return quotas.OfferedSageMakerTypes(ctx, q.c, region)
+func (q quotaSageMakerLister) OfferedTypes(ctx context.Context, region string) ([]quotas.SageMakerTypeQuota, error) {
+	return quotas.OfferedSageMakerTypesDetailed(ctx, q.c, region)
 }
 
 // SetSageMakerTypeLister overrides the source of offered ml.* types used by
@@ -137,20 +138,20 @@ func (c *Client) searchSageMakerInRegion(ctx context.Context, region string, mat
 	// 2. Pattern filter. Match against the full ml.-prefixed name (so an explicit
 	//    "ml.g5.*" pattern works) OR the base EC2 name (so natural-language
 	//    queries, whose matcher is built for EC2-style names like "^g5\.", also
-	//    match). Track base EC2 type → ml.* name for spec enrichment.
-	baseToML := make(map[string]string)
-	for _, mlType := range offered {
-		base := strings.TrimPrefix(mlType, "ml.")
-		if !matcher.MatchString(mlType) && !matcher.MatchString(base) {
+	//    match). Track base EC2 type → its quota detail for spec enrichment.
+	baseToQuota := make(map[string]quotas.SageMakerTypeQuota)
+	for _, q := range offered {
+		base := strings.TrimPrefix(q.InstanceType, "ml.")
+		if !matcher.MatchString(q.InstanceType) && !matcher.MatchString(base) {
 			continue
 		}
-		if _, dup := baseToML[base]; dup {
+		if _, dup := baseToQuota[base]; dup {
 			continue
 		}
-		baseToML[base] = mlType
+		baseToQuota[base] = q
 	}
 
-	if len(baseToML) == 0 {
+	if len(baseToQuota) == 0 {
 		return nil, nil
 	}
 
@@ -174,7 +175,7 @@ func (c *Client) searchSageMakerInRegion(ctx context.Context, region string, mat
 		}
 		for _, it := range output.InstanceTypes {
 			base := string(it.InstanceType)
-			if _, wanted := baseToML[base]; wanted {
+			if _, wanted := baseToQuota[base]; wanted {
 				enriched[base] = it
 			}
 		}
@@ -182,19 +183,21 @@ func (c *Client) searchSageMakerInRegion(ctx context.Context, region string, mat
 
 	// 4. Build results. Every offered+matched ml.* type produces a row; specs
 	//    come from the EC2 peer when available, else zeroed (availability is
-	//    real even when the EC2 spec lookup didn't return the type).
+	//    real even when the EC2 spec lookup didn't return the type). Quota detail
+	//    (training-job limit, managed-spot eligibility) is folded in either way.
 	var results []InstanceTypeResult
-	for base, mlType := range baseToML {
+	for base, q := range baseToQuota {
 		if it, ok := enriched[base]; ok {
 			// Apply spec-based filters against the EC2 record.
 			if !matchesFilters(it, opts) {
 				continue
 			}
-			result := buildResultFromEC2(it, mlType, region)
+			result := buildResultFromEC2(it, q.InstanceType, region)
 			// Family should reflect the ml.* namespace (e.g. "ml.g5"), not "ml".
 			result.InstanceFamily = "ml." + extractFamily(base)
 			result.Service = "sagemaker"
 			result.SpawnSupported = false
+			applySageMakerQuota(&result, q)
 			results = append(results, result)
 			continue
 		}
@@ -208,14 +211,27 @@ func (c *Client) searchSageMakerInRegion(ctx context.Context, region string, mat
 		if opts.InstanceFamily != "" && "ml."+extractFamily(base) != opts.InstanceFamily {
 			continue
 		}
-		results = append(results, InstanceTypeResult{
-			InstanceType:   mlType,
+		result := InstanceTypeResult{
+			InstanceType:   q.InstanceType,
 			Region:         region,
 			InstanceFamily: "ml." + extractFamily(base),
 			Service:        "sagemaker",
 			SpawnSupported: false,
-		})
+		}
+		applySageMakerQuota(&result, q)
+		results = append(results, result)
 	}
 
 	return results, nil
+}
+
+// applySageMakerQuota folds per-type SageMaker quota detail into a result:
+// managed-spot eligibility and the training-job limit (nil when the region
+// exposes no training-job quota for the type).
+func applySageMakerQuota(r *InstanceTypeResult, q quotas.SageMakerTypeQuota) {
+	r.ManagedSpotEligible = q.ManagedSpotEligible
+	if q.TrainingJobLimit >= 0 {
+		limit := q.TrainingJobLimit
+		r.TrainingJobQuota = &limit
+	}
 }

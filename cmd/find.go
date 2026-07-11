@@ -26,6 +26,7 @@ var (
 	findExact     bool   // --exact flag: match exact vCPU and memory instead of minimum
 	findPickFirst bool
 	findService   string // --service flag: "ec2" (default) or "sagemaker"
+	findShowQuota bool   // --show-quota flag: show per-type training-job quota (SageMaker only)
 )
 
 var findCmd = &cobra.Command{
@@ -70,6 +71,7 @@ func init() {
 	findCmd.Flags().BoolVar(&findExact, "exact", false, "Match exact vCPU and memory values instead of minimum")
 	findCmd.Flags().BoolVar(&findPickFirst, "pick-first", false, "Output only the top result's instance type (useful for piping to spawn)")
 	findCmd.Flags().StringVar(&findService, "service", "ec2", "Instance namespace to search: ec2 or sagemaker (ml.* types)")
+	findCmd.Flags().BoolVar(&findShowQuota, "show-quota", false, "Show the per-type training-job quota (SageMaker only)")
 }
 
 func runFind(cmd *cobra.Command, args []string) error {
@@ -406,6 +408,11 @@ func printFindTable(results []find.FindResult, printer *output.Printer) error {
 		fmt.Fprintln(os.Stderr)
 	}
 
+	// findService is validated in runFind before this path is reached; the
+	// quota column is SageMaker-only.
+	if findShowQuota && strings.EqualFold(findService, "sagemaker") {
+		return printer.PrintTableWithQuota(baseResults, !findSkipAZs, true)
+	}
 	return printer.PrintTable(baseResults, !findSkipAZs, true) // show on-demand price by default
 }
 
@@ -554,6 +561,9 @@ func runSearchWithPattern(pattern, service string) error {
 	case "csv":
 		return printer.PrintCSV(results)
 	case "table":
+		if findShowQuota && service == "sagemaker" {
+			return printer.PrintTableWithQuota(results, !findSkipAZs, showPrice)
+		}
 		return printer.PrintTable(results, !findSkipAZs, showPrice)
 	default:
 		return fmt.Errorf("unsupported output format: %s", outputFormat)

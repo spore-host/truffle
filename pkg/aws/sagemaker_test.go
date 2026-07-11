@@ -6,21 +6,35 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spore-host/truffle/pkg/quotas"
 	"github.com/spore-host/truffle/pkg/testutil"
 )
 
 // fakeSMLister is a deterministic SageMakerTypeLister for tests: it returns a
-// fixed offered set per region without touching the Service Quotas API.
+// fixed offered set per region without touching the Service Quotas API. The
+// per-type list carries only the type name; spotEligible and trainingQuota
+// (both keyed by ml.* type) supply optional quota detail for tests that need it.
 type fakeSMLister struct {
-	byRegion map[string][]string
-	err      error
+	byRegion      map[string][]string
+	spotEligible  map[string]bool
+	trainingQuota map[string]float64
+	err           error
 }
 
-func (f fakeSMLister) OfferedTypes(_ context.Context, region string) ([]string, error) {
+func (f fakeSMLister) OfferedTypes(_ context.Context, region string) ([]quotas.SageMakerTypeQuota, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
-	return f.byRegion[region], nil
+	var out []quotas.SageMakerTypeQuota
+	for _, t := range f.byRegion[region] {
+		q := quotas.SageMakerTypeQuota{InstanceType: t, TrainingJobLimit: -1}
+		q.ManagedSpotEligible = f.spotEligible[t]
+		if v, ok := f.trainingQuota[t]; ok {
+			q.TrainingJobLimit = v
+		}
+		out = append(out, q)
+	}
+	return out, nil
 }
 
 // resultByType finds a result by instance type, or nil.
@@ -81,6 +95,47 @@ func TestSearchSageMaker_MapsEC2Specs(t *testing.T) {
 	}
 	if cpu.GPUs != 0 {
 		t.Errorf("c5.xlarge should have no GPU, got %d", cpu.GPUs)
+	}
+}
+
+// TestSearchSageMaker_FoldsQuotaDetail verifies managed-spot eligibility and the
+// training-job quota are folded into results from the quota data (#81).
+func TestSearchSageMaker_FoldsQuotaDetail(t *testing.T) {
+	env := testutil.SubstrateServer(t)
+	c := NewClientFromConfig(env.AWSConfig)
+	c.SetSageMakerTypeLister(fakeSMLister{
+		byRegion:      map[string][]string{"us-east-1": {"ml.g4dn.xlarge", "ml.c5.xlarge"}},
+		spotEligible:  map[string]bool{"ml.g4dn.xlarge": true}, // c5 not eligible
+		trainingQuota: map[string]float64{"ml.g4dn.xlarge": 2}, // c5 has no training quota
+	})
+
+	matcher := regexp.MustCompile(".*")
+	results, err := c.SearchSageMakerInstanceTypes(context.Background(),
+		[]string{"us-east-1"}, matcher, FilterOptions{})
+	if err != nil {
+		t.Fatalf("SearchSageMakerInstanceTypes() error = %v", err)
+	}
+
+	gpu := resultByType(results, "ml.g4dn.xlarge")
+	if gpu == nil {
+		t.Fatalf("ml.g4dn.xlarge not in results: %+v", results)
+	}
+	if !gpu.ManagedSpotEligible {
+		t.Error("ml.g4dn.xlarge should be managed-spot eligible")
+	}
+	if gpu.TrainingJobQuota == nil || *gpu.TrainingJobQuota != 2 {
+		t.Errorf("ml.g4dn.xlarge TrainingJobQuota = %v, want 2", gpu.TrainingJobQuota)
+	}
+
+	cpu := resultByType(results, "ml.c5.xlarge")
+	if cpu == nil {
+		t.Fatalf("ml.c5.xlarge not in results: %+v", results)
+	}
+	if cpu.ManagedSpotEligible {
+		t.Error("ml.c5.xlarge should NOT be managed-spot eligible")
+	}
+	if cpu.TrainingJobQuota != nil {
+		t.Errorf("ml.c5.xlarge TrainingJobQuota = %v, want nil (no training quota)", cpu.TrainingJobQuota)
 	}
 }
 

@@ -121,17 +121,33 @@ func (t *table) render() error {
 
 // PrintTable outputs results as a formatted table
 func (p *Printer) PrintTable(results []aws.InstanceTypeResult, includeAZs bool, showPrice bool) error {
+	return p.printTable(results, includeAZs, showPrice, false)
+}
+
+// PrintTableWithQuota is like [Printer.PrintTable] but also renders the
+// SageMaker per-type training-job quota column. Used by the --show-quota path.
+func (p *Printer) PrintTableWithQuota(results []aws.InstanceTypeResult, includeAZs bool, showPrice bool) error {
+	return p.printTable(results, includeAZs, showPrice, true)
+}
+
+func (p *Printer) printTable(results []aws.InstanceTypeResult, includeAZs bool, showPrice bool, showQuota bool) error {
 	// Check if any results have GPU info
 	hasGPU := false
 	// Show the nested-virt column only when at least one result supports it
 	// (matches the conditional-GPU-columns convention).
 	hasNestedV := false
+	// Managed-spot eligibility is auto-surfaced (marker + footer) whenever any
+	// SageMaker result is eligible — no flag needed, since it's derived data.
+	hasSpotEligible := false
 	for _, r := range results {
 		if r.GPUs > 0 {
 			hasGPU = true
 		}
 		if r.NestedVirt {
 			hasNestedV = true
+		}
+		if r.ManagedSpotEligible {
+			hasSpotEligible = true
 		}
 	}
 
@@ -148,8 +164,14 @@ func (p *Printer) PrintTable(results []aws.InstanceTypeResult, includeAZs bool, 
 	if hasNestedV {
 		headers = append(headers, "Nested-Virt")
 	}
+	if hasSpotEligible {
+		headers = append(headers, "Spot-Eligible")
+	}
 	if showPrice {
 		headers = append(headers, "$/hr")
+	}
+	if showQuota {
+		headers = append(headers, "Train Quota")
 	}
 	if includeAZs {
 		headers = append(headers, i18n.T("truffle.output.header.availability_zones"))
@@ -212,11 +234,25 @@ func (p *Printer) PrintTable(results []aws.InstanceTypeResult, includeAZs bool, 
 					row = append(row, "-")
 				}
 			}
+			if hasSpotEligible {
+				if result.ManagedSpotEligible {
+					row = append(row, "✓")
+				} else {
+					row = append(row, "-")
+				}
+			}
 			if showPrice {
 				if result.OnDemandPrice > 0 {
 					row = append(row, fmt.Sprintf("$%.4f", result.OnDemandPrice))
 				} else {
 					row = append(row, "N/A")
+				}
+			}
+			if showQuota {
+				if result.TrainingJobQuota != nil {
+					row = append(row, strconv.Itoa(int(*result.TrainingJobQuota)))
+				} else {
+					row = append(row, "-")
 				}
 			}
 			if includeAZs {
@@ -288,6 +324,14 @@ func (p *Printer) PrintTable(results []aws.InstanceTypeResult, includeAZs bool, 
 			fmt.Println(color.New(color.FgCyan).Sprint(note))
 		} else {
 			fmt.Println(note)
+		}
+		if hasSpotEligible {
+			spotNote := "  ✓ Spot-Eligible: usable with managed spot training — a billed-time discount of up to 90% (no separate spot price; savings depend on your job)"
+			if p.useColor {
+				fmt.Println(color.New(color.FgCyan).Sprint(spotNote))
+			} else {
+				fmt.Println(spotNote)
+			}
 		}
 	}
 

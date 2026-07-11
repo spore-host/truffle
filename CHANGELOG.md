@@ -22,6 +22,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ml.g5.2xlarge` ≈ $1.515/hr vs `g5.2xlarge` ≈ $1.212/hr). `find` shows and
   sorts by it automatically; `search` shows it with `--show-price`. Prices are
   cached per type/region like EC2 pricing.
+- **SageMaker managed-spot eligibility + per-type quota** (#81). `--service
+  sagemaker` results now mark which `ml.*` types are usable with **managed spot
+  training** (a "Spot-Eligible" column + footer): managed spot is a billed-time
+  discount of up to 90%, not a spot market, so there is no separate spot price —
+  the marker reflects the presence of a "spot training job usage" service quota.
+  A new `--show-quota` flag adds a per-type training-job quota column (a `0`
+  means an increase must be requested before launching). Both fields
+  (`managed_spot_eligible`, `training_job_quota`) also appear in JSON/YAML. This
+  reuses the quota data already fetched for discovery — no extra API calls.
 
 ### Security
 - **Pinned the CI/release Go toolchain to 1.26.5** to clear GO-2026-5856, a

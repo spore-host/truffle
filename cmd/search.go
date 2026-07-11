@@ -26,6 +26,7 @@ var (
 	searchPickFirst bool
 	searchShowPrice bool
 	searchService   string
+	searchShowQuota bool
 	timeout         time.Duration
 )
 
@@ -62,6 +63,7 @@ func init() {
 	searchCmd.Flags().BoolVar(&searchPickFirst, "pick-first", false, "Output only the top result's instance type (useful for piping to spawn)")
 	searchCmd.Flags().BoolVar(&searchShowPrice, "show-price", false, "Show on-demand pricing (uses static pricing data)")
 	searchCmd.Flags().StringVar(&searchService, "service", "ec2", "Instance namespace to search: ec2 or sagemaker (ml.* types)")
+	searchCmd.Flags().BoolVar(&searchShowQuota, "show-quota", false, "Show the per-type training-job quota (SageMaker only)")
 	searchCmd.Flags().DurationVar(&timeout, "timeout", 5*time.Minute, "Timeout for AWS API calls")
 
 	// Register completion for instance type argument
@@ -211,6 +213,9 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	case "csv":
 		return printer.PrintCSV(results)
 	case "table":
+		if searchShowQuota && service == "sagemaker" {
+			return printer.PrintTableWithQuota(results, !skipAZs, searchShowPrice)
+		}
 		return printer.PrintTable(results, !skipAZs, searchShowPrice)
 	default:
 		return i18n.Te("truffle.search.error.unsupported_format", nil, map[string]interface{}{
