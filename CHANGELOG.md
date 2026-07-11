@@ -14,10 +14,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   offered in each region (from Service Quotas, the authoritative source — there
   is no SageMaker `DescribeInstanceTypes`), with vCPU/memory/GPU/architecture
   specs derived from the underlying EC2 type. Results are tagged
-  `service: "sagemaker"` in JSON/YAML and flagged in the table footer. Pricing is
-  not yet included (the SageMaker offer is billed separately — tracked in #80),
-  so the `$/hr` column reads `N/A` by design. Default behavior (`--service ec2`)
-  is unchanged.
+  `service: "sagemaker"` in JSON/YAML and flagged in the table footer. Default
+  behavior (`--service ec2`) is unchanged.
+- **SageMaker `ml.*` on-demand pricing** (#80). `--service sagemaker` results now
+  carry a `$/hr` rate from the SageMaker Price List offer (`AmazonSageMaker`),
+  which includes the management premium over the equivalent EC2 rate (e.g.
+  `ml.g5.2xlarge` ≈ $1.515/hr vs `g5.2xlarge` ≈ $1.212/hr). `find` shows and
+  sorts by it automatically; `search` shows it with `--show-price`. Prices are
+  cached per type/region like EC2 pricing.
 
 ### Security
 - **Pinned the CI/release Go toolchain to 1.26.5** to clear GO-2026-5856, a

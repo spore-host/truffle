@@ -139,7 +139,6 @@ func (c *Client) searchSageMakerInRegion(ctx context.Context, region string, mat
 	//    queries, whose matcher is built for EC2-style names like "^g5\.", also
 	//    match). Track base EC2 type → ml.* name for spec enrichment.
 	baseToML := make(map[string]string)
-	var baseTypes []types.InstanceType
 	for _, mlType := range offered {
 		base := strings.TrimPrefix(mlType, "ml.")
 		if !matcher.MatchString(mlType) && !matcher.MatchString(base) {
@@ -149,36 +148,35 @@ func (c *Client) searchSageMakerInRegion(ctx context.Context, region string, mat
 			continue
 		}
 		baseToML[base] = mlType
-		baseTypes = append(baseTypes, types.InstanceType(base))
 	}
 
-	if len(baseTypes) == 0 {
+	if len(baseToML) == 0 {
 		return nil, nil
 	}
 
-	// 3. Spec enrichment: one DescribeInstanceTypes call for the base EC2 types.
+	// 3. Spec enrichment. Paginate the region's full EC2 catalog once and index
+	//    it, rather than passing the base types as an explicit InstanceTypes
+	//    filter: DescribeInstanceTypes fails atomically if ANY requested type
+	//    isn't offered in the region, and some ml.* types (offered via SageMaker
+	//    quota) have no EC2 peer — so a filtered batch would drop specs for every
+	//    type. A catalog sweep is a handful of pages regardless of how many ml.*
+	//    types we enrich, and types with no EC2 peer simply won't be in the map.
 	cfg := c.cfg
 	cfg.Region = region
 	ec2Client := ec2.NewFromConfig(cfg)
 
 	enriched := make(map[string]types.InstanceTypeInfo)
-	paginator := ec2.NewDescribeInstanceTypesPaginator(ec2Client, &ec2.DescribeInstanceTypesInput{
-		InstanceTypes: baseTypes,
-	})
+	paginator := ec2.NewDescribeInstanceTypesPaginator(ec2Client, &ec2.DescribeInstanceTypesInput{})
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			// A base type not offered as EC2 in this region comes back as
-			// InvalidInstanceType/InvalidParameterValue — that's not a region
-			// failure (the ml.* type may still be validly offered via quota).
-			// Fall through to emit quota-only rows with zeroed specs.
-			if isInstanceTypeNotOffered(err) {
-				break
-			}
 			return nil, err
 		}
 		for _, it := range output.InstanceTypes {
-			enriched[string(it.InstanceType)] = it
+			base := string(it.InstanceType)
+			if _, wanted := baseToML[base]; wanted {
+				enriched[base] = it
+			}
 		}
 	}
 

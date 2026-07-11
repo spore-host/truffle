@@ -180,12 +180,17 @@ func runSearch(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Populate on-demand pricing if requested. SageMaker ml.* pricing comes from
-	// a separate offer (AmazonSageMaker) and is out of scope here (issue #80), so
-	// the EC2 on-demand pricer is not used for it — leave the price blank.
-	if searchShowPrice && service != "sagemaker" {
+	// Populate on-demand pricing if requested. SageMaker ml.* types are priced
+	// under a distinct offer (AmazonSageMaker) with a management premium, so they
+	// use a separate pricer keyed on the ml.*-prefixed name.
+	if searchShowPrice {
 		for idx := range results {
-			price, _ := awsClient.OnDemandPrice(ctx, results[idx].InstanceType, results[idx].Region)
+			var price float64
+			if service == "sagemaker" {
+				price, _ = awsClient.SageMakerPrice(ctx, results[idx].InstanceType, results[idx].Region)
+			} else {
+				price, _ = awsClient.OnDemandPrice(ctx, results[idx].InstanceType, results[idx].Region)
+			}
 			results[idx].OnDemandPrice = price
 		}
 	}
