@@ -32,6 +32,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`managed_spot_eligible`, `training_job_quota`) also appear in JSON/YAML. This
   reuses the quota data already fetched for discovery — no extra API calls.
 
+### Documentation
+- **SageMaker discovery guide** (#82). New [`docs/sagemaker.md`](docs/sagemaker.md)
+  covering `--service sagemaker`, how discovery works (Service Quotas as the
+  offered-set source, specs from the underlying EC2 type), the pricing
+  management premium, managed-spot eligibility, `--show-quota`, and the
+  JSON/YAML fields. README gains SageMaker discovery examples and links the guide.
+
 ### Security
 - **Pinned the CI/release Go toolchain to 1.26.5** to clear GO-2026-5856, a
   `crypto/tls` standard-library advisory present in go1.26.4. Builds now link the
