@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`find.ResolveCard(card) ([]string, error)`** and **`find.CardInstanceTypes`** —
+  a strict GPU-card → EC2-instance-type resolver for library consumers. Unlike the
+  free-text search pipeline, an unresolved card returns the exported
+  **`find.ErrNoMatch`** sentinel instead of silently falling back to a match-all
+  (`.*`) pattern that a caller could mistake for a real result (#90).
+
+### Fixed
+- Multi-word GPU card names now resolve **longest-match-first, up to the longest
+  catalog key** (previously the token classifier only tried 2- and 3-word phrases).
+  The 4-word canonical key `"rtx pro server 6000"` was unreachable by full-string
+  match and resolved only via the single-token `rtx` alias; it — and the common
+  marketing spelling `"rtx pro 6000"` (now an alias) — now resolve to the g7e
+  family exactly (#90).
+
 ## [0.42.0] - 2026-07-11
 
 ### Added
