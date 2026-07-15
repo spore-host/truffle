@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.43.0] - 2026-07-15
+
 ### Added
 - **`find.ResolveCard(card) ([]string, error)`** and **`find.CardInstanceTypes`** —
   a strict GPU-card → EC2-instance-type resolver for library consumers. Unlike the
@@ -239,7 +241,8 @@ Initial tagged release from the standalone `spore-host/truffle` repository.
 Older releases are summarized in the
 [GitHub Releases](https://github.com/spore-host/truffle/releases) for this repo.
 
-[Unreleased]: https://github.com/spore-host/truffle/compare/v0.42.0...HEAD
+[Unreleased]: https://github.com/spore-host/truffle/compare/v0.43.0...HEAD
+[0.43.0]: https://github.com/spore-host/truffle/compare/v0.42.0...v0.43.0
 [0.42.0]: https://github.com/spore-host/truffle/compare/v0.41.0...v0.42.0
 [0.41.0]: https://github.com/spore-host/truffle/compare/v0.40.0...v0.41.0
 [0.40.0]: https://github.com/spore-host/truffle/compare/v0.39.1...v0.40.0
