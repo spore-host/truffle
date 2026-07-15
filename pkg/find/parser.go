@@ -85,6 +85,58 @@ var (
 	networkSpeedRegex = regexp.MustCompile(`^(\d+)\s*(gbps|g)$`)
 )
 
+// maxPhraseWords is the longest multi-word key across the processor/GPU catalogs
+// and GPU aliases, computed from the data rather than hardcoded so the phrase
+// matcher stays correct as the catalog grows. Without this, a canonical key like
+// "rtx pro server 6000" (4 words) was unreachable by a 2/3-word-only lookahead
+// and only matched via a single-token alias (#90).
+var maxPhraseWords = computeMaxPhraseWords()
+
+func computeMaxPhraseWords() int {
+	max := 1
+	consider := func(key string) {
+		if n := len(strings.Fields(key)); n > max {
+			max = n
+		}
+	}
+	for k := range metadata.ProcessorDatabase {
+		consider(k)
+	}
+	for k := range metadata.GPUDatabase {
+		consider(k)
+	}
+	for k := range metadata.GPUAliases {
+		consider(k)
+	}
+	return max
+}
+
+// matchPhrase tries the longest multi-word phrase starting at words[i], from
+// maxPhraseWords down to 2 words, against the processor DB, GPU DB, and GPU
+// aliases (in that precedence). On a hit it returns the token and how many words
+// it consumed. Checking aliases here — not just the single-word path — lets
+// multi-word marketing spellings (e.g. "rtx pro 6000") resolve exactly.
+func matchPhrase(words []string, i int) (Token, int, bool) {
+	remaining := len(words) - i
+	upper := maxPhraseWords
+	if upper > remaining {
+		upper = remaining
+	}
+	for n := upper; n >= 2; n-- {
+		phrase := strings.Join(words[i:i+n], " ")
+		if _, ok := metadata.ProcessorDatabase[phrase]; ok {
+			return Token{Type: TokenProcessor, Value: phrase, Raw: phrase}, n, true
+		}
+		if _, ok := metadata.GPUDatabase[phrase]; ok {
+			return Token{Type: TokenGPU, Value: phrase, Raw: phrase}, n, true
+		}
+		if alias, ok := metadata.GPUAliases[phrase]; ok {
+			return Token{Type: TokenGPU, Value: alias, Raw: phrase}, n, true
+		}
+	}
+	return Token{}, 0, false
+}
+
 // ParseQuery parses a natural language query into structured search criteria
 func ParseQuery(query string) (*ParsedQuery, error) {
 	// Normalize: lowercase, trim
@@ -156,41 +208,14 @@ func classifyTokens(words []string) []Token {
 	for i := 0; i < len(words); i++ {
 		word := words[i]
 
-		// Check multi-word patterns first (e.g., "ice lake", "sapphire rapids")
-		if i+1 < len(words) {
-			twoWord := word + " " + words[i+1]
-			if _, ok := metadata.ProcessorDatabase[twoWord]; ok {
-				tokens = append(tokens, Token{
-					Type:  TokenProcessor,
-					Value: twoWord,
-					Raw:   twoWord,
-				})
-				i++
-				continue
-			}
-			if _, ok := metadata.GPUDatabase[twoWord]; ok {
-				tokens = append(tokens, Token{
-					Type:  TokenGPU,
-					Value: twoWord,
-					Raw:   twoWord,
-				})
-				i++
-				continue
-			}
-		}
-
-		// Check three-word patterns (e.g., "radeon pro v520")
-		if i+2 < len(words) {
-			threeWord := word + " " + words[i+1] + " " + words[i+2]
-			if _, ok := metadata.GPUDatabase[threeWord]; ok {
-				tokens = append(tokens, Token{
-					Type:  TokenGPU,
-					Value: threeWord,
-					Raw:   threeWord,
-				})
-				i += 2
-				continue
-			}
+		// Check multi-word patterns first, longest-match-first, so canonical keys
+		// of any length resolve (e.g. "sapphire rapids", "radeon pro v520",
+		// "rtx pro server 6000") rather than being shadowed by a single-token
+		// alias or dropped (#90).
+		if tok, consumed, ok := matchPhrase(words, i); ok {
+			tokens = append(tokens, tok)
+			i += consumed - 1
+			continue
 		}
 
 		// Single-word patterns
