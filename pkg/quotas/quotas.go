@@ -17,6 +17,7 @@ package quotas
 import (
 	"context"
 	"fmt"
+	"log"
 	"sort"
 	"strings"
 	"sync"
@@ -35,11 +36,12 @@ type QuotaFamily string
 const (
 	FamilyStandard QuotaFamily = "Standard" // A, C, D, H, I, M, R, T, Z
 	FamilyF        QuotaFamily = "F"        // FPGA
-	FamilyG        QuotaFamily = "G"        // Graphics (g4dn, g5, g6)
+	FamilyG        QuotaFamily = "G"        // Graphics (g4dn, g5, g6) — quota shared with VT
 	FamilyP        QuotaFamily = "P"        // GPU Training (p3, p4, p5)
 	FamilyX        QuotaFamily = "X"        // Memory optimized
 	FamilyInf      QuotaFamily = "Inf"      // Inferentia
 	FamilyTrn      QuotaFamily = "Trn"      // Trainium
+	FamilyDL       QuotaFamily = "DL"       // Deep Learning (dl1 Habana Gaudi, dl2q Qualcomm)
 )
 
 // Service Quota codes for EC2
@@ -52,6 +54,7 @@ const (
 	QuotaCodeX        = "L-7295265B" // Running On-Demand X instances
 	QuotaCodeInf      = "L-1945791B" // Running On-Demand Inf instances
 	QuotaCodeTrn      = "L-2C3B7624" // Running On-Demand Trn instances
+	QuotaCodeDL       = "L-6E869C2A" // Running On-Demand DL instances (dl1/dl2q)
 
 	// Spot vCPU quotas
 	QuotaCodeSpotStandard = "L-34B43A08" // All Standard Spot Instance Requests
@@ -61,6 +64,7 @@ const (
 	QuotaCodeSpotX        = "L-E3A00192" // All X Spot Instance Requests
 	QuotaCodeSpotInf      = "L-B5D1601B" // All Inf Spot Instance Requests
 	QuotaCodeSpotTrn      = "L-5480EFD2" // All Trn Spot Instance Requests
+	QuotaCodeSpotDL       = "L-85EED4F7" // All DL Spot Instance Requests
 )
 
 // QuotaInfo holds quota limits and current usage for a single region,
@@ -148,6 +152,7 @@ func (c *Client) GetQuotas(ctx context.Context, region string) (*QuotaInfo, erro
 		FamilyX:        QuotaCodeX,
 		FamilyInf:      QuotaCodeInf,
 		FamilyTrn:      QuotaCodeTrn,
+		FamilyDL:       QuotaCodeDL,
 	}
 
 	for family, code := range quotas {
@@ -168,6 +173,7 @@ func (c *Client) GetQuotas(ctx context.Context, region string) (*QuotaInfo, erro
 		FamilyX:        QuotaCodeSpotX,
 		FamilyInf:      QuotaCodeSpotInf,
 		FamilyTrn:      QuotaCodeSpotTrn,
+		FamilyDL:       QuotaCodeSpotDL,
 	}
 
 	for family, code := range spotQuotas {
@@ -333,55 +339,63 @@ func (c *Client) CanLaunch(instanceType string, vCPUs int32, quotas *QuotaInfo, 
 
 // GetQuotaFamily maps instance type to quota family
 func GetQuotaFamily(instanceType string) QuotaFamily {
-	// Extract family prefix (e.g., "p5" from "p5.48xlarge")
-	parts := strings.Split(instanceType, ".")
-	if len(parts) == 0 {
+	// Match on the LETTER-run prefix (the leading alphabetic characters before
+	// the first digit), not strings.HasPrefix — otherwise "trn"/"inf" only work
+	// by case ordering and multi-letter families like "dl"/"vt" get misfiled
+	// under a single-letter case (#64). e.g. "dl1.24xlarge" → "dl", "vt1.3xlarge"
+	// → "vt", "p5.48xlarge" → "p".
+	alpha := letterPrefix(instanceType)
+	switch alpha {
+	case "p":
+		return FamilyP // GPU training
+	case "g":
+		return FamilyG // Graphics/GPU
+	case "vt":
+		// VT (video transcoding) shares the "G and VT" quota, both On-Demand
+		// (L-DB2E81BA) and Spot (L-3819A6DF), so it maps to FamilyG.
+		return FamilyG
+	case "inf":
+		return FamilyInf // Inferentia
+	case "trn":
+		return FamilyTrn // Trainium
+	case "dl":
+		return FamilyDL // Deep Learning accelerators (dl1 Gaudi, dl2q Qualcomm)
+	case "f":
+		return FamilyF // FPGA
+	case "x":
+		return FamilyX // Memory optimized
+	default:
+		// Standard covers a, c, d, h, i, m, r, t, z, …
 		return FamilyStandard
 	}
-
-	prefix := parts[0]
-
-	// P instances (GPU training)
-	if strings.HasPrefix(prefix, "p") {
-		return FamilyP
-	}
-
-	// G instances (Graphics/GPU)
-	if strings.HasPrefix(prefix, "g") {
-		return FamilyG
-	}
-
-	// Inf instances (Inferentia)
-	if strings.HasPrefix(prefix, "inf") {
-		return FamilyInf
-	}
-
-	// Trn instances (Trainium)
-	if strings.HasPrefix(prefix, "trn") {
-		return FamilyTrn
-	}
-
-	// F instances (FPGA)
-	if strings.HasPrefix(prefix, "f") {
-		return FamilyF
-	}
-
-	// X instances (Memory)
-	if strings.HasPrefix(prefix, "x") {
-		return FamilyX
-	}
-
-	// Default to Standard (A, C, D, H, I, M, R, T, Z)
-	return FamilyStandard
 }
 
-// getVCPUCount estimates vCPU count from instance type
-// This is a simplified estimation - in production, query DescribeInstanceTypes
+// letterPrefix returns the leading run of ASCII letters of an instance type,
+// i.e. the family prefix before the generation digit ("p5.48xlarge" → "p",
+// "dl2q.24xlarge" → "dl", "trn1.32xlarge" → "trn"). Note it stops at the first
+// digit, so "dl2q" → "dl" (the q is a post-digit qualifier), which is what we
+// want for family classification.
+func letterPrefix(instanceType string) string {
+	for i := 0; i < len(instanceType); i++ {
+		c := instanceType[i]
+		if c < 'a' || c > 'z' {
+			return instanceType[:i]
+		}
+	}
+	return instanceType
+}
+
+// getVCPUCount estimates vCPU count from an instance type's size suffix.
+// This is a heuristic (the authoritative source is DescribeInstanceTypes); it
+// covers the fixed sub-large sizes and the general NxLarge = N*4 pattern. A size
+// it can't map is logged and estimated at the current-usage-summing call site
+// (#64) rather than silently treated as a fixed small value.
 func getVCPUCount(instanceType string) int32 {
 	// Parse size suffix (nano, micro, small, medium, large, xlarge, 2xlarge, etc.)
 	parts := strings.Split(instanceType, ".")
 	if len(parts) < 2 {
-		return 2 // Default
+		log.Printf("quotas: cannot parse size from instance type %q; estimating 2 vCPU (usage may be understated)", instanceType)
+		return 2
 	}
 
 	size := parts[1]
@@ -431,7 +445,7 @@ func getVCPUCount(instanceType string) int32 {
 		return 448
 	}
 
-	// Try to parse numeric prefix (e.g., "2xlarge" → 2)
+	// General pattern: NxLarge has N*4 vCPUs (e.g. "20xlarge" → 80).
 	if strings.HasSuffix(size, "xlarge") {
 		numStr := strings.TrimSuffix(size, "xlarge")
 		if num := parseInt(numStr); num > 0 {
@@ -439,7 +453,11 @@ func getVCPUCount(instanceType string) int32 {
 		}
 	}
 
-	return 2 // Default
+	// Truly unknown size — log it (a new size AWS added that we don't map) and
+	// fall back to a conservative estimate. Surfaced so it doesn't silently skew
+	// the usage total the way a quiet default would.
+	log.Printf("quotas: unknown instance size %q in %q; estimating 2 vCPU (usage may be understated — update getVCPUCount)", size, instanceType)
+	return 2
 }
 
 func parseInt(s string) int32 {

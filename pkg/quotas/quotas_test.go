@@ -21,6 +21,12 @@ func TestGetQuotaFamily(t *testing.T) {
 		{"f1.2xlarge", FamilyF},
 		{"x2gd.xlarge", FamilyX},
 		{"x1e.32xlarge", FamilyX},
+		// DL accelerators (#64): dl1 (Habana Gaudi), dl2q (Qualcomm) → their own family.
+		{"dl1.24xlarge", FamilyDL},
+		{"dl2q.24xlarge", FamilyDL},
+		// VT (video transcoding) shares the G-and-VT quota → FamilyG (#64).
+		{"vt1.3xlarge", FamilyG},
+		{"vt1.24xlarge", FamilyG},
 		{"m7g.large", FamilyStandard},
 		{"c6i.xlarge", FamilyStandard},
 		{"r6a.2xlarge", FamilyStandard},

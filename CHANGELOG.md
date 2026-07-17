@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Quota family classification for DL and VT instances** (#64). `dl1`/`dl2q`
+  (Habana Gaudi / Qualcomm) now map to a dedicated DL quota family instead of
+  falling through to Standard, and `vt1` maps to the G family (AWS groups it under
+  the "G and VT" quota). Classification now matches the leading letter-run of the
+  instance type rather than a loose prefix check, so multi-letter families aren't
+  misfiled. `quotas` displays the DL family too.
+- **`quotas` uses the shared `--regions` flag.** It previously defined its own
+  local `--regions` that shadowed the root persistent flag and behaved
+  differently from every other command; it now uses the shared flag (defaulting
+  to us-east-1 when none is given, since it fans out an API call per region) (#64).
+
+### Changed
+- **`quotas` vCPU estimation logs unmappable instance sizes** instead of silently
+  assuming 2 vCPU, so an unknown size can't quietly understate usage/headroom (#64).
+
 ## [0.43.0] - 2026-07-15
 
 ### Added
