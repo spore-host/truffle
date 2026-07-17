@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.44.0] - 2026-07-17
+
 ### Added
 - **Shared spore.host config base.** truffle now honors the suite-wide
   `libs/sporeconfig` settings: a new persistent `--profile` flag (and `--account`),
@@ -268,7 +270,8 @@ Initial tagged release from the standalone `spore-host/truffle` repository.
 Older releases are summarized in the
 [GitHub Releases](https://github.com/spore-host/truffle/releases) for this repo.
 
-[Unreleased]: https://github.com/spore-host/truffle/compare/v0.43.0...HEAD
+[Unreleased]: https://github.com/spore-host/truffle/compare/v0.44.0...HEAD
+[0.44.0]: https://github.com/spore-host/truffle/compare/v0.43.0...v0.44.0
 [0.43.0]: https://github.com/spore-host/truffle/compare/v0.42.0...v0.43.0
 [0.42.0]: https://github.com/spore-host/truffle/compare/v0.41.0...v0.42.0
 [0.41.0]: https://github.com/spore-host/truffle/compare/v0.40.0...v0.41.0
