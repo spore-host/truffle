@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Shared spore.host config base.** truffle now honors the suite-wide
+  `libs/sporeconfig` settings: a new persistent `--profile` flag (and `--account`),
+  the `SPORE_PROFILE`/`AWS_PROFILE` env vars, and the `[spore]` table of
+  `~/.config/spore/config.toml`, resolved flag > env > file > default. Both AWS
+  client constructors (`pkg/aws.NewClient`, `pkg/quotas.NewClient`) load through a
+  shared `pkg/awscfg` helper, so a suite-wide AWS profile applies consistently
+  (truffle previously used the bare ambient chain with no profile concept).
+  Region stays truffle's per-request `--regions`; unset profile = unchanged
+  (ambient AWS chain).
+
 ### Fixed
 - **Quota family classification for DL and VT instances** (#64). `dl1`/`dl2q`
   (Habana Gaudi / Qualcomm) now map to a dedicated DL quota family instead of

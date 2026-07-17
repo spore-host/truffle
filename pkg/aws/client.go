@@ -21,10 +21,10 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	smithy "github.com/aws/smithy-go"
+	"github.com/spore-host/truffle/pkg/awscfg"
 	"github.com/spore-host/truffle/pkg/spawn"
 )
 
@@ -189,9 +189,11 @@ type CapacityBlockOfferingOptions struct {
 	Verbose               bool
 }
 
-// NewClient creates a new AWS client using the default credential chain.
+// NewClient creates a new AWS client using the shared spore.host profile/region
+// (flag > env > file), falling back to the ambient credential chain when none is
+// set. Region is otherwise applied per-request.
 func NewClient(ctx context.Context) (*Client, error) {
-	cfg, err := config.LoadDefaultConfig(ctx)
+	cfg, err := awscfg.Load(ctx, "")
 	if err != nil {
 		return nil, fmt.Errorf("unable to load AWS SDK config: %w", err)
 	}

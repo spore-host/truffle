@@ -24,10 +24,10 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/aws/aws-sdk-go-v2/service/servicequotas"
+	"github.com/spore-host/truffle/pkg/awscfg"
 )
 
 // QuotaFamily represents instance family groupings for Service Quotas
@@ -100,9 +100,9 @@ type Client struct {
 // NewClient creates a quota client using the default credential chain.
 // Returns error if AWS credentials are not available.
 func NewClient(ctx context.Context) (*Client, error) {
-	cfg, err := config.LoadDefaultConfig(ctx,
-		config.WithDefaultRegion("us-east-1"),
-	)
+	// Shared profile/region (flag > env > file), falling back to us-east-1 when
+	// nothing sets a region — quota checks must target a real region.
+	cfg, err := awscfg.Load(ctx, "us-east-1")
 	if err != nil {
 		return nil, fmt.Errorf("failed to load AWS config (credentials required for quota checking): %w", err)
 	}
@@ -626,7 +626,7 @@ type ServiceQuotasClient struct {
 
 // NewServiceQuotasClient creates a new client for querying service quotas.
 func NewServiceQuotasClient(ctx context.Context) (*ServiceQuotasClient, error) {
-	cfg, err := config.LoadDefaultConfig(ctx)
+	cfg, err := awscfg.Load(ctx, "")
 	if err != nil {
 		return nil, fmt.Errorf("load AWS config: %w", err)
 	}
