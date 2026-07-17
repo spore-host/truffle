@@ -5,9 +5,10 @@ import (
 	"log"
 	"os"
 
+	"github.com/spf13/cobra"
 	"github.com/spore-host/libs/i18n"
 	"github.com/spore-host/libs/update"
-	"github.com/spf13/cobra"
+	"github.com/spore-host/truffle/pkg/awscfg"
 )
 
 var (
@@ -16,6 +17,11 @@ var (
 	noColor      bool
 	regions      []string
 	verbose      bool
+
+	// Shared spore.host config flags (see libs/sporeconfig). truffle's region is
+	// per-request (--regions filter), so only the profile/account are wired here.
+	sharedProfile string
+	sharedAccount string
 
 	// i18n and accessibility flags
 	flagLang          string
@@ -110,6 +116,10 @@ func init() {
 			regions = deduped
 		}
 
+		// Record the shared-config profile for pkg/awscfg (flag > env > file).
+		// Region stays unset here — truffle selects regions per request.
+		awscfg.SetFlags(sharedProfile, "")
+
 		return nil
 	}
 
@@ -123,6 +133,12 @@ func init() {
 	rootCmd.PersistentFlags().StringSliceVarP(&regions, "regions", "r", []string{}, "Filter by specific regions (comma-separated)")
 	rootCmd.PersistentFlags().StringSlice("region", []string{}, "Alias for --regions")
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output")
+
+	// Shared spore.host config: AWS profile/account, resolved
+	// flag > env (SPORE_*/AWS_*) > ~/.config/spore/config.toml > default.
+	// (Region is truffle's per-request --regions, not a single default here.)
+	rootCmd.PersistentFlags().StringVar(&sharedProfile, "profile", "", "AWS named profile (overrides SPORE_PROFILE/AWS_PROFILE and the shared config)")
+	rootCmd.PersistentFlags().StringVar(&sharedAccount, "account", "", "Expected AWS account ID (optional guard)")
 
 	// Enable shell completion for all supported shells
 	rootCmd.CompletionOptions.DisableDefaultCmd = false
