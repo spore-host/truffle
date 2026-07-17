@@ -12,18 +12,27 @@ import (
 	"github.com/fatih/color"
 	"github.com/olekukonko/tablewriter"
 	"github.com/olekukonko/tablewriter/tw"
-	"github.com/spore-host/libs/i18n"
 	"github.com/spf13/cobra"
+	"github.com/spore-host/libs/i18n"
 	"github.com/spore-host/truffle/pkg/quotas"
 	"gopkg.in/yaml.v3"
 )
 
 var (
-	quotasRegions []string
 	quotasFamily  string
 	quotasRequest bool
 	quotasService string
 )
+
+// quotasRegionList resolves which regions `truffle quotas` checks: the shared
+// persistent --regions flag if given, else the cost-conscious us-east-1 default
+// (quotas fans out an API call per region, so it doesn't default to "all").
+func quotasRegionList() []string {
+	if len(regions) > 0 {
+		return regions
+	}
+	return []string{"us-east-1"}
+}
 
 var quotasCmd = &cobra.Command{
 	Use:   "quotas",
@@ -56,8 +65,10 @@ Examples:
 func init() {
 	rootCmd.AddCommand(quotasCmd)
 
-	quotasCmd.Flags().StringSliceVar(&quotasRegions, "regions", []string{"us-east-1"},
-		"Regions to check (comma-separated)")
+	// NOTE: --regions is the root persistent flag (cmd/root.go), shared with every
+	// other command; quotas previously defined its OWN local --regions that
+	// shadowed it and behaved differently (#64). It now uses the shared flag and
+	// falls back to us-east-1 when none is given (see quotasRegionList).
 	quotasCmd.Flags().StringVar(&quotasFamily, "family", "",
 		"Filter by instance family (EC2: Standard/G/P/Inf/Trn; SageMaker: g5/p4d/etc.)")
 	quotasCmd.Flags().BoolVar(&quotasRequest, "request", false,
@@ -92,7 +103,7 @@ func runQuotas(cmd *cobra.Command, args []string) error {
 	// Get quotas for each region
 	quotaInfos := make(map[string]*quotas.QuotaInfo)
 
-	for _, region := range quotasRegions {
+	for _, region := range quotasRegionList() {
 		fmt.Fprintf(os.Stderr, "Fetching quotas for %s...\n", region)
 
 		info, err := quotaClient.GetQuotas(ctx, region)
@@ -130,7 +141,7 @@ func runQuotas(cmd *cobra.Command, args []string) error {
 		return w.Error()
 	default:
 		// Table output
-		for _, region := range quotasRegions {
+		for _, region := range quotasRegionList() {
 			info, ok := quotaInfos[region]
 			if !ok {
 				continue
@@ -141,7 +152,7 @@ func runQuotas(cmd *cobra.Command, args []string) error {
 		if quotasRequest {
 			fmt.Println()
 			fmt.Println("╔════════════════════════════════════════════════════════╗")
-			fmt.Println("║  "+i18n.Emoji("memo")+" Quota Increase Request Commands                   ║")
+			fmt.Println("║  " + i18n.Emoji("memo") + " Quota Increase Request Commands                   ║")
 			fmt.Println("╚════════════════════════════════════════════════════════╝")
 			fmt.Println()
 			generateIncreaseRequests(quotaInfos, quotasFamily)
@@ -161,7 +172,7 @@ func buildQuotaRows(quotaInfos map[string]*quotas.QuotaInfo, filterFamily string
 
 	families := []quotas.QuotaFamily{
 		quotas.FamilyStandard, quotas.FamilyG, quotas.FamilyP,
-		quotas.FamilyInf, quotas.FamilyTrn, quotas.FamilyF, quotas.FamilyX,
+		quotas.FamilyInf, quotas.FamilyTrn, quotas.FamilyDL, quotas.FamilyF, quotas.FamilyX,
 	}
 
 	for _, region := range sortedRegions {
@@ -220,6 +231,7 @@ func displayRegionQuotas(region string, info *quotas.QuotaInfo, filterFamily str
 		quotas.FamilyP,
 		quotas.FamilyInf,
 		quotas.FamilyTrn,
+		quotas.FamilyDL,
 		quotas.FamilyF,
 		quotas.FamilyX,
 	}
@@ -420,7 +432,7 @@ func runSageMakerQuotas(ctx context.Context) error {
 		return fmt.Errorf("AWS credentials required: %w", err)
 	}
 
-	for _, region := range quotasRegions {
+	for _, region := range quotasRegionList() {
 		fmt.Fprintf(os.Stderr, "Fetching SageMaker quotas for %s...\n", region)
 		if err := displaySageMakerQuotas(ctx, sqClient, region); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: %s: %v\n", region, err)
@@ -511,7 +523,7 @@ func displaySageMakerQuotas(ctx context.Context, sqClient quotas.ServiceQuotasLi
 	}
 
 	if quotasRequest {
-		fmt.Println("\n"+i18n.Emoji("memo")+" Quota increase requests for zero quotas:")
+		fmt.Println("\n" + i18n.Emoji("memo") + " Quota increase requests for zero quotas:")
 		for _, r := range rows {
 			if r.value == 0 {
 				fmt.Printf("\naws service-quotas request-service-quota-increase \\\n")
