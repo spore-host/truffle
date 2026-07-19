@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Command/flag reference is now generated from the CLI and drift-gated.** A
+  hidden `truffle gen-docs` command (via `libs/docgen`) emits the exhaustive
+  per-command reference to `docs-gen/`; `make gen-docs` regenerates it and a CI
+  `check-docs` gate fails if the committed reference drifts from the code, so the
+  docs site's reference can no longer go stale (2026-07 docs audit). Because it's
+  generated from the binary, the `search` deprecation and the `capacity-blocks
+  --end-by` rename now show correctly. Run `make gen-docs` after changing a
+  command or flag.
+
 ## [0.44.0] - 2026-07-17
 
 ### Added
