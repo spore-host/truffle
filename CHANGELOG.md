@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Zenodo DOI**: truffle is archived on Zenodo with a citable DOI (concept DOI
+  [10.5281/zenodo.21439669](https://doi.org/10.5281/zenodo.21439669), always
+  latest). Added to `CITATION.cff` and a README badge.
+
 ## [0.46.0] - 2026-07-19
 
 ### Added

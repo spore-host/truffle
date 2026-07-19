@@ -1,6 +1,7 @@
 cff-version: 1.2.0
 message: "If you use truffle in your research, please cite it as below."
 title: "truffle: EC2 instance-type discovery, pricing, and quotas"
+doi: "10.5281/zenodo.21439669"
 abstract: >-
   truffle is the spore.host tool for discovering AWS EC2 capacity: finding
   instance types by natural language or pattern, comparing spot prices in real
