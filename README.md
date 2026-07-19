@@ -5,6 +5,7 @@
 [![codecov](https://codecov.io/gh/spore-host/truffle/branch/main/graph/badge.svg)](https://codecov.io/gh/spore-host/truffle)
 [![Go Reference](https://pkg.go.dev/badge/github.com/spore-host/truffle.svg)](https://pkg.go.dev/github.com/spore-host/truffle)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21439669.svg)](https://doi.org/10.5281/zenodo.21439669)
 
 Find EC2 instance types, compare spot prices, check quotas.
 
