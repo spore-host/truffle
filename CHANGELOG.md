@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **G7 instance family (NVIDIA RTX PRO 4500)** added to the GPU database. `truffle
+  find "rtx pro 4500"` (and the `nvidia`/`g7` family lookups) now resolve the six
+  `g7.*` types. Complements the existing `g7e` (RTX PRO 6000). Surfaced while
+  fixing spawn#384 (GPU AMI auto-detection).
 - **`CITATION.cff`** — machine-readable citation metadata so the repo is citable
   (GitHub "Cite this repository"); base for Zenodo DOI minting.
 
