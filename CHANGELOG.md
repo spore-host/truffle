@@ -15,7 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   docs site's reference can no longer go stale (2026-07 docs audit). Because it's
   generated from the binary, the `search` deprecation and the `capacity-blocks
   --end-by` rename now show correctly. Run `make gen-docs` after changing a
-  command or flag.
+  command or flag. Uses `libs/docgen` v0.43.2, which HTML-escapes bare `<…>` and Vue
+  `{{ … }}` tokens so the reference renders on the VitePress docs site.
 
 ## [0.44.0] - 2026-07-17
 
