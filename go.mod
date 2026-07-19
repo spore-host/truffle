@@ -14,7 +14,7 @@ require (
 	github.com/olekukonko/tablewriter v1.1.4
 	github.com/scttfrdmn/substrate v0.70.0
 	github.com/spf13/cobra v1.10.2
-	github.com/spore-host/libs v0.42.0
+	github.com/spore-host/libs v0.43.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
