@@ -1,0 +1,25 @@
+cff-version: 1.2.0
+message: "If you use truffle in your research, please cite it as below."
+title: "truffle: EC2 instance-type discovery, pricing, and quotas"
+abstract: >-
+  truffle is the spore.host tool for discovering AWS EC2 capacity: finding
+  instance types by natural language or pattern, comparing spot prices in real
+  time, checking service quotas, reporting instance-type capabilities, and
+  discovering SageMaker ml.* offerings and Capacity Blocks for ML. It is
+  read-only and serves as the capability authority the other spore.host tools
+  consume. Part of the spore.host suite.
+type: software
+authors:
+  - given-names: Scott
+    family-names: Friedman
+    orcid: "https://orcid.org/0000-0003-1480-765X"
+    affiliation: "Amazon Web Services"
+repository-code: "https://github.com/spore-host/truffle"
+url: "https://spore.host"
+license: Apache-2.0
+keywords:
+  - cloud computing
+  - AWS
+  - EC2
+  - research computing
+  - spot instances
