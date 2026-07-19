@@ -123,6 +123,17 @@ var GPUDatabase = map[string]GPUInfo{
 			"g7e.12xlarge", "g7e.24xlarge", "g7e.48xlarge",
 		},
 	},
+	"rtx pro 4500": {
+		Name:     "RTX PRO 4500",
+		Vendor:   "nvidia",
+		MemoryGB: 32,
+		UseCase:  "graphics",
+		Families: []string{"g7"},
+		InstanceTypes: []string{
+			"g7.2xlarge", "g7.4xlarge", "g7.8xlarge",
+			"g7.12xlarge", "g7.24xlarge", "g7.48xlarge",
+		},
+	},
 	"b200": {
 		Name:          "B200",
 		Vendor:        "nvidia",
@@ -146,7 +157,7 @@ var GPUDatabase = map[string]GPUInfo{
 		Vendor:   "nvidia",
 		MemoryGB: 0,
 		UseCase:  "any",
-		Families: []string{"p5e", "p5", "p4d", "p4de", "p3", "p2", "g3", "g5", "g4dn", "g6", "g6e", "g7e", "p6"},
+		Families: []string{"p5e", "p5", "p4d", "p4de", "p3", "p2", "g3", "g5", "g4dn", "g6", "g6e", "g7", "g7e", "p6"},
 	},
 
 	// AMD GPUs

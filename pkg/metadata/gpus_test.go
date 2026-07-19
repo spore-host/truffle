@@ -6,60 +6,69 @@ import (
 
 func TestGPUDatabase(t *testing.T) {
 	tests := []struct {
-		name            string
-		gpuName         string
-		wantVendor      string
-		wantUseCase     string
-		wantMinMemory   int
+		name             string
+		gpuName          string
+		wantVendor       string
+		wantUseCase      string
+		wantMinMemory    int
 		wantMinInstances int
 	}{
 		{
-			name:            "a100",
-			gpuName:         "a100",
-			wantVendor:      "nvidia",
-			wantUseCase:     "training",
-			wantMinMemory:   40,
+			name:             "a100",
+			gpuName:          "a100",
+			wantVendor:       "nvidia",
+			wantUseCase:      "training",
+			wantMinMemory:    40,
 			wantMinInstances: 1,
 		},
 		{
-			name:            "h100",
-			gpuName:         "h100",
-			wantVendor:      "nvidia",
-			wantUseCase:     "training",
-			wantMinMemory:   80,
+			name:             "h100",
+			gpuName:          "h100",
+			wantVendor:       "nvidia",
+			wantUseCase:      "training",
+			wantMinMemory:    80,
 			wantMinInstances: 1,
 		},
 		{
-			name:            "v100",
-			gpuName:         "v100",
-			wantVendor:      "nvidia",
-			wantUseCase:     "training",
-			wantMinMemory:   16,
+			name:             "v100",
+			gpuName:          "v100",
+			wantVendor:       "nvidia",
+			wantUseCase:      "training",
+			wantMinMemory:    16,
 			wantMinInstances: 2,
 		},
 		{
-			name:            "t4",
-			gpuName:         "t4",
-			wantVendor:      "nvidia",
-			wantUseCase:     "inference",
-			wantMinMemory:   16,
+			name:             "t4",
+			gpuName:          "t4",
+			wantVendor:       "nvidia",
+			wantUseCase:      "inference",
+			wantMinMemory:    16,
 			wantMinInstances: 5,
 		},
 		{
-			name:            "inferentia",
-			gpuName:         "inferentia",
-			wantVendor:      "aws",
-			wantUseCase:     "inference",
-			wantMinMemory:   8,
+			name:             "inferentia",
+			gpuName:          "inferentia",
+			wantVendor:       "aws",
+			wantUseCase:      "inference",
+			wantMinMemory:    8,
 			wantMinInstances: 2,
 		},
 		{
-			name:            "trainium",
-			gpuName:         "trainium",
-			wantVendor:      "aws",
-			wantUseCase:     "training",
-			wantMinMemory:   32,
+			name:             "trainium",
+			gpuName:          "trainium",
+			wantVendor:       "aws",
+			wantUseCase:      "training",
+			wantMinMemory:    32,
 			wantMinInstances: 2,
+		},
+		{
+			// g7 = NVIDIA RTX PRO 4500 (spawn#384 follow-up: g7 was unknown).
+			name:             "rtx pro 4500",
+			gpuName:          "rtx pro 4500",
+			wantVendor:       "nvidia",
+			wantUseCase:      "graphics",
+			wantMinMemory:    32,
+			wantMinInstances: 6,
 		},
 	}
 
