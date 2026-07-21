@@ -38,6 +38,7 @@ truffle find <query> [flags]
 | `--exact` |  | bool |  | Match exact vCPU and memory values instead of minimum |
 | `--pick-first` |  | bool |  | Output only the top result's instance type (useful for piping to spawn) |
 | `--service` |  | string | `ec2` | Instance namespace to search: ec2 or sagemaker (ml.* types) |
+| `--show-price` |  | bool |  | Show on-demand pricing (uses static pricing data) |
 | `--show-query` |  | bool |  | Show parsed query details |
 | `--show-quota` |  | bool |  | Show the per-type training-job quota (SageMaker only) |
 | `--skip-azs` |  | bool |  | Skip availability zone lookup (faster) |

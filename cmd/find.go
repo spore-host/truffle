@@ -27,6 +27,7 @@ var (
 	findPickFirst bool
 	findService   string // --service flag: "ec2" (default) or "sagemaker"
 	findShowQuota bool   // --show-quota flag: show per-type training-job quota (SageMaker only)
+	findShowPrice bool   // --show-price flag: populate the on-demand $/hr column
 )
 
 var findCmd = &cobra.Command{
@@ -70,6 +71,7 @@ func init() {
 	findCmd.Flags().StringVar(&findApp, "app", "", "Application name from catalog (e.g. paraview, igv)")
 	findCmd.Flags().BoolVar(&findExact, "exact", false, "Match exact vCPU and memory values instead of minimum")
 	findCmd.Flags().BoolVar(&findPickFirst, "pick-first", false, "Output only the top result's instance type (useful for piping to spawn)")
+	findCmd.Flags().BoolVar(&findShowPrice, "show-price", false, "Show on-demand pricing (uses static pricing data)")
 	findCmd.Flags().StringVar(&findService, "service", "ec2", "Instance namespace to search: ec2 or sagemaker (ml.* types)")
 	findCmd.Flags().BoolVar(&findShowQuota, "show-quota", false, "Show the per-type training-job quota (SageMaker only)")
 }
@@ -536,13 +538,19 @@ func runSearchWithPattern(pattern, service string) error {
 		return nil
 	}
 
-	// SageMaker ml.* types are priced under a distinct offer (AmazonSageMaker);
-	// populate their $/hr so the pattern path shows the management-premium rate.
-	showPrice := false
-	if service == "sagemaker" {
-		showPrice = true
+	// Show the $/hr column when the user asks (--show-price), and always for
+	// SageMaker ml.* types — those are priced under a distinct offer
+	// (AmazonSageMaker) with a management premium, so the pattern path shows that
+	// rate rather than a bare EC2 price.
+	showPrice := findShowPrice || service == "sagemaker"
+	if showPrice {
 		for idx := range results {
-			price, _ := awsClient.SageMakerPrice(ctx, results[idx].InstanceType, results[idx].Region)
+			var price float64
+			if service == "sagemaker" {
+				price, _ = awsClient.SageMakerPrice(ctx, results[idx].InstanceType, results[idx].Region)
+			} else {
+				price, _ = awsClient.OnDemandPrice(ctx, results[idx].InstanceType, results[idx].Region)
+			}
 			results[idx].OnDemandPrice = price
 		}
 	}
