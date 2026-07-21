@@ -16,6 +16,7 @@ func resetCmdState() {
 	searchPickFirst = false
 	searchShowPrice = false
 	findPickFirst = false
+	findShowPrice = false
 }
 
 func TestSearchCommand_Flags(t *testing.T) {
@@ -57,11 +58,11 @@ func TestBuildQuotaRows_WithData(t *testing.T) {
 		"us-east-1": {
 			OnDemand: map[quotas.QuotaFamily]int32{
 				quotas.FamilyStandard: 1480,
-				quotas.FamilyG:       128,
+				quotas.FamilyG:        128,
 			},
 			Usage: map[quotas.QuotaFamily]int32{
 				quotas.FamilyStandard: 153,
-				quotas.FamilyG:       0,
+				quotas.FamilyG:        0,
 			},
 			Spot: map[quotas.QuotaFamily]int32{
 				quotas.FamilyStandard: 1480,
@@ -225,6 +226,9 @@ func TestFindCommand_Flags(t *testing.T) {
 	}
 	if !strings.Contains(out, "--skip-azs") {
 		t.Errorf("find should have --skip-azs flag: %s", out)
+	}
+	if !strings.Contains(out, "--show-price") {
+		t.Errorf("find should have --show-price flag (#50): %s", out)
 	}
 }
 

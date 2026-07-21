@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`truffle find --show-price`** (#50) — `find` now takes `--show-price` to
+  populate the on-demand `$/hr` column, matching the old `search` command that
+  `find` replaced (#44). Composes with `--regions` so price shows per region.
+  Previously only the deprecated `search` and the spot-focused `spot` exposed
+  pricing, so the canonical "what does this instance cost" question couldn't be
+  answered with the canonical search command.
 - **Zenodo DOI**: truffle is archived on Zenodo with a citable DOI (concept DOI
   [10.5281/zenodo.21439669](https://doi.org/10.5281/zenodo.21439669), always
   latest). Added to `CITATION.cff` and a README badge.
