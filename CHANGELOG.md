@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- **Release artifacts are now signed** with keyless [cosign](https://docs.sigstore.dev/)
+  (Sigstore) and carry SLSA build provenance (#104). The release signs
+  `checksums.txt` — which lists every archive/package hash — with the release
+  workflow's GitHub OIDC identity (no long-lived key), publishing
+  `checksums.txt.bundle`, and attests build provenance. Verify a download with
+  `cosign verify-blob --bundle checksums.txt.bundle --certificate-identity-regexp …
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com checksums.txt`,
+  then check your file against `checksums.txt`. Takes effect from the next tagged
+  release.
+
 ### Added
 - **`truffle find --show-price`** (#50) — `find` now takes `--show-price` to
   populate the on-demand `$/hr` column, matching the old `search` command that

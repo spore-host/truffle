@@ -30,6 +30,30 @@ archives:
 checksum:
   name_template: 'checksums.txt'
 
+# Publisher-authenticate the release with keyless cosign (Sigstore). We sign the
+# checksums.txt — it lists the SHA-256 of every archive/package, so one signature
+# transitively authenticates all artifacts (verify the checksum's signature, then
+# each file against checksums.txt). Keyless uses the release workflow's GitHub OIDC
+# identity via Fulcio/Rekor — no long-lived key to manage or leak.
+#
+# cosign 3.x emits the modern Sigstore bundle (`--bundle`, which bundles the
+# signature, the Fulcio cert, and the Rekor transparency-log entry into one file);
+# it no longer supports the old separate --output-signature/--output-certificate.
+# So we publish checksums.txt.bundle as a release asset. Requires `id-token: write`
+# in the release workflow and cosign on PATH. End users verify with
+# `cosign verify-blob --bundle` against the documented identity (see docs:
+# "Verify a download").
+signs:
+  - cmd: cosign
+    signature: '${artifact}.bundle'
+    args:
+      - sign-blob
+      - '--bundle=${signature}'
+      - '${artifact}'
+      - '--yes'
+    artifacts: checksum
+    output: true
+
 snapshot:
   version_template: "{{ incpatch .Version }}-next"
 
