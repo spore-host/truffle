@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Security
+- **Bump `google.golang.org/grpc` → 1.82.1** (indirect) — resolves
+  GHSA-hrxh-6v49-42gf (gRPC-Go xDS RBAC / HTTP/2, HIGH).
 - **Release artifacts are now signed** with keyless [cosign](https://docs.sigstore.dev/)
   (Sigstore) and carry SLSA build provenance (#104). The release signs
   `checksums.txt` — which lists every archive/package hash — with the release
