@@ -26,17 +26,60 @@ type SageMakerPricer interface {
 	SageMakerPrice(ctx context.Context, instanceType, region string) (float64, error)
 }
 
+// SageMakerUsage names the SageMaker usage a price is being requested for. The
+// Price List meters each usage as a separate component and their rates are not
+// always equal (see sageMakerComputeComponents), so a caller pricing an
+// inference endpoint should not silently receive the HyperPod rate (#107).
+type SageMakerUsage string
+
+const (
+	// UsageDefault applies truffle's default preference (Hosting first), the
+	// behaviour of a plain [Client.SageMakerPrice] call.
+	UsageDefault SageMakerUsage = ""
+	// UsageInference prices a real-time inference endpoint (Hosting component).
+	UsageInference SageMakerUsage = "Hosting"
+	// UsageTraining prices a training job (Training component).
+	UsageTraining SageMakerUsage = "Training"
+	// UsageProcessing prices a processing job (Processing component).
+	UsageProcessing SageMakerUsage = "Processing"
+	// UsageBatchTransform prices a batch transform job.
+	UsageBatchTransform SageMakerUsage = "BatchTransform"
+	// UsageAsyncInference prices an asynchronous inference endpoint.
+	UsageAsyncInference SageMakerUsage = "AsyncInf"
+	// UsageHyperPod prices a SageMaker HyperPod cluster (Cluster component) — a
+	// distinct, typically higher rate than a plain endpoint.
+	UsageHyperPod SageMakerUsage = "Cluster"
+)
+
+// SageMakerUsagePricer is an optional extension of [SageMakerPricer] for sources
+// that can resolve a usage-specific rate. It is a separate interface rather than
+// a second method on SageMakerPricer so existing embedder implementations keep
+// compiling; [Client.SageMakerPriceFor] falls back to the plain SageMakerPrice
+// when the active pricer does not implement it.
+type SageMakerUsagePricer interface {
+	SageMakerPricer
+	// SageMakerPriceFor returns the On-Demand $/hr for a specific usage.
+	SageMakerPriceFor(ctx context.Context, instanceType, region string, usage SageMakerUsage) (float64, error)
+}
+
 // sageMakerComputeComponents are the SageMaker usage components whose On-Demand
 // rate truffle treats as the representative $/hr for an ml.* type. The Price
 // List returns a row per component (Training, Hosting, Processing, Cluster,
-// Notebook, Studio-*, ...); their compute rates are near-identical (verified
-// live: they match to the cent), so any one is representative. truffle does NOT
-// filter the query by component, because not every offered type carries every
-// component (e.g. some types have no "Training" row but do have "Hosting") —
-// filtering would drop a real, priced type to N/A. Instead it fetches all
-// components and prefers a compute one from this set, falling back to any
-// positive rate. Studio/notebook components (a few cents higher) are the last
-// resort so the reported number reflects the compute rate when available.
+// Notebook, Studio-*, ...). truffle does NOT filter the query by component,
+// because not every offered type carries every component (e.g. some types have
+// no "Training" row but do have "Hosting") — filtering would drop a real, priced
+// type to N/A. Instead it fetches all components and prefers a compute one from
+// this set, falling back to a Studio/notebook component (a few cents higher) only
+// when a type offers no compute row at all, so the reported number reflects the
+// compute rate when available.
+//
+// Membership alone is not enough to pick a rate: the compute rates are NOT
+// always identical. An earlier version of this comment claimed they "match to
+// the cent", which held for the ml.g5.* types it was verified against but no
+// longer does — for ml.p4d.24xlarge (verified live 2026-07-27, us-east-1)
+// Cluster is $25.910 while Hosting/Training are $25.251, a 2.6% spread, because
+// Cluster is SageMaker HyperPod rather than a plain endpoint. See #107. Use
+// sageMakerComponentPreference to choose deterministically.
 var sageMakerComputeComponents = map[string]bool{
 	"Training":       true,
 	"Hosting":        true,
@@ -44,6 +87,26 @@ var sageMakerComputeComponents = map[string]bool{
 	"Cluster":        true,
 	"BatchTransform": true,
 	"AsyncInf":       true,
+}
+
+// sageMakerComponentPreference orders the compute components from most to least
+// representative of "what an ml.* instance costs to run". It exists so the rate
+// does not depend on Price List response ordering (#107): before this, whichever
+// accepted component AWS happened to return first won, so the same type could
+// report the HyperPod rate on one call and the Hosting rate on the next.
+//
+// Hosting leads because a real-time inference endpoint is the most common thing
+// a caller is pricing, and Training/Processing/BatchTransform/AsyncInf sit at the
+// same rate in every case measured so far. Cluster is deliberately LAST among
+// compute components: it meters SageMaker HyperPod, a distinct (higher) product,
+// so it should only be reported when a type offers nothing else.
+var sageMakerComponentPreference = []string{
+	"Hosting",
+	"Training",
+	"Processing",
+	"BatchTransform",
+	"AsyncInf",
+	"Cluster",
 }
 
 // SetSageMakerPricer overrides the SageMaker price source used by this client.
@@ -66,9 +129,26 @@ func (c *Client) sageMakerPricer() SageMakerPricer {
 }
 
 // SageMakerPrice returns the current On-Demand $/hr for one ml.* instance type
-// in one region. It is a thin accessor over the client's [SageMakerPricer].
+// in one region. It is a thin accessor over the client's [SageMakerPricer], and
+// uses truffle's default component preference (Hosting first).
 func (c *Client) SageMakerPrice(ctx context.Context, instanceType, region string) (float64, error) {
 	return c.sageMakerPricer().SageMakerPrice(ctx, instanceType, region)
+}
+
+// SageMakerPriceFor returns the On-Demand $/hr for a specific SageMaker usage —
+// e.g. [UsageInference] for a real-time endpoint or [UsageHyperPod] for a
+// cluster. Prefer it over [Client.SageMakerPrice] when the caller knows what it
+// is pricing, since the per-component rates differ for some types (#107).
+//
+// When the active pricer is a plain [SageMakerPricer] (an embedder's custom
+// implementation, or a test fake) the usage cannot be honoured and this falls
+// back to SageMakerPrice, so the call always returns a usable rate.
+func (c *Client) SageMakerPriceFor(ctx context.Context, instanceType, region string, usage SageMakerUsage) (float64, error) {
+	pricer := c.sageMakerPricer()
+	if up, ok := pricer.(SageMakerUsagePricer); ok {
+		return up.SageMakerPriceFor(ctx, instanceType, region, usage)
+	}
+	return pricer.SageMakerPrice(ctx, instanceType, region)
 }
 
 // awsSageMakerPricer resolves SageMaker On-Demand prices via the AWS Price List
@@ -105,7 +185,15 @@ func (p *awsSageMakerPricer) ensureClient() *pricing.Client {
 }
 
 func (p *awsSageMakerPricer) SageMakerPrice(ctx context.Context, instanceType, region string) (float64, error) {
-	key := instanceType + "\x00" + region
+	return p.SageMakerPriceFor(ctx, instanceType, region, UsageDefault)
+}
+
+// SageMakerPriceFor implements [SageMakerUsagePricer]. The usage is part of the
+// cache key: different usages can resolve to different rates for the same
+// (type, region), so sharing one entry would let an inference lookup return a
+// cached HyperPod rate (#107).
+func (p *awsSageMakerPricer) SageMakerPriceFor(ctx context.Context, instanceType, region string, usage SageMakerUsage) (float64, error) {
+	key := instanceType + "\x00" + region + "\x00" + string(usage)
 
 	p.mu.Lock()
 	if c, ok := p.cache[key]; ok && time.Since(c.fetched) < onDemandCacheTTL {
@@ -116,7 +204,7 @@ func (p *awsSageMakerPricer) SageMakerPrice(ctx context.Context, instanceType, r
 	client := p.ensureClient()
 	p.mu.Unlock()
 
-	price, err := fetchSageMakerPrice(ctx, client, instanceType, region)
+	price, err := fetchSageMakerPrice(ctx, client, instanceType, region, usage)
 	if err != nil {
 		return 0, err
 	}
@@ -133,7 +221,10 @@ func (p *awsSageMakerPricer) SageMakerPrice(ctx context.Context, instanceType, r
 // sageMakerComputeComponents); instead it fetches every component and returns a
 // representative rate: a compute component when one exists, otherwise any
 // positive rate (e.g. a Studio/notebook-only type).
-func fetchSageMakerPrice(ctx context.Context, client *pricing.Client, instanceType, region string) (float64, error) {
+//
+// usage, when not [UsageDefault], puts that component first in the preference
+// order so the returned rate matches what the caller is actually pricing (#107).
+func fetchSageMakerPrice(ctx context.Context, client *pricing.Client, instanceType, region string, usage SageMakerUsage) (float64, error) {
 	termMatch := func(field, value string) pricingtypes.Filter {
 		return pricingtypes.Filter{
 			Type:  pricingtypes.FilterTypeTermMatch,
@@ -154,36 +245,103 @@ func fetchSageMakerPrice(ctx context.Context, client *pricing.Client, instanceTy
 		return 0, fmt.Errorf("price list GetProducts for %s in %s: %w", instanceType, region, err)
 	}
 
-	return pickSageMakerRate(out.PriceList)
+	if usage == UsageDefault {
+		return pickSageMakerRate(out.PriceList)
+	}
+	return pickSageMakerRateFor(out.PriceList, string(usage))
 }
 
 // pickSageMakerRate selects the representative On-Demand rate from a set of
-// SageMaker Price List product documents (one per component). It prefers a
-// compute component's rate; if none is present it falls back to any positive
-// rate so a Studio/notebook-only type still reports a price rather than N/A.
+// SageMaker Price List product documents (one per component), using the default
+// preference order (Hosting first — see sageMakerComponentPreference). It is
+// equivalent to pickSageMakerRateFor(priceList) with no explicit preference.
 func pickSageMakerRate(priceList []string) (float64, error) {
-	var fallback float64
+	return pickSageMakerRateFor(priceList)
+}
+
+// pickSageMakerRateFor selects the On-Demand rate for the caller's intended
+// usage. prefer lists component names in descending priority — e.g. pass
+// "Training" when pricing a training job, or "Cluster" when pricing HyperPod.
+// Any components not named fall back to the default order, so an incomplete
+// preference still yields a deterministic answer.
+//
+// Selection is by *preference*, not by response order (#107): the whole price
+// list is scanned and the best-ranked component present wins, so the result is
+// stable regardless of how AWS orders the response. If no compute component is
+// present the highest-ranked non-compute row (Studio/notebook) is used, so a
+// notebook-only type still reports a price rather than N/A.
+//
+// Rows carrying no component attribute are never selected. That is what keeps
+// the USE1-TrainingPlanUpfrontFee row out of the result: it is a one-off
+// reservation fee, not an hourly rate, and it is *lower* than the real hourly
+// rate ($13.57 vs $25.25 for ml.p4d.24xlarge), so reporting it would make
+// SageMaker look ~38% cheaper than the equivalent EC2 instance. An unpriced type
+// is the honest answer (#107).
+func pickSageMakerRateFor(priceList []string, prefer ...string) (float64, error) {
+	// rank maps a component name to its position in the effective preference
+	// order; lower is better. Explicit preferences come first, then the defaults.
+	rank := make(map[string]int, len(prefer)+len(sageMakerComponentPreference))
+	for _, c := range append(append([]string{}, prefer...), sageMakerComponentPreference...) {
+		if _, seen := rank[c]; !seen {
+			rank[c] = len(rank)
+		}
+	}
+
+	const noRank = -1
+	bestRank, bestPrice := noRank, 0.0
+	fallbackRank, fallbackPrice := noRank, 0.0
+
 	for _, item := range priceList {
 		price, ok := parseOnDemandFromPriceItem(item)
 		if !ok {
 			continue
 		}
-		if isSageMakerComputeComponent(item) {
-			return price, nil
+		component := sageMakerComponent(item)
+
+		// No component attribute → not a per-hour instance rate. This is the
+		// upfront-fee guard described above; skip it outright rather than letting it
+		// become the non-compute fallback.
+		if component == "" {
+			continue
 		}
-		if fallback == 0 {
-			fallback = price
+
+		if sageMakerComputeComponents[component] {
+			r, known := rank[component]
+			if !known {
+				r = len(rank) // a compute component with no explicit rank sorts last
+			}
+			if bestRank == noRank || r < bestRank {
+				bestRank, bestPrice = r, price
+			}
+			continue
+		}
+
+		// Non-compute (Studio/notebook/...) — only used if no compute row exists.
+		// Rank these too so the fallback is order-independent as well.
+		if r, known := rank[component]; known {
+			if fallbackRank == noRank || r < fallbackRank {
+				fallbackRank, fallbackPrice = r, price
+			}
+		} else if fallbackRank == noRank {
+			fallbackRank, fallbackPrice = len(rank), price
 		}
 	}
-	if fallback > 0 {
-		return fallback, nil
+
+	if bestRank != noRank {
+		return bestPrice, nil
+	}
+	if fallbackPrice > 0 {
+		return fallbackPrice, nil
 	}
 	return 0, fmt.Errorf("no SageMaker on-demand price found")
 }
 
-// isSageMakerComputeComponent reports whether a Price List product document is
-// for one of the compute components (Training/Hosting/Processing/...).
-func isSageMakerComputeComponent(item string) bool {
+// sageMakerComponent extracts the Price List "component" product attribute, or
+// "" when the document has none. A missing component is how truffle avoids the
+// USE1-TrainingPlanUpfrontFee row — a one-off reservation fee, not an hourly
+// rate — which is cheaper than the real hourly rate and would make SageMaker
+// look 38% cheaper than the equivalent EC2 instance if it were ever selected.
+func sageMakerComponent(item string) string {
 	var doc struct {
 		Product struct {
 			Attributes struct {
@@ -192,7 +350,7 @@ func isSageMakerComputeComponent(item string) bool {
 		} `json:"product"`
 	}
 	if err := json.Unmarshal([]byte(item), &doc); err != nil {
-		return false
+		return ""
 	}
-	return sageMakerComputeComponents[doc.Product.Attributes.Component]
+	return doc.Product.Attributes.Component
 }

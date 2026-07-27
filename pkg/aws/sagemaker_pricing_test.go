@@ -136,11 +136,14 @@ func TestPickSageMakerRate_EmptyErrors(t *testing.T) {
 }
 
 // TestAWSSageMakerPricer_Caches verifies the cache short-circuits a second
-// lookup for the same (type, region) within the TTL — matching the EC2 pricer.
+// lookup for the same (type, region, usage) within the TTL — matching the EC2
+// pricer.
 func TestAWSSageMakerPricer_Caches(t *testing.T) {
 	p := newAWSSageMakerPricer(aws.Config{})
-	// Seed the cache directly (fetch would need the live Price List API).
-	p.cache["ml.g5.2xlarge\x00us-east-1"] = cachedPrice{price: 1.515, fetched: time.Now()}
+	// Seed the cache directly (fetch would need the live Price List API). The key
+	// gained a trailing usage segment in #107 — empty here for UsageDefault, which
+	// is what a plain SageMakerPrice call resolves to.
+	p.cache["ml.g5.2xlarge\x00us-east-1\x00"] = cachedPrice{price: 1.515, fetched: time.Now()}
 
 	price, err := p.SageMakerPrice(context.Background(), "ml.g5.2xlarge", "us-east-1")
 	if err != nil {
@@ -158,9 +161,9 @@ func TestNewAWSSageMakerPricer(t *testing.T) {
 	if p == nil {
 		t.Fatal("NewAWSSageMakerPricer returned nil")
 	}
-	// A cache hit should not require the live API.
+	// A cache hit should not require the live API. (Key format: type\x00region\x00usage.)
 	ap := p.(*awsSageMakerPricer)
-	ap.cache["ml.c5.xlarge\x00us-east-1"] = cachedPrice{price: 0.204, fetched: time.Now()}
+	ap.cache["ml.c5.xlarge\x00us-east-1\x00"] = cachedPrice{price: 0.204, fetched: time.Now()}
 	if got, _ := p.SageMakerPrice(context.Background(), "ml.c5.xlarge", "us-east-1"); math.Abs(got-0.204) > 1e-9 {
 		t.Errorf("price = %v, want 0.204", got)
 	}

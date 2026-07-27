@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`SageMakerPriceFor` — ask for the rate that matches your use case** (#107).
+  SageMaker meters each usage as a separate Price List component, and their rates
+  are not always equal: for `ml.p4d.24xlarge` the `Cluster` (HyperPod) rate is
+  $25.910/hr while `Hosting`/`Training` are $25.251/hr. Pass a `SageMakerUsage`
+  (`UsageInference`, `UsageTraining`, `UsageHyperPod`, …) to price what you're
+  actually running. Embedders with a custom `SageMakerPricer` are unaffected — the
+  usage-aware method is an optional extension interface
+  (`SageMakerUsagePricer`), and a pricer that doesn't implement it falls back to
+  the plain lookup.
+
+### Fixed
+- **`SearchInstanceTypes`/`SearchSageMakerInstanceTypes` no longer crash the
+  process on a nil pattern** (#106). A nil `matcher` now means "no instance-type
+  constraint" (other filters still apply) instead of panicking. This was worse
+  than a normal bad-argument bug: the search fans out into per-region goroutines,
+  so the panic could not be recovered by the caller — `recover` only works in the
+  panicking goroutine — and took down in-process embedders such as
+  `spore-host-mcp` entirely.
+- **SageMaker prices no longer depend on Price List response ordering** (#107).
+  `pickSageMakerRate` returned whichever accepted component AWS happened to list
+  first, so the same type could report an inference rate on one call and the
+  higher HyperPod rate on the next. Selection now follows a fixed preference
+  order (`Hosting` first, `Cluster`/HyperPod last) and is stable across orderings.
+- **A reservation upfront fee can no longer be reported as an hourly rate**
+  (#107). Rows with no `component` attribute — notably
+  `USE1-TrainingPlanUpfrontFee` — are now skipped outright. Previously a type
+  whose only priced row was the upfront fee would report $13.57/hr for
+  `ml.p4d.24xlarge` against a real rate of $25.25/hr, making SageMaker look ~38%
+  *cheaper* than the equivalent EC2 instance.
+
 ## [0.47.0] - 2026-07-22
 
 ### Security
