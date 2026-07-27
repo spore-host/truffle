@@ -30,6 +30,39 @@ type OnDemandPricer interface {
 	OnDemandPrice(ctx context.Context, instanceType, region string) (float64, error)
 }
 
+// PriceSource says where an On-Demand rate came from, so a caller that spends
+// money on the answer can decide whether to trust it.
+type PriceSource string
+
+const (
+	// PriceSourceUnknown means the pricer did not report a source. This is what
+	// an injected [OnDemandPricer] returns unless it implements
+	// [SourcedOnDemandPricer].
+	PriceSourceUnknown PriceSource = ""
+
+	// PriceSourceLive means the rate came from the AWS Price List API — the
+	// current, authoritative rate.
+	PriceSourceLive PriceSource = "live"
+
+	// PriceSourceStatic means the rate came from truffle's embedded table because
+	// the Price List API was unavailable. It is a real published rate that was
+	// correct when the table was last refreshed, but it may be stale and it
+	// covers only common types in eight regions. Do not gate spending on it
+	// without saying so.
+	PriceSourceStatic PriceSource = "static"
+)
+
+// SourcedOnDemandPricer is an optional extension of [OnDemandPricer] for
+// implementations that can report where a rate came from. truffle's default
+// pricer implements it; [Client.OnDemandPriceWithSource] uses it when available
+// and reports [PriceSourceUnknown] otherwise.
+type SourcedOnDemandPricer interface {
+	OnDemandPricer
+
+	// OnDemandPriceWithSource returns the rate and its provenance.
+	OnDemandPriceWithSource(ctx context.Context, instanceType, region string) (float64, PriceSource, error)
+}
+
 // SetOnDemandPricer overrides the On-Demand price source used by this client.
 // Pass nil to reset to the default AWS Price List pricer. This is primarily for
 // embedders and tests that want deterministic prices or an offline source.
@@ -54,6 +87,22 @@ func (c *Client) onDemandPricer() OnDemandPricer {
 // [OnDemandPricer]; see [Client.HourlyRate] for a purchase-model-aware helper.
 func (c *Client) OnDemandPrice(ctx context.Context, instanceType, region string) (float64, error) {
 	return c.onDemandPricer().OnDemandPrice(ctx, instanceType, region)
+}
+
+// OnDemandPriceWithSource is [Client.OnDemandPrice] plus the rate's provenance,
+// for callers that spend money on the answer and need to know whether it is the
+// live Price List rate or truffle's embedded fallback table.
+//
+// The source is [PriceSourceUnknown] when the active pricer does not implement
+// [SourcedOnDemandPricer] — which is the case for an injected pricer that only
+// satisfies [OnDemandPricer].
+func (c *Client) OnDemandPriceWithSource(ctx context.Context, instanceType, region string) (float64, PriceSource, error) {
+	p := c.onDemandPricer()
+	if sp, ok := p.(SourcedOnDemandPricer); ok {
+		return sp.OnDemandPriceWithSource(ctx, instanceType, region)
+	}
+	price, err := p.OnDemandPrice(ctx, instanceType, region)
+	return price, PriceSourceUnknown, err
 }
 
 // HourlyRate returns the current $/hr for one instance type in one region under
@@ -258,27 +307,75 @@ func parseOnDemandFromPriceItem(item string) (float64, bool) {
 	return 0, false
 }
 
-// staticOnDemandPricer resolves prices from the embedded libs/pricing table.
-// It never errors: unknown types fall through to a family-based estimate.
+// staticOnDemandPricer resolves prices from the embedded libs/pricing table by
+// exact (region, instanceType) lookup, and errors when the table has no such
+// entry.
+//
+// It deliberately does NOT call [libpricing.GetEC2HourlyRate], which never
+// errors: that helper substitutes us-east-1 prices for an unknown region and
+// then falls through to a family-based guess for an unknown type (unknown family
+// 0.10 × unknown size 2.0 = $0.20/hr). Both substitutions are invisible to the
+// caller, so hpc7a.96xlarge in a region that does not offer it came back as
+// $0.20/hr against a real $7.20 (#114). A degraded price is defensible; a
+// fabricated one is not, because nothing downstream can tell the difference.
 type staticOnDemandPricer struct{}
 
 func (staticOnDemandPricer) OnDemandPrice(_ context.Context, instanceType, region string) (float64, error) {
-	return libpricing.GetEC2HourlyRate(region, instanceType), nil
+	key := strings.ToLower(strings.TrimSpace(instanceType))
+	regionKey := strings.ToLower(strings.TrimSpace(region))
+
+	prices, ok := libpricing.EC2Pricing[regionKey]
+	if !ok {
+		return 0, fmt.Errorf("no static price table for region %s", region)
+	}
+	price, ok := prices[key]
+	if !ok || price <= 0 {
+		return 0, fmt.Errorf("no static price for %s in %s", instanceType, region)
+	}
+	return price, nil
 }
 
 // fallbackPricer tries primary first and falls back to fallback on error or a
-// non-positive price, so a Price List outage degrades to the static estimate
+// non-positive price, so a Price List outage (no credentials, no network, or an
+// emulator that does not implement the endpoint) degrades to the static table
 // rather than producing zeroed savings.
+//
+// The fallback can itself fail — see [staticOnDemandPricer] — and when it does,
+// the primary's error is what a caller needs, because it says why the live
+// lookup failed. So the primary error is preserved and returned, with the
+// fallback's attached for context.
 type fallbackPricer struct {
 	primary  OnDemandPricer
 	fallback OnDemandPricer
 }
 
 func (f *fallbackPricer) OnDemandPrice(ctx context.Context, instanceType, region string) (float64, error) {
+	price, _, err := f.OnDemandPriceWithSource(ctx, instanceType, region)
+	return price, err
+}
+
+func (f *fallbackPricer) OnDemandPriceWithSource(ctx context.Context, instanceType, region string) (float64, PriceSource, error) {
+	var primaryErr error
 	if f.primary != nil {
-		if price, err := f.primary.OnDemandPrice(ctx, instanceType, region); err == nil && price > 0 {
-			return price, nil
+		price, err := f.primary.OnDemandPrice(ctx, instanceType, region)
+		if err == nil && price > 0 {
+			return price, PriceSourceLive, nil
+		}
+		primaryErr = err
+		if primaryErr == nil {
+			primaryErr = fmt.Errorf("no on-demand price for %s in %s", instanceType, region)
 		}
 	}
-	return f.fallback.OnDemandPrice(ctx, instanceType, region)
+
+	price, err := f.fallback.OnDemandPrice(ctx, instanceType, region)
+	if err == nil && price > 0 {
+		return price, PriceSourceStatic, nil
+	}
+	if primaryErr == nil {
+		return 0, PriceSourceUnknown, err
+	}
+	if err == nil {
+		return 0, PriceSourceUnknown, primaryErr
+	}
+	return 0, PriceSourceUnknown, fmt.Errorf("%w (static fallback also unavailable: %v)", primaryErr, err)
 }

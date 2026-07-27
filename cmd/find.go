@@ -71,7 +71,7 @@ func init() {
 	findCmd.Flags().StringVar(&findApp, "app", "", "Application name from catalog (e.g. paraview, igv)")
 	findCmd.Flags().BoolVar(&findExact, "exact", false, "Match exact vCPU and memory values instead of minimum")
 	findCmd.Flags().BoolVar(&findPickFirst, "pick-first", false, "Output only the top result's instance type (useful for piping to spawn)")
-	findCmd.Flags().BoolVar(&findShowPrice, "show-price", false, "Show on-demand pricing (uses static pricing data)")
+	findCmd.Flags().BoolVar(&findShowPrice, "show-price", false, "Show on-demand pricing (live AWS Price List; warns if it falls back to built-in data)")
 	findCmd.Flags().StringVar(&findService, "service", "ec2", "Instance namespace to search: ec2 or sagemaker (ml.* types)")
 	findCmd.Flags().BoolVar(&findShowQuota, "show-quota", false, "Show the per-type training-job quota (SageMaker only)")
 }
@@ -209,14 +209,28 @@ func runFind(cmd *cobra.Command, args []string) error {
 	// Populate on-demand pricing. SageMaker ml.* types are priced under a
 	// distinct offer (AmazonSageMaker) with a management premium, so they use a
 	// separate pricer keyed on the ml.*-prefixed name.
+	//
+	// A rate that came from the embedded fallback table instead of the live Price
+	// List is flagged once below rather than per row: it is a real published rate
+	// but may be stale, and a reader comparing costs should know which numbers are
+	// current (#114).
+	staticPriced := 0
 	for idx := range results {
 		var price float64
 		if service == "sagemaker" {
 			price, _ = client.SageMakerPrice(ctx, results[idx].InstanceType, results[idx].Region)
 		} else {
-			price, _ = client.OnDemandPrice(ctx, results[idx].InstanceType, results[idx].Region)
+			var src aws.PriceSource
+			price, src, _ = client.OnDemandPriceWithSource(ctx, results[idx].InstanceType, results[idx].Region)
+			if src == aws.PriceSourceStatic {
+				staticPriced++
+			}
 		}
 		results[idx].OnDemandPrice = price
+	}
+	if staticPriced > 0 {
+		fmt.Fprintf(os.Stderr, "%s On-demand price for %d of %d %s from truffle's built-in table, not the live AWS Price List — it may be out of date.\n",
+			i18n.Symbol("warning"), staticPriced, len(results), pluralize(staticPriced, "type is", "types are"))
 	}
 
 	// Sort results based on qualitative preference or default (newest gen first)
