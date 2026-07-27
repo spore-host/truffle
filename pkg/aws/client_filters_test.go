@@ -152,11 +152,19 @@ func TestGetCapacityBlocks_Empty(t *testing.T) {
 	}
 }
 
-// TestGetCapacityBlockOfferings_Empty exercises the offerings-discovery path
-// (truffle#67): the required CapacityDurationHours/InstanceType/InstanceCount
-// plumb through DescribeCapacityBlockOfferings and an empty substrate yields no
-// offerings without error.
-func TestGetCapacityBlockOfferings_Empty(t *testing.T) {
+// TestGetCapacityBlockOfferings_AllRegionsFailed pins the #63 contract on the
+// offerings-discovery path (#109): when every region query fails, the failure is
+// returned rather than reported as an empty list.
+//
+// This test was previously TestGetCapacityBlockOfferings_Empty and asserted the
+// opposite — that an empty Substrate yields "no offerings without error". That
+// assertion was only ever satisfied because the error was being discarded: the
+// emulator does not implement DescribeCapacityBlockOfferings and answers 400
+// UnknownError, so the test never exercised the parameter plumbing it described.
+// It was in fact locking in the bug. "No capacity block offerings" is a plausible
+// answer to this query, which is exactly why a failed query must not be allowed to
+// produce it.
+func TestGetCapacityBlockOfferings_AllRegionsFailed(t *testing.T) {
 	env := testutil.SubstrateServer(t)
 	c := NewClientFromConfig(env.AWSConfig)
 
@@ -165,11 +173,11 @@ func TestGetCapacityBlockOfferings_Empty(t *testing.T) {
 		InstanceCount:         1,
 		CapacityDurationHours: 24,
 	})
-	if err != nil {
-		t.Fatalf("GetCapacityBlockOfferings error = %v", err)
+	if err == nil {
+		t.Fatal("all-regions failure returned nil error — an unanswered query must not read as 'none available'")
 	}
 	if len(res) != 0 {
-		t.Errorf("expected 0 offerings from empty substrate, got %d", len(res))
+		t.Errorf("expected 0 offerings alongside the error, got %d", len(res))
 	}
 }
 

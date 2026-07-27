@@ -18,6 +18,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`SageMakerUsagePricer`), and a pricer that doesn't implement it falls back to
   the plain lookup.
 
+- **`truffle available <instance-type>` — can I actually GET this?** (#108) A new
+  command answering the question `find` doesn't: for scarce accelerator types the
+  price is often not the deciding number, since a type can be listed, priced, and
+  completely unobtainable. Reports four signals for one type in one region — spot
+  placement score per AZ (from `GetSpotPlacementScores`), the offered-AZ footprint
+  with the region's AZ count as a denominator, On-Demand vCPU quota headroom with
+  the quota code to request an increase against, and purchasable Capacity Block
+  offerings. Table, JSON and YAML output.
+
+  Each signal is reported separately rather than collapsed into one score, because
+  they fail independently and call for different remedies: a single-AZ footprint, a
+  1/10 spot score and a zero quota are three different problems. Signals are
+  best-effort — `GetSpotPlacementScores` is commonly denied by SCP, so an
+  unavailable one shows as a visible warning rather than failing the command, and
+  never as a silent blank that could read as a good result.
+- **`aws.Client.Obtainability(ctx, instanceType, region)`** — the same signals as a
+  library call for embedders (#108). Returns an `Obtainability` carrying per-AZ
+  `SpotPlacement` scores (with both the AZ name and the account-specific AZ ID,
+  since AWS returns the ID and it's the stable identifier across accounts), the
+  offered AZs, quota headroom and code, and `InstanceHeadroom()` to convert vCPU
+  headroom into a launchable instance count.
+
+### Changed
+- **`capacity-blocks` now names the instance count when it finds nothing** (#109).
+  An empty result used to print the generic "No capacity reservations found matching
+  criteria", which reads as "this type has no capacity blocks" — but
+  `DescribeCapacityBlockOfferings` silently gates on `--count`, so the truth is
+  usually "not that many at once". Verified 2026-07-27: at `--count 8` every
+  accelerator type returned zero offerings, while at `--count 1`, `p5.48xlarge`,
+  `p5e.48xlarge`, `p5en.48xlarge` and `p6-b200.48xlarge` all had them. The message
+  now states the count, type, region and duration actually queried, and suggests
+  retrying with `--count 1`.
+
 ### Fixed
 - **`SearchInstanceTypes`/`SearchSageMakerInstanceTypes` no longer crash the
   process on a nil pattern** (#106). A nil `matcher` now means "no instance-type
@@ -37,6 +70,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   whose only priced row was the upfront fee would report $13.57/hr for
   `ml.p4d.24xlarge` against a real rate of $25.25/hr, making SageMaker look ~38%
   *cheaper* than the equivalent EC2 instance.
+- **`GetCapacityBlockOfferings` no longer reports a failed query as "none
+  available"** (#109). Per-region errors were discarded entirely (printed only
+  under `--verbose`), so expired credentials or an SCP denying the API produced an
+  empty list indistinguishable from genuinely sold-out inventory — the same class of
+  bug as #63, and more misleading here because "no offerings" is a plausible answer
+  to this question. An all-regions failure now returns an error and a partial
+  failure warns on stderr, matching `SearchInstanceTypes`.
 
 ## [0.47.0] - 2026-07-22
 

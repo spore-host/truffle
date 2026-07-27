@@ -160,7 +160,7 @@ func runCapacityBlocksOfferings(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(results) == 0 {
-		fmt.Println(i18n.T("truffle.capacity.no_results"))
+		fmt.Print(noOfferingsMessage(cboInstanceType, cboInstanceCount, durationHours, searchRegions))
 		return nil
 	}
 
@@ -190,6 +190,42 @@ func runCapacityBlocksOfferings(cmd *cobra.Command, args []string) error {
 			"Format": outputFormat,
 		})
 	}
+}
+
+// noOfferingsMessage explains an empty offering list, naming the requested
+// instance count.
+//
+// The count matters more than anything else in the query (#109):
+// DescribeCapacityBlockOfferings silently gates on it, so asking for 8 and getting
+// nothing back reads as "this type has no capacity blocks" when the truth is often
+// "not 8 at once". Verified 2026-07-27 — at --count 8 every accelerator type
+// returned zero, while at --count 1 p5.48xlarge, p5e.48xlarge, p5en.48xlarge and
+// p6-b200.48xlarge all had offerings. The old message was the generic
+// "No capacity reservations found matching criteria", which invited exactly that
+// wrong conclusion, so the count and the retry are now stated outright.
+//
+// Region is stated too, since it gates independently of count (us-east-1 had zero
+// offerings at every count tried, while us-west-2 had them).
+func noOfferingsMessage(instanceType string, count, durationHours int, searchRegions []string) string {
+	// Name the regions when there are few enough to be useful; summarize a wide
+	// fan-out, since 30 region names would bury the count — the part that matters.
+	where := "any enabled region"
+	switch n := len(searchRegions); {
+	case n == 0:
+	case n <= 3:
+		where = strings.Join(searchRegions, ", ")
+	default:
+		where = fmt.Sprintf("%d regions", n)
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "No capacity block offerings for %d × %s in %s (%dh).\n",
+		count, instanceType, where, durationHours)
+	if count > 1 {
+		// Only worth saying when a smaller count is actually possible.
+		fmt.Fprintf(&b, "Offerings can exist for smaller counts — retry with --count 1 to check.\n")
+	}
+	return b.String()
 }
 
 // parseFee converts an offering's up-front fee string (e.g. "830.5900") to a
