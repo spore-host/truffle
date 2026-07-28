@@ -260,7 +260,14 @@ func (c *Client) GetInstanceTypes(ctx context.Context, region string) ([]string,
 	return instanceTypes, nil
 }
 
-// SearchInstanceTypes searches for instance types matching the pattern across regions
+// SearchInstanceTypes searches for instance types matching the pattern across regions.
+//
+// A nil matcher is valid and means "no instance-type constraint": every type
+// that passes opts is returned. This is a hard guarantee rather than a
+// convenience — the search fans out into per-region goroutines, so a nil
+// dereference here could not be recovered by the caller (recover only works in
+// the panicking goroutine) and would take down an in-process embedder's whole
+// process (#106).
 func (c *Client) SearchInstanceTypes(ctx context.Context, regions []string, matcher *regexp.Regexp, opts FilterOptions) ([]InstanceTypeResult, error) {
 	var (
 		results []InstanceTypeResult
@@ -360,8 +367,9 @@ func (c *Client) searchInRegion(ctx context.Context, region string, matcher *reg
 		for _, it := range output.InstanceTypes {
 			instanceType := string(it.InstanceType)
 
-			// Check if matches pattern
-			if !matcher.MatchString(instanceType) {
+			// Check if matches pattern. A nil matcher means "no pattern
+			// constraint" — every type is eligible (#106).
+			if matcher != nil && !matcher.MatchString(instanceType) {
 				continue
 			}
 
@@ -666,6 +674,9 @@ func isInstanceTypeNotOffered(err error) bool {
 
 // extractSpecificTypes analyzes regex and returns specific instance types if pattern is exact
 func extractSpecificTypes(matcher *regexp.Regexp) []types.InstanceType {
+	if matcher == nil {
+		return nil // No pattern → no API-side filter; fetch all (#106).
+	}
 	pattern := matcher.String()
 
 	// Check if pattern is a specific instance type (no regex metacharacters except ^$)

@@ -58,8 +58,9 @@ func (c *Client) sageMakerTypeLister() SageMakerTypeLister {
 
 // SearchSageMakerInstanceTypes searches for SageMaker ml.* instance types
 // matching the pattern across regions. It mirrors [Client.SearchInstanceTypes]:
-// per-region concurrency and the #63 error-aggregation contract (a total
-// failure must not masquerade as an empty result).
+// per-region concurrency, the #63 error-aggregation contract (a total failure
+// must not masquerade as an empty result), and the #106 nil-matcher contract (a
+// nil matcher means "no instance-type constraint", never a panic).
 //
 // Unlike EC2, SageMaker has no DescribeInstanceTypes API, so the offered set
 // comes from Service Quotas. Specs (vCPU/memory/GPU/arch) are derived from the
@@ -142,7 +143,10 @@ func (c *Client) searchSageMakerInRegion(ctx context.Context, region string, mat
 	baseToQuota := make(map[string]quotas.SageMakerTypeQuota)
 	for _, q := range offered {
 		base := strings.TrimPrefix(q.InstanceType, "ml.")
-		if !matcher.MatchString(q.InstanceType) && !matcher.MatchString(base) {
+		// A nil matcher means "no pattern constraint" — every offered type is
+		// eligible. Guarded because this runs in a per-region goroutine, where a
+		// nil dereference would crash the whole process, not just this call (#106).
+		if matcher != nil && !matcher.MatchString(q.InstanceType) && !matcher.MatchString(base) {
 			continue
 		}
 		if _, dup := baseToQuota[base]; dup {
