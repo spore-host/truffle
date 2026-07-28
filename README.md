@@ -86,6 +86,7 @@ truffle find "intel 8 vcpu" -o csv
 | `find <query>` | Natural language search (`amd epyc 32 cores 64gb`); `--service sagemaker` for `ml.*` types |
 | `spot <pattern>` | Spot pricing with savings vs on-demand |
 | `az <pattern>` | AZ-first availability view |
+| `available <type>` | Can you actually get it? Spot score, AZ footprint, quota headroom, capacity blocks |
 | `capacity` | On-demand capacity reservations (ODCRs) |
 | `capacity-blocks` | Discover purchasable EC2 Capacity Block for ML offerings |
 | `list` | List instance families or sizes |

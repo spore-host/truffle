@@ -717,6 +717,7 @@ func (c *Client) GetCapacityBlockOfferings(ctx context.Context, regions []string
 		results []CapacityBlockOfferingResult
 		mu      sync.Mutex
 		wg      sync.WaitGroup
+		errCh   = make(chan error, len(regions))
 	)
 
 	semaphore := make(chan struct{}, 10)
@@ -734,9 +735,7 @@ func (c *Client) GetCapacityBlockOfferings(ctx context.Context, regions []string
 
 			regionResults, err := c.getRegionCapacityBlockOfferings(ctx, r, opts)
 			if err != nil {
-				if opts.Verbose {
-					fmt.Fprintf(os.Stderr, "  Warning: failed to get Capacity Block offerings for %s: %v\n", r, err)
-				}
+				errCh <- fmt.Errorf("region %s: %w", r, err)
 				return
 			}
 
@@ -749,6 +748,32 @@ func (c *Client) GetCapacityBlockOfferings(ctx context.Context, regions []string
 	}
 
 	wg.Wait()
+	close(errCh)
+
+	// Apply the #63 contract here too: an all-regions failure must not return an
+	// empty success. This path is especially prone to the misreading — "no capacity
+	// block offerings" is a plausible-looking answer, so a failed query silently
+	// became "none available" (#109). Previously every region error was discarded
+	// (printed only under --verbose), so an expired credential or a denied API read
+	// exactly like genuinely sold-out inventory.
+	var regionErrs []error
+	for err := range errCh {
+		regionErrs = append(regionErrs, err)
+	}
+
+	if len(regions) > 0 && len(regionErrs) == len(regions) {
+		return results, fmt.Errorf("all %d region queries failed: %w", len(regions), errors.Join(regionErrs...))
+	}
+
+	// Partial failure: warn unconditionally, since a degraded result that looks
+	// complete is the thing being guarded against.
+	if len(regionErrs) > 0 {
+		fmt.Fprintf(os.Stderr, "⚠️  Warning: %d of %d region queries failed; offerings may be incomplete:\n", len(regionErrs), len(regions))
+		for _, err := range regionErrs {
+			fmt.Fprintf(os.Stderr, "    %v\n", err)
+		}
+	}
+
 	return results, nil
 }
 
