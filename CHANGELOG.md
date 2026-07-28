@@ -17,7 +17,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   usage-aware method is an optional extension interface
   (`SageMakerUsagePricer`), and a pricer that doesn't implement it falls back to
   the plain lookup.
-
 - **`truffle available <instance-type>` — can I actually GET this?** (#108) A new
   command answering the question `find` doesn't: for scarce accelerator types the
   price is often not the deciding number, since a type can be listed, priced, and
@@ -39,6 +38,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   since AWS returns the ID and it's the stable identifier across accounts), the
   offered AZs, quota headroom and code, and `InstanceHeadroom()` to convert vCPU
   headroom into a launchable instance count.
+- **`Client.OnDemandPriceWithSource`** reports whether a rate came from the live
+  AWS Price List (`PriceSourceLive`) or truffle's built-in fallback table
+  (`PriceSourceStatic`), so an embedder that gates spending can refuse a
+  possibly-stale rate while a savings estimate still uses it. `OnDemandPrice` is
+  unchanged. A pricer injected via `SetOnDemandPricer` reports
+  `PriceSourceUnknown` unless it implements the new optional
+  `SourcedOnDemandPricer` interface.
+- **`truffle find --show-price` now warns when a price came from the built-in
+  table** rather than the live Price List, naming how many of the results are
+  affected — so a reader comparing costs knows which figures are current. The
+  flag's help text no longer describes pricing as static; it has been live since
+  0.36.2.
 
 ### Changed
 - **`capacity-blocks` now names the instance count when it finds nothing** (#109).
@@ -77,6 +88,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   bug as #63, and more misleading here because "no offerings" is a plausible answer
   to this question. An all-regions failure now returns an error and a partial
   failure warns on stderr, matching `SearchInstanceTypes`.
+- **An unpriceable instance type now reports an error instead of a made-up price
+  (#114).** When the AWS Price List had no rate — most often because the type
+  isn't offered in that region — truffle fell back to its built-in table, which
+  guessed from the instance family rather than admitting it didn't know. So
+  `truffle` reported `hpc7a.96xlarge` at **$0.20/hr** against a real **$7.20**,
+  and `p5.48xlarge` at **$9.60** against a real **$55.04**, both with no error.
+  Two silent substitutions caused it: an unknown region quietly reused us-east-1
+  prices, and an unknown type fell through to a per-family estimate. Both are
+  gone. The built-in table is still used when the Price List API is unreachable
+  (no credentials, no network), but only for a type and region it actually
+  covers; anything else is an error that names what couldn't be priced.
+
+  This mattered most to consumers spending money on the answer: spawn's
+  `slurm estimate`/`submit` quoted these rates before launching billable
+  instances (spore-host/spawn#447).
 
 ## [0.47.0] - 2026-07-22
 

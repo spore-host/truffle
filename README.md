@@ -115,6 +115,12 @@ results, _ := client.SearchInstanceTypes(ctx, regions, matcher, opts)
 // On-demand rate for one type (live AWS Price List, cached)
 rate, _ := client.HourlyRate(ctx, "c6i.4xlarge", "us-east-1", "on-demand")
 
+// Same, plus where the rate came from. If the Price List API is unreachable,
+// truffle falls back to a built-in table and reports PriceSourceStatic — check
+// this before gating spending on the number. An unpriceable type is an error,
+// never a guess.
+rate, source, err := client.OnDemandPriceWithSource(ctx, "c6i.4xlarge", "us-east-1")
+
 // Spot prices with on-demand comparison populated
 prices, _ := client.GetSpotPricing(ctx, results, aws.SpotOptions{ShowSavings: true})
 ```
