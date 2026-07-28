@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.48.0] - 2026-07-28
+
 ### Added
 - **`SageMakerPriceFor` — ask for the rate that matches your use case** (#107).
   SageMaker meters each usage as a separate Price List component, and their rates
@@ -416,7 +418,8 @@ Initial tagged release from the standalone `spore-host/truffle` repository.
 Older releases are summarized in the
 [GitHub Releases](https://github.com/spore-host/truffle/releases) for this repo.
 
-[Unreleased]: https://github.com/spore-host/truffle/compare/v0.47.0...HEAD
+[Unreleased]: https://github.com/spore-host/truffle/compare/v0.48.0...HEAD
+[0.48.0]: https://github.com/spore-host/truffle/compare/v0.47.0...v0.48.0
 [0.47.0]: https://github.com/spore-host/truffle/compare/v0.46.0...v0.47.0
 [0.46.0]: https://github.com/spore-host/truffle/compare/v0.45.0...v0.46.0
 [0.45.0]: https://github.com/spore-host/truffle/compare/v0.44.0...v0.45.0
