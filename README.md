@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/assets/truffle-hero.png" alt="truffle — find the right EC2 instance, price, and capacity" width="820">
+</p>
+
 # truffle
 
 [![CI](https://github.com/spore-host/truffle/actions/workflows/ci.yml/badge.svg)](https://github.com/spore-host/truffle/actions/workflows/ci.yml)

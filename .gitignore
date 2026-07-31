@@ -7,6 +7,9 @@
 bin/
 truffle
 truffle-*
+# …but not committed doc/brand assets under docs/ (the truffle-* rule above is for
+# built binaries like truffle-linux-amd64, not docs/assets/truffle-hero.png).
+!docs/assets/truffle-*
 
 # Test binary, built with `go test -c`
 *.test
