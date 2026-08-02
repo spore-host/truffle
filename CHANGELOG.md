@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
-- Bumped the `substrate` test dependency v0.70.0 → v0.81.0. Test-only; no runtime
+- Bumped the `substrate` test dependency v0.70.0 → v0.85.0. Test-only; no runtime
   or API change. Two of the fixes matter directly to truffle's own tests:
   `DescribeInstances`/`DescribeImages` and friends now raise `Invalid*ID.NotFound`
   for an explicitly-named ID that does not exist instead of returning an empty
@@ -19,6 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   API (`GetProducts`, `DescribeServices`, `GetAttributeValues`) together with a
   parser fix for `api.<service>.<region>` hosts (substrate#401, substrate#403),
   which is what truffle's on-demand and SageMaker rate lookups talk to.
+
+  The v0.82.0–v0.85.0 span additionally makes EC2's rejection of reserved
+  `aws:`-prefixed tag keys reachable offline (substrate#452) — truffle reads such
+  tags (a fleet's `aws:ec2:fleet-id`) but never writes them, so this is coverage
+  we gain rather than behavior we had to change.
 
 ### Security
 - Bumped `golang.org/x/text` to v0.39.0 to clear CVE-2026-56852 (a `norm.Iter`
