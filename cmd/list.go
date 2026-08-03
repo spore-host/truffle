@@ -135,7 +135,7 @@ func extractSizes(types []string) []string {
 
 func printList(title string, items []string) {
 	fmt.Printf("%s %s (%d total):\n\n", i18n.Emoji("clipboard"), title, len(items))
-	
+
 	// Print in columns
 	const itemsPerRow = 5
 	for i := 0; i < len(items); i += itemsPerRow {
@@ -144,7 +144,7 @@ func printList(title string, items []string) {
 			end = len(items)
 		}
 		row := items[i:end]
-		
+
 		// Format each item with padding
 		for j, item := range row {
 			fmt.Printf("  %-20s", item)

@@ -98,8 +98,8 @@ func TestVendorAliases(t *testing.T) {
 
 func TestGetProcessorsByVendor(t *testing.T) {
 	tests := []struct {
-		vendor   string
-		wantMin  int // minimum expected processors
+		vendor  string
+		wantMin int // minimum expected processors
 	}{
 		{"intel", 3},
 		{"amd", 4},

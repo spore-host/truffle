@@ -8,8 +8,8 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/spore-host/libs/catalog"
 	"github.com/spf13/cobra"
+	"github.com/spore-host/libs/catalog"
 	"gopkg.in/yaml.v3"
 )
 

@@ -6,8 +6,8 @@ import (
 
 func TestSizeCategories(t *testing.T) {
 	tests := []struct {
-		name     string
-		category string
+		name      string
+		category  string
 		wantSizes int
 	}{
 		{"tiny", "tiny", 2},

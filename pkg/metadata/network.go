@@ -2,9 +2,9 @@ package metadata
 
 // NetworkCapability represents networking features of instance families
 type NetworkCapability struct {
-	EFASupported    bool     // Elastic Fabric Adapter support
-	MaxBandwidthGbps int     // Maximum network bandwidth in Gbps
-	Families        []string // Instance families with this capability
+	EFASupported     bool     // Elastic Fabric Adapter support
+	MaxBandwidthGbps int      // Maximum network bandwidth in Gbps
+	Families         []string // Instance families with this capability
 }
 
 // NetworkFeature represents network feature requirements

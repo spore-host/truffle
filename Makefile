@@ -1,4 +1,4 @@
-.PHONY: build clean install test lint run help vuln gen-docs check-docs
+.PHONY: build clean install test lint fmt check-fmt run help vuln gen-docs check-docs
 
 # Variables
 BINARY_NAME=truffle
@@ -83,11 +83,30 @@ lint:
 	@which golangci-lint > /dev/null || (echo "golangci-lint not installed. Run: curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $$(go env GOPATH)/bin" && exit 1)
 	golangci-lint run
 
-## fmt: Format code
+## fmt: Format code (rewrites files)
 fmt:
 	@echo "Formatting code..."
 	@$(GOCMD) fmt ./...
 	@echo "Format complete"
+
+## check-fmt: Formatting gate — REPORT drift, don't fix it. Run in CI.
+#
+# Distinct from `fmt`, which rewrites files and always exits 0. That is
+# convenient locally but it cannot fail a build, so it never gated anything:
+# 7 files sat unformatted on main and surfaced as unrelated diffs in whatever
+# PR ran the formatter next (#122).
+#
+# Excludes vendor/ and lists offenders with a diff, so the fix is obvious.
+# gofmt walks paths rather than modules, so this also covers any submodule.
+check-fmt:
+	@files=$$(gofmt -l . 2>/dev/null | grep -v '^vendor/' || true); \
+	if [ -n "$$files" ]; then \
+	  echo "::error::these files are not gofmt-clean — run 'gofmt -w' on them:"; \
+	  echo "$$files" | sed 's/^/  /'; \
+	  echo; gofmt -d $$files; \
+	  exit 1; \
+	fi; \
+	echo "✓ gofmt clean"
 
 ## deps: Download dependencies
 deps:

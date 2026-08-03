@@ -33,6 +33,14 @@ jobs:
           # any code runs. Go reuses the on-disk module cache directly.
           cache: false
 
+      # Formatting gate. Runs first because it's the cheapest check and the
+      # fastest to act on. CI had no formatting check at all, and `make fmt`
+      # rewrites files and always succeeds, so nothing gated formatting: 7 files
+      # sat unformatted on main and surfaced as unrelated diffs in whatever PR
+      # ran the formatter next (#122).
+      - name: Format gate
+        run: make check-fmt
+
       - name: Build
         run: go build ./...
 

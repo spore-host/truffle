@@ -6,11 +6,11 @@ import (
 
 func TestBuildCriteria(t *testing.T) {
 	tests := []struct {
-		name         string
-		query        string
-		wantPattern  string
-		wantArch     string
-		wantMinVCPU  int
+		name          string
+		query         string
+		wantPattern   string
+		wantArch      string
+		wantMinVCPU   int
 		wantMinMemory float64
 	}{
 		{

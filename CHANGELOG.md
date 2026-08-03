@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- **CI now fails on unformatted code (#122).** Nothing did before: CI had no
+  formatting check, and `make fmt` rewrites files and always succeeds —
+  convenient locally, but it cannot fail a build, so it never gated anything.
+  Seven files sat unformatted on `main` and reappeared as unrelated diffs in
+  whatever PR ran the formatter next.
+
+  `make check-fmt` reports drift instead of fixing it — offenders listed with a
+  diff — and now runs in CI. The seven drifted files are formatted (struct-field
+  and comment alignment, trailing whitespace, one import re-sorted; no behavior
+  change).
 - Bumped the `substrate` test dependency v0.70.0 → v0.85.0. Test-only; no runtime
   or API change. Two of the fixes matter directly to truffle's own tests:
   `DescribeInstances`/`DescribeImages` and friends now raise `Invalid*ID.NotFound`
