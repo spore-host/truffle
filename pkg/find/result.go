@@ -11,9 +11,9 @@ import (
 // FindResult extends [aws.InstanceTypeResult] with match explanations produced
 // by [ExplainMatch], useful for displaying to end users why a result was returned.
 type FindResult struct {
-	aws.InstanceTypeResult              // Embedded full result from the AWS query
-	MatchReasons   []string             // Human-readable explanations of why this instance matched the query
-	MatchScore     int                  // Relevance score for sorting; higher means more specific match
+	aws.InstanceTypeResult          // Embedded full result from the AWS query
+	MatchReasons           []string // Human-readable explanations of why this instance matched the query
+	MatchScore             int      // Relevance score for sorting; higher means more specific match
 }
 
 // ExplainMatch generates human-readable reasons why an instance matched the query
