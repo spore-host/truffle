@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.48.1] - 2026-08-07
+
 ### Security
 - **A pin's version comment can no longer silently misstate what CI runs.**
   `actions/checkout@df4cb1c...` — used in `ci.yml`, `security.yml`, and
@@ -47,6 +49,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pattern, and every `go.mod` must be watched — so adding one without wiring it up
   fails CI instead of going unnoticed. CI-only; no change to the tool.
 
+- Bumped `golang.org/x/text` to v0.39.0 to clear CVE-2026-56852 (a `norm.Iter`
+  infinite loop on crafted input; HIGH). Indirect dependency; no API change.
+
 ### Changed
 - **CI now fails on unformatted code (#122).** Nothing did before: CI had no
   formatting check, and `make fmt` rewrites files and always succeeds —
@@ -75,9 +80,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tags (a fleet's `aws:ec2:fleet-id`) but never writes them, so this is coverage
   we gain rather than behavior we had to change.
 
-### Security
-- Bumped `golang.org/x/text` to v0.39.0 to clear CVE-2026-56852 (a `norm.Iter`
-  infinite loop on crafted input; HIGH). Indirect dependency; no API change.
+### Fixed
+- Bumped `libs` to v0.43.3, which fixes `catalog.Validate()` incorrectly
+  flagging a private-overlay image binding as if the shipped catalog itself
+  were broken (libs #392). truffle doesn't call `catalog.Validate()` directly,
+  but it does import `libs/catalog` (`catalog.List()`/`catalog.Lookup()` in
+  `app`/`find`), so this raises the minimum `libs` version any consumer that
+  depends on both truffle and `libs/catalog` (e.g. spawn) resolves to,
+  avoiding the buggy floor via Go's minimum-version selection.
 
 ### Documentation
 - Added the project hero image to the top of the README.
@@ -493,7 +503,8 @@ Initial tagged release from the standalone `spore-host/truffle` repository.
 Older releases are summarized in the
 [GitHub Releases](https://github.com/spore-host/truffle/releases) for this repo.
 
-[Unreleased]: https://github.com/spore-host/truffle/compare/v0.48.0...HEAD
+[Unreleased]: https://github.com/spore-host/truffle/compare/v0.48.1...HEAD
+[0.48.1]: https://github.com/spore-host/truffle/compare/v0.48.0...v0.48.1
 [0.48.0]: https://github.com/spore-host/truffle/compare/v0.47.0...v0.48.0
 [0.47.0]: https://github.com/spore-host/truffle/compare/v0.46.0...v0.47.0
 [0.46.0]: https://github.com/spore-host/truffle/compare/v0.45.0...v0.46.0
