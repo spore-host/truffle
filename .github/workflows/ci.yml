@@ -16,22 +16,14 @@ env:
 jobs:
   test:
     name: Test
-    # Self-hosted runner on orion.local (Apple M4 Pro, arm64). To fall back to
-    # GitHub-hosted, change this line to: runs-on: ubuntu-latest
-    runs-on: [self-hosted, orion]
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
       - name: Setup Go
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version: '1.26.5'
-          # cache MUST stay false on the self-hosted orion runners: their
-          # filesystem persists between jobs, so ~/go/pkg/mod is already warm.
-          # setup-go's cache restore untars its archive over those files →
-          # "tar: Cannot open: File exists", failing the job in Setup Go before
-          # any code runs. Go reuses the on-disk module cache directly.
-          cache: false
 
       # Formatting gate. Runs first because it's the cheapest check and the
       # fastest to act on. CI had no formatting check at all, and `make fmt`
@@ -40,6 +32,15 @@ jobs:
       # ran the formatter next (#122).
       - name: Format gate
         run: make check-fmt
+
+      # The half of pin hygiene that needs the network, so it can't live in the
+      # (hermetic) Go test suite: does each pin's `# vX.Y.Z` comment actually name
+      # the tag its SHA carries? A wrong label is worse than none — it makes a
+      # major-version jump read as a routine same-line bump, which is exactly how
+      # this repo's own checkout pin sat labelled `# v6` while the SHA was really
+      # v6.0.3. Read-only (git ls-remote), no auth.
+      - name: Verify pin comments match their SHAs
+        run: ./scripts/verify-pins.sh
 
       - name: Build
         run: go build ./...
@@ -59,7 +60,7 @@ jobs:
             || { echo "::error::coverage ${total}% is below floor ${MIN_COVERAGE}%"; exit 1; }
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5
+        uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5.5.5
         with:
           files: coverage.out
           fail_ci_if_error: false
