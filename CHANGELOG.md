@@ -8,6 +8,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Security
+- **A pin's version comment can no longer silently misstate what CI runs.**
+  `actions/checkout@df4cb1c...` — used in `ci.yml`, `security.yml`, and
+  `release.yaml` — is really `v6.0.3`, and had sat labelled `# v6` (indistinguishable
+  from a routine same-line bump) with no test catching it; three more pins
+  (`setup-go`, `goreleaser-action`, `attest-build-provenance`, `codecov-action`)
+  carried the same bare-major shape. Two complementary halves now enforce exact
+  labels: `internal/hygiene.TestActionsArePinnedToSHAs` requires an exact
+  `vX.Y.Z` comment (offline, hermetic), and a new `scripts/verify-pins.sh`
+  resolves each SHA against the tag its comment claims and fails if they
+  disagree (needs the network, so it runs as its own CI step). Neither alone
+  suffices — a bare label defeats the offline check, and an exact-but-false
+  label defeats a check that never queries the tag. CI-only; no change to the tool.
+
+- **Also moved `Test` and `E2E`-equivalent CI off the self-hosted orion fleet
+  onto `ubuntu-latest`.** The fleet (colima/Docker on orion.local) is being
+  decommissioned org-wide in favor of GitHub-hosted runners. No behavior change
+  to the tool; `setup-go`'s `cache: false` workaround (needed only because the
+  orion containers' filesystem persisted between jobs) is removed since
+  GitHub-hosted runners start clean every time.
+
 - **Added a Dependabot config, so the SHA-pinned actions and Go deps get bumped (#124).**
   Every action here is pinned to a commit SHA, which closes the mutable-tag hole
   but opens a staleness one: a SHA never moves — including past a security fix —
