@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`Capabilities.VCPUs`** — the instance type's default vCPU count
+  (`DescribeInstanceTypes`' `VCpuInfo.DefaultVCpus`), so a caller can convert a
+  per-family vCPU quota (`pkg/quotas.QuotaInfo`) into an instance-count ceiling
+  without re-parsing the type's size suffix — the same name-based guessing
+  `pkg/quotas.getVCPUCount` already falls back to, which `obtainability.go`'s
+  own comment flags as unreliable for non-linear sizes (spawn#492).
+
 ### Fixed
 - **`quotas.CanLaunch`'s Spot path now tracks current Spot usage** instead of
   only confirming a request fits the *full* Spot quota (#132). `QuotaInfo`
@@ -19,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instances got a false "fits" for 2 more, since 16 ≤ 64 (the full quota) in
   isolation — the actual launch then failed with
   `MaxSpotInstanceCountExceeded` with zero prior warning.
+>>>>>>> 3117a40 (feat(aws): add Capabilities.VCPUs (default vCPU count per instance type))
 
 ## [0.48.1] - 2026-08-07
 

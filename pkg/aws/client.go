@@ -594,6 +594,13 @@ type Capabilities struct {
 	NestedVirtualization bool     `json:"nested_virtualization"`   // can run KVM/Hyper-V in-instance
 	GPUs                 int32    `json:"gpus,omitempty"`
 	BareMetal            bool     `json:"bare_metal"`
+	// VCPUs is the instance type's default vCPU count (EC2's VCpuInfo.DefaultVCpus).
+	// Lets a caller convert a per-family vCPU quota (pkg/quotas.QuotaInfo) into an
+	// instance count without re-parsing the type's size suffix — the same
+	// name-based guessing pkg/quotas.getVCPUCount uses as a last-resort fallback,
+	// which obtainability.go's own comment already flags as unreliable for
+	// non-linear sizes (p6-b200.48xlarge, metal sizes). spawn#492.
+	VCPUs int32 `json:"vcpus,omitempty"`
 }
 
 // GetCapabilities returns feature support for a single instance type in the
@@ -642,6 +649,9 @@ func (c *Client) GetCapabilities(ctx context.Context, instanceType, region strin
 		for _, a := range it.ProcessorInfo.SupportedArchitectures {
 			caps.Architectures = append(caps.Architectures, string(a))
 		}
+	}
+	if it.VCpuInfo != nil && it.VCpuInfo.DefaultVCpus != nil {
+		caps.VCPUs = *it.VCpuInfo.DefaultVCpus
 	}
 	return caps, nil
 }
