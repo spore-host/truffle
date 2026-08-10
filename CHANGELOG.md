@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.49.0] - 2026-08-10
+
 ### Added
 - **`Capabilities.VCPUs`** — the instance type's default vCPU count
   (`DescribeInstanceTypes`' `VCpuInfo.DefaultVCpus`), so a caller can convert a
@@ -27,7 +29,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instances got a false "fits" for 2 more, since 16 ≤ 64 (the full quota) in
   isolation — the actual launch then failed with
   `MaxSpotInstanceCountExceeded` with zero prior warning.
->>>>>>> 3117a40 (feat(aws): add Capabilities.VCPUs (default vCPU count per instance type))
 
 ## [0.48.1] - 2026-08-07
 
@@ -525,7 +526,8 @@ Initial tagged release from the standalone `spore-host/truffle` repository.
 Older releases are summarized in the
 [GitHub Releases](https://github.com/spore-host/truffle/releases) for this repo.
 
-[Unreleased]: https://github.com/spore-host/truffle/compare/v0.48.1...HEAD
+[Unreleased]: https://github.com/spore-host/truffle/compare/v0.49.0...HEAD
+[0.49.0]: https://github.com/spore-host/truffle/compare/v0.48.1...v0.49.0
 [0.48.1]: https://github.com/spore-host/truffle/compare/v0.48.0...v0.48.1
 [0.48.0]: https://github.com/spore-host/truffle/compare/v0.47.0...v0.48.0
 [0.47.0]: https://github.com/spore-host/truffle/compare/v0.46.0...v0.47.0
