@@ -78,8 +78,18 @@ type QuotaInfo struct {
 	// Spot quotas — maximum vCPUs per family for Spot instances
 	Spot map[QuotaFamily]int32
 
-	// Current usage — vCPUs currently in use (running + pending) per family
+	// Current On-Demand usage — vCPUs currently in use (running + pending) per
+	// family, EXCLUDING Spot instances. Only ever subtracted from OnDemand.
 	Usage map[QuotaFamily]int32
+
+	// Current Spot usage — vCPUs currently in use (running + pending) per
+	// family, counting ONLY Spot instances (distinguished via EC2's
+	// InstanceLifecycle field, #132). Subtracted from Spot in CanLaunch, the
+	// same way Usage is subtracted from OnDemand — before this field existed,
+	// CanLaunch's Spot path could confirm a request fit the FULL Spot quota but
+	// had no way to confirm remaining headroom, so an account already at its
+	// Spot ceiling got a false "fits" with no signal the quota was saturated.
+	SpotUsage map[QuotaFamily]int32
 
 	RunningInstances     int32     // Current count of running+pending instances in this region
 	RunningInstancesMax  int32     // Per-region instance count limit (typically 20 for new accounts)
@@ -184,12 +194,13 @@ func (c *Client) GetQuotas(ctx context.Context, region string) (*QuotaInfo, erro
 		info.Spot[family] = value
 	}
 
-	// Get current usage
-	usage, err := c.getCurrentUsage(ctx, region)
+	// Get current usage, split by lifecycle (#132).
+	onDemandUsage, spotUsage, err := c.getCurrentUsage(ctx, region)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get current usage: %w", err)
 	}
-	info.Usage = usage
+	info.Usage = onDemandUsage
+	info.SpotUsage = spotUsage
 
 	// Get running instance count
 	runningCount, err := c.getRunningInstanceCount(ctx, region)
@@ -230,8 +241,14 @@ func (c *Client) getQuotaValue(ctx context.Context, region, quotaCode string) (i
 	return 0, fmt.Errorf("quota value not found")
 }
 
-// getCurrentUsage calculates current vCPU usage by family
-func (c *Client) getCurrentUsage(ctx context.Context, region string) (map[QuotaFamily]int32, error) {
+// getCurrentUsage calculates current vCPU usage by family, split by lifecycle
+// (on-demand vs Spot, #132) since the two draw against separate quotas. Before
+// this split, every running/pending instance's vCPUs landed in one combined
+// map that CanLaunch's on-demand branch subtracted from OnDemand alone — which
+// double-counted Spot usage against the on-demand quota AND left the Spot
+// quota check with no usage signal at all (this package's own long-standing
+// comment on that gap, now closed).
+func (c *Client) getCurrentUsage(ctx context.Context, region string) (onDemand, spot map[QuotaFamily]int32, err error) {
 	cfg := c.baseCfg
 	cfg.Region = region
 	ec2Client := ec2.NewFromConfig(cfg)
@@ -246,10 +263,11 @@ func (c *Client) getCurrentUsage(ctx context.Context, region string) (map[QuotaF
 		},
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	usage := make(map[QuotaFamily]int32)
+	onDemand = make(map[QuotaFamily]int32)
+	spot = make(map[QuotaFamily]int32)
 
 	for _, reservation := range output.Reservations {
 		for _, instance := range reservation.Instances {
@@ -259,14 +277,20 @@ func (c *Client) getCurrentUsage(ctx context.Context, region string) (map[QuotaF
 
 			instanceType := string(instance.InstanceType)
 			family := GetQuotaFamily(instanceType)
-
-			// Get vCPU count for instance type
 			vCPUs := getVCPUCount(instanceType)
-			usage[family] += vCPUs
+
+			// InstanceLifecycle is "spot" for Spot instances and empty ("") for
+			// on-demand — there is no dedicated on-demand constant, EC2 just
+			// leaves the field unset.
+			if instance.InstanceLifecycle == ec2types.InstanceLifecycleTypeSpot {
+				spot[family] += vCPUs
+			} else {
+				onDemand[family] += vCPUs
+			}
 		}
 	}
 
-	return usage, nil
+	return onDemand, spot, nil
 }
 
 // getRunningInstanceCount returns the number of running instances
@@ -304,19 +328,24 @@ func (c *Client) CanLaunch(instanceType string, vCPUs int32, quotas *QuotaInfo, 
 
 	if spot {
 		quota = quotas.Spot[family]
+		// SpotUsage is only populated once a caller has fetched quotas via a
+		// path that calls getCurrentUsage (GetQuotas). A QuotaInfo built by
+		// hand with no SpotUsage map is nil, and a nil map reads as 0 for every
+		// key — the same "usage unknown, treat as 0" fallback the on-demand
+		// path has always had implicitly (#132).
+		usage = quotas.SpotUsage[family]
 		quotaType = "Spot"
-		// Current Spot usage is NOT tracked: getCurrentUsage counts running
-		// instances without distinguishing lifecycle, and it's only subtracted
-		// from the on-demand quota. So for Spot we can confirm the quota exists
-		// and that the request fits the *full* quota, but we can't confirm
-		// remaining headroom. Don't imply we did.
+
+		available := quota - usage
+
 		if quota == 0 {
 			return false, fmt.Sprintf("Spot quota for %s instances is 0 (request quota increase)", family)
 		}
-		if vCPUs > quota {
-			return false, fmt.Sprintf("Need %d vCPUs but the Spot %s quota is only %d", vCPUs, family, quota)
+		if vCPUs > available {
+			return false, fmt.Sprintf("Need %d vCPUs, only %d available (%s %s: quota=%d, usage=%d)",
+				vCPUs, available, quotaType, family, quota, usage)
 		}
-		return true, fmt.Sprintf("fits Spot %s quota (%d vCPUs); current Spot usage is not tracked, so remaining headroom is unverified", family, quota)
+		return true, ""
 	}
 
 	quota = quotas.OnDemand[family]
