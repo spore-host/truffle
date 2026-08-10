@@ -83,6 +83,12 @@ func makeQuotaInfo(onDemand, spot, usage map[QuotaFamily]int32) *QuotaInfo {
 	}
 }
 
+func makeQuotaInfoWithSpotUsage(onDemand, spot, usage, spotUsage map[QuotaFamily]int32) *QuotaInfo {
+	info := makeQuotaInfo(onDemand, spot, usage)
+	info.SpotUsage = spotUsage
+	return info
+}
+
 func TestCanLaunch(t *testing.T) {
 	c := &Client{}
 
@@ -155,6 +161,70 @@ func TestCanLaunch(t *testing.T) {
 				q = zeroQuotas
 			}
 			ok, msg := c.CanLaunch(tt.instanceType, tt.vCPUs, q, tt.spot)
+			if ok != tt.wantOK {
+				t.Errorf("CanLaunch() ok = %v, want %v (msg: %s)", ok, tt.wantOK, msg)
+			}
+			if tt.wantMsgPart != "" && !strings.Contains(msg, tt.wantMsgPart) {
+				t.Errorf("CanLaunch() msg = %q, want substring %q", msg, tt.wantMsgPart)
+			}
+		})
+	}
+}
+
+// TestCanLaunch_SpotTracksCurrentUsage is the #132 regression guard: the
+// real-world calque incident had a 64-vCPU G/VT Spot quota already fully
+// saturated by 8 running g7e.2xlarge (8 vCPUs each = 64), then asked for 2
+// more shards (16 more vCPUs). Before #132, CanLaunch reported "fits" for
+// each of those 2 requests in isolation (16 <= 64, the FULL quota) with no
+// signal the quota was already saturated by the caller's own instances — the
+// actual RunInstances call then failed with MaxSpotInstanceCountExceeded.
+func TestCanLaunch_SpotTracksCurrentUsage(t *testing.T) {
+	c := &Client{}
+
+	tests := []struct {
+		name        string
+		spotUsage   map[QuotaFamily]int32
+		vCPUs       int32
+		wantOK      bool
+		wantMsgPart string
+	}{
+		{
+			name:        "quota fully saturated by existing spot usage",
+			spotUsage:   map[QuotaFamily]int32{FamilyG: 64}, // 8x g7e.2xlarge already running
+			vCPUs:       16,                                 // 2 more shards
+			wantOK:      false,
+			wantMsgPart: "only 0 available",
+		},
+		{
+			name:      "quota partially used, request fits remaining headroom",
+			spotUsage: map[QuotaFamily]int32{FamilyG: 32},
+			vCPUs:     16,
+			wantOK:    true,
+		},
+		{
+			name:        "quota partially used, request exceeds remaining headroom",
+			spotUsage:   map[QuotaFamily]int32{FamilyG: 56},
+			vCPUs:       16,
+			wantOK:      false,
+			wantMsgPart: "only 8 available",
+		},
+		{
+			name:      "no SpotUsage tracked (nil map) behaves as before — full quota available",
+			spotUsage: nil,
+			vCPUs:     64,
+			wantOK:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			quotas := makeQuotaInfoWithSpotUsage(
+				nil,
+				map[QuotaFamily]int32{FamilyG: 64},
+				nil,
+				tt.spotUsage,
+			)
+			ok, msg := c.CanLaunch("g7e.2xlarge", tt.vCPUs, quotas, true)
 			if ok != tt.wantOK {
 				t.Errorf("CanLaunch() ok = %v, want %v (msg: %s)", ok, tt.wantOK, msg)
 			}

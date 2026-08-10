@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **`quotas.CanLaunch`'s Spot path now tracks current Spot usage** instead of
+  only confirming a request fits the *full* Spot quota (#132). `QuotaInfo`
+  gains `SpotUsage`, populated by splitting `getCurrentUsage`'s
+  `DescribeInstances` scan by `InstanceLifecycle` (spot vs on-demand) rather
+  than summing both into one map. That split also fixes a second bug in the
+  same code path: on-demand `Usage` previously included running Spot
+  instances' vCPUs too, understating on-demand headroom. Real-world case: an
+  account with a 64-vCPU Spot quota already fully saturated by 8 running
+  instances got a false "fits" for 2 more, since 16 ≤ 64 (the full quota) in
+  isolation — the actual launch then failed with
+  `MaxSpotInstanceCountExceeded` with zero prior warning.
+
 ## [0.48.1] - 2026-08-07
 
 ### Security
