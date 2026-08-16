@@ -17,17 +17,20 @@ import (
 )
 
 var (
-	skipAZs         bool
-	architecture    string
-	minVCPUs        int
-	minMemory       float64
-	instanceFamily  string
-	searchNestedV   bool
-	searchPickFirst bool
-	searchShowPrice bool
-	searchService   string
-	searchShowQuota bool
-	timeout         time.Duration
+	skipAZs             bool
+	architecture        string
+	minVCPUs            int
+	minMemory           float64
+	instanceFamily      string
+	searchNestedV       bool
+	searchPickFirst     bool
+	searchShowPrice     bool
+	searchService       string
+	searchShowQuota     bool
+	searchShowRealCores bool   // --show-real-cores flag: vCPU column also shows "/physicalCores" (#136)
+	searchShowMemPerCPU bool   // --show-mem-per-cpu flag: Memory column appends a per-physical-core figure (#137)
+	searchPriceUnit     string // --price-unit flag: hour (default), minute, or second (#138)
+	timeout             time.Duration
 )
 
 // validateServiceFlag normalizes and validates the --service value shared by
@@ -40,6 +43,21 @@ func validateServiceFlag(s string) (string, error) {
 		return "sagemaker", nil
 	default:
 		return "", fmt.Errorf("unknown --service %q (want \"ec2\" or \"sagemaker\")", s)
+	}
+}
+
+// validatePriceUnitFlag normalizes and validates the --price-unit value
+// shared by the find and search commands. Empty defaults to "hour".
+func validatePriceUnitFlag(s string) (output.PriceUnit, error) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "", "hour":
+		return output.PriceUnitHour, nil
+	case "minute":
+		return output.PriceUnitMinute, nil
+	case "second":
+		return output.PriceUnitSecond, nil
+	default:
+		return output.PriceUnitHour, fmt.Errorf("unknown --price-unit %q (want \"hour\", \"minute\", or \"second\")", s)
 	}
 }
 
@@ -64,6 +82,9 @@ func init() {
 	searchCmd.Flags().BoolVar(&searchShowPrice, "show-price", false, "Show on-demand pricing (uses static pricing data)")
 	searchCmd.Flags().StringVar(&searchService, "service", "ec2", "Instance namespace to search: ec2 or sagemaker (ml.* types)")
 	searchCmd.Flags().BoolVar(&searchShowQuota, "show-quota", false, "Show the per-type training-job quota (SageMaker only)")
+	searchCmd.Flags().BoolVar(&searchShowRealCores, "show-real-cores", false, "Show physical CPU core count alongside vCPUs (format: vCPU/CPU, e.g. 96/48)")
+	searchCmd.Flags().BoolVar(&searchShowMemPerCPU, "show-mem-per-cpu", false, "Show memory per physical core alongside total memory")
+	searchCmd.Flags().StringVar(&searchPriceUnit, "price-unit", "hour", "Price display unit for --show-price: hour, minute, or second")
 	searchCmd.Flags().DurationVar(&timeout, "timeout", 5*time.Minute, "Timeout for AWS API calls")
 
 	// Register completion for instance type argument
@@ -78,6 +99,11 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	pattern := args[0]
 
 	service, err := validateServiceFlag(searchService)
+	if err != nil {
+		return err
+	}
+
+	priceUnit, err := validatePriceUnitFlag(searchPriceUnit)
 	if err != nil {
 		return err
 	}
@@ -213,10 +239,15 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	case "csv":
 		return printer.PrintCSV(results)
 	case "table":
-		if searchShowQuota && service == "sagemaker" {
-			return printer.PrintTableWithQuota(results, !skipAZs, searchShowPrice)
+		opts := output.TableOptions{
+			IncludeAZs:    !skipAZs,
+			ShowPrice:     searchShowPrice,
+			ShowQuota:     searchShowQuota && service == "sagemaker",
+			ShowRealCores: searchShowRealCores,
+			ShowMemPerCPU: searchShowMemPerCPU,
+			PriceUnit:     priceUnit,
 		}
-		return printer.PrintTable(results, !skipAZs, searchShowPrice)
+		return printer.PrintTableWithOptions(results, opts)
 	default:
 		return i18n.Te("truffle.search.error.unsupported_format", nil, map[string]interface{}{
 			"Format": outputFormat,

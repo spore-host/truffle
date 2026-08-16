@@ -19,15 +19,18 @@ import (
 )
 
 var (
-	findSkipAZs   bool
-	findShowQuery bool
-	findTimeout   time.Duration
-	findApp       string // --app flag: application name from catalog
-	findExact     bool   // --exact flag: match exact vCPU and memory instead of minimum
-	findPickFirst bool
-	findService   string // --service flag: "ec2" (default) or "sagemaker"
-	findShowQuota bool   // --show-quota flag: show per-type training-job quota (SageMaker only)
-	findShowPrice bool   // --show-price flag: populate the on-demand $/hr column
+	findSkipAZs       bool
+	findShowQuery     bool
+	findTimeout       time.Duration
+	findApp           string // --app flag: application name from catalog
+	findExact         bool   // --exact flag: match exact vCPU and memory instead of minimum
+	findPickFirst     bool
+	findService       string // --service flag: "ec2" (default) or "sagemaker"
+	findShowQuota     bool   // --show-quota flag: show per-type training-job quota (SageMaker only)
+	findShowPrice     bool   // --show-price flag: populate the on-demand price column
+	findShowRealCores bool   // --show-real-cores flag: vCPU column also shows "/physicalCores" (#136)
+	findShowMemPerCPU bool   // --show-mem-per-cpu flag: Memory column appends a per-physical-core figure (#137)
+	findPriceUnit     string // --price-unit flag: hour (default), minute, or second (#138)
 )
 
 var findCmd = &cobra.Command{
@@ -74,6 +77,9 @@ func init() {
 	findCmd.Flags().BoolVar(&findShowPrice, "show-price", false, "Show on-demand pricing (live AWS Price List; warns if it falls back to built-in data)")
 	findCmd.Flags().StringVar(&findService, "service", "ec2", "Instance namespace to search: ec2 or sagemaker (ml.* types)")
 	findCmd.Flags().BoolVar(&findShowQuota, "show-quota", false, "Show the per-type training-job quota (SageMaker only)")
+	findCmd.Flags().BoolVar(&findShowRealCores, "show-real-cores", false, "Show physical CPU core count alongside vCPUs (format: vCPU/CPU, e.g. 96/48)")
+	findCmd.Flags().BoolVar(&findShowMemPerCPU, "show-mem-per-cpu", false, "Show memory per physical core alongside total memory")
+	findCmd.Flags().StringVar(&findPriceUnit, "price-unit", "hour", "Price display unit for --show-price: hour, minute, or second")
 }
 
 func runFind(cmd *cobra.Command, args []string) error {
@@ -96,6 +102,10 @@ func runFind(cmd *cobra.Command, args []string) error {
 
 	service, err := validateServiceFlag(findService)
 	if err != nil {
+		return err
+	}
+
+	if _, err := validatePriceUnitFlag(findPriceUnit); err != nil {
 		return err
 	}
 
@@ -424,12 +434,18 @@ func printFindTable(results []find.FindResult, printer *output.Printer) error {
 		fmt.Fprintln(os.Stderr)
 	}
 
-	// findService is validated in runFind before this path is reached; the
-	// quota column is SageMaker-only.
-	if findShowQuota && strings.EqualFold(findService, "sagemaker") {
-		return printer.PrintTableWithQuota(baseResults, !findSkipAZs, true)
+	// findService/findPriceUnit are validated in runFind before this path is
+	// reached; the quota column is SageMaker-only.
+	priceUnit, _ := validatePriceUnitFlag(findPriceUnit)
+	opts := output.TableOptions{
+		IncludeAZs:    !findSkipAZs,
+		ShowPrice:     true, // show on-demand price by default
+		ShowQuota:     findShowQuota && strings.EqualFold(findService, "sagemaker"),
+		ShowRealCores: findShowRealCores,
+		ShowMemPerCPU: findShowMemPerCPU,
+		PriceUnit:     priceUnit,
 	}
-	return printer.PrintTable(baseResults, !findSkipAZs, true) // show on-demand price by default
+	return printer.PrintTableWithOptions(baseResults, opts)
 }
 
 func convertToInstanceTypeResults(findResults []find.FindResult) []aws.InstanceTypeResult {
@@ -583,10 +599,17 @@ func runSearchWithPattern(pattern, service string) error {
 	case "csv":
 		return printer.PrintCSV(results)
 	case "table":
-		if findShowQuota && service == "sagemaker" {
-			return printer.PrintTableWithQuota(results, !findSkipAZs, showPrice)
+		// findPriceUnit is validated in runFind before this path is reached.
+		priceUnit, _ := validatePriceUnitFlag(findPriceUnit)
+		opts := output.TableOptions{
+			IncludeAZs:    !findSkipAZs,
+			ShowPrice:     showPrice,
+			ShowQuota:     findShowQuota && service == "sagemaker",
+			ShowRealCores: findShowRealCores,
+			ShowMemPerCPU: findShowMemPerCPU,
+			PriceUnit:     priceUnit,
 		}
-		return printer.PrintTable(results, !findSkipAZs, showPrice)
+		return printer.PrintTableWithOptions(results, opts)
 	default:
 		return fmt.Errorf("unsupported output format: %s", outputFormat)
 	}

@@ -365,6 +365,164 @@ func TestPrintTable_GPUColumns(t *testing.T) {
 	}
 }
 
+// TestPrintTable_PerGPUVRAM_WholeGPU is the #116 fix's happy path: a whole-GPU
+// type shows both the existing total VRAM and the new per-GPU figure.
+func TestPrintTable_PerGPUVRAM_WholeGPU(t *testing.T) {
+	results := []aws.InstanceTypeResult{
+		{
+			InstanceType: "g5.12xlarge", Region: "us-east-1", VCPUs: 48, MemoryMiB: 196608,
+			Architecture: "x86_64", GPUs: 4, GPUModel: "A10G", GPUManufacturer: "nvidia",
+			GPUMemoryMiB: 98304, GPUMemoryPerMiB: 24576,
+		},
+	}
+	out := captureStdout(t, func() {
+		_ = NewPrinter(false).PrintTable(results, false, false)
+	})
+	if !strings.Contains(out, "96 (24/gpu)") {
+		t.Errorf("expected total+per-GPU VRAM figure %q:\n%s", "96 (24/gpu)", out)
+	}
+}
+
+// TestPrintTable_PerGPUVRAM_FractionalGPU is the regression test for #116:
+// fractional-GPU types report GPUs==0 (AWS represents the slice via
+// GpuPartitionSize, not a whole-GPU count). Before the fix, these rows got NO
+// GPU columns at all because hasGPU/the per-row gate only checked GPUs>0.
+func TestPrintTable_PerGPUVRAM_FractionalGPU(t *testing.T) {
+	results := []aws.InstanceTypeResult{
+		{
+			InstanceType: "g6f.large", Region: "us-east-1", VCPUs: 8, MemoryMiB: 16384,
+			Architecture: "x86_64", GPUs: 0, GPUModel: "L4", GPUManufacturer: "nvidia",
+			GPUMemoryMiB: 2861, GPUMemoryPerMiB: 2861, GPUPartitionSize: 0.125,
+		},
+	}
+	out := captureStdout(t, func() {
+		_ = NewPrinter(false).PrintTable(results, false, false)
+	})
+	if !strings.Contains(out, "GPU Model") {
+		t.Fatalf("fractional-GPU row lost its GPU columns entirely (#116 regression):\n%s", out)
+	}
+	if !strings.Contains(out, "nvidia L4") {
+		t.Errorf("expected GPU model for fractional-GPU row:\n%s", out)
+	}
+	if !strings.Contains(out, "0.125") {
+		t.Errorf("expected fractional GPU-count indicator instead of a misleading 0:\n%s", out)
+	}
+}
+
+// TestPrintTable_ShowRealCores_Hyperthreaded covers a 2-threads-per-core type
+// (most x86), where vCPUs != physical cores.
+func TestPrintTable_ShowRealCores_Hyperthreaded(t *testing.T) {
+	results := []aws.InstanceTypeResult{
+		{InstanceType: "c6i.24xlarge", Region: "us-east-1", VCPUs: 96, PhysicalCores: 48, ThreadsPerCore: 2, MemoryMiB: 196608, Architecture: "x86_64"},
+	}
+	out := captureStdout(t, func() {
+		_ = NewPrinter(false).PrintTableWithOptions(results, TableOptions{ShowRealCores: true})
+	})
+	if !strings.Contains(out, "96/48") {
+		t.Errorf("expected vCPU/CPU format 96/48:\n%s", out)
+	}
+	if !strings.Contains(out, "vCPU/physical-core") {
+		t.Errorf("expected real-cores footer note:\n%s", out)
+	}
+}
+
+// TestPrintTable_ShowRealCores_OneToOne covers a 1-thread-per-core type
+// (Graviton), where vCPUs == physical cores.
+func TestPrintTable_ShowRealCores_OneToOne(t *testing.T) {
+	results := []aws.InstanceTypeResult{
+		{InstanceType: "m7g.16xlarge", Region: "us-east-1", VCPUs: 64, PhysicalCores: 64, ThreadsPerCore: 1, MemoryMiB: 262144, Architecture: "arm64"},
+	}
+	out := captureStdout(t, func() {
+		_ = NewPrinter(false).PrintTableWithOptions(results, TableOptions{ShowRealCores: true})
+	})
+	if !strings.Contains(out, "64/64") {
+		t.Errorf("expected vCPU/CPU format 64/64:\n%s", out)
+	}
+}
+
+// TestPrintTable_ShowRealCores_DefaultOff confirms the flag is opt-in: with
+// the zero-value TableOptions, the vCPU cell stays a plain count.
+func TestPrintTable_ShowRealCores_DefaultOff(t *testing.T) {
+	results := []aws.InstanceTypeResult{
+		{InstanceType: "c6i.24xlarge", Region: "us-east-1", VCPUs: 96, PhysicalCores: 48, MemoryMiB: 196608, Architecture: "x86_64"},
+	}
+	out := captureStdout(t, func() {
+		_ = NewPrinter(false).PrintTable(results, false, false)
+	})
+	if strings.Contains(out, "96/48") {
+		t.Errorf("vCPU/CPU format should not appear without --show-real-cores:\n%s", out)
+	}
+}
+
+func TestPrintTable_ShowMemPerCPU(t *testing.T) {
+	results := []aws.InstanceTypeResult{
+		{InstanceType: "c6i.24xlarge", Region: "us-east-1", VCPUs: 96, PhysicalCores: 48, MemoryMiB: 196608, Architecture: "x86_64"},
+	}
+	out := captureStdout(t, func() {
+		_ = NewPrinter(false).PrintTableWithOptions(results, TableOptions{ShowMemPerCPU: true})
+	})
+	if !strings.Contains(out, "192.0 (4.0/core)") {
+		t.Errorf("expected total+per-physical-core memory figure:\n%s", out)
+	}
+	if !strings.Contains(out, "per-physical-core") {
+		t.Errorf("expected mem-per-cpu footer note:\n%s", out)
+	}
+}
+
+func TestPrintTable_ShowMemPerCPU_DefaultOff(t *testing.T) {
+	results := []aws.InstanceTypeResult{
+		{InstanceType: "c6i.24xlarge", Region: "us-east-1", VCPUs: 96, PhysicalCores: 48, MemoryMiB: 196608, Architecture: "x86_64"},
+	}
+	out := captureStdout(t, func() {
+		_ = NewPrinter(false).PrintTable(results, false, false)
+	})
+	if strings.Contains(out, "/core") {
+		t.Errorf("mem-per-cpu format should not appear without --show-mem-per-cpu:\n%s", out)
+	}
+}
+
+func TestPrintTable_PriceUnit_DefaultIsHour(t *testing.T) {
+	results := []aws.InstanceTypeResult{
+		{InstanceType: "c6a.xlarge", Region: "us-east-1", VCPUs: 4, MemoryMiB: 8192, Architecture: "x86_64", OnDemandPrice: 0.1530},
+	}
+	out := captureStdout(t, func() {
+		_ = NewPrinter(false).PrintTableWithOptions(results, TableOptions{ShowPrice: true})
+	})
+	if !strings.Contains(out, "$/hr") || !strings.Contains(out, "$0.1530") {
+		t.Errorf("expected unchanged default hourly format:\n%s", out)
+	}
+}
+
+func TestPrintTable_PriceUnit_Minute(t *testing.T) {
+	results := []aws.InstanceTypeResult{
+		{InstanceType: "c6a.xlarge", Region: "us-east-1", VCPUs: 4, MemoryMiB: 8192, Architecture: "x86_64", OnDemandPrice: 0.1530},
+	}
+	out := captureStdout(t, func() {
+		_ = NewPrinter(false).PrintTableWithOptions(results, TableOptions{ShowPrice: true, PriceUnit: PriceUnitMinute})
+	})
+	if !strings.Contains(out, "$/min") {
+		t.Errorf("expected $/min header:\n%s", out)
+	}
+	if !strings.Contains(out, "$0.002550") {
+		t.Errorf("expected per-minute price conversion:\n%s", out)
+	}
+}
+
+func TestPrintTable_PriceUnit_Second(t *testing.T) {
+	results := []aws.InstanceTypeResult{
+		{InstanceType: "c6a.xlarge", Region: "us-east-1", VCPUs: 4, MemoryMiB: 8192, Architecture: "x86_64", OnDemandPrice: 0.1530},
+	}
+	out := captureStdout(t, func() {
+		_ = NewPrinter(false).PrintTableWithOptions(results, TableOptions{ShowPrice: true, PriceUnit: PriceUnitSecond})
+	})
+	if !strings.Contains(out, "$/sec") {
+		t.Errorf("expected $/sec header:\n%s", out)
+	}
+	if !strings.Contains(out, "$0.00004250") {
+		t.Errorf("expected per-second price conversion:\n%s", out)
+	}
+}
+
 func TestPrintTable_SpawnSupportedFooter(t *testing.T) {
 	results := []aws.InstanceTypeResult{
 		{InstanceType: "c6a.xlarge", Region: "us-east-1", VCPUs: 4, MemoryMiB: 8192, Architecture: "x86_64", SpawnSupported: true},
@@ -375,8 +533,8 @@ func TestPrintTable_SpawnSupportedFooter(t *testing.T) {
 	if !strings.Contains(out, "✓ = spawn-supported region") {
 		t.Errorf("expected spawn-supported footer note:\n%s", out)
 	}
-	if !strings.Contains(out, "us-east-1 ✓") {
-		t.Errorf("expected spawn-support marker on region:\n%s", out)
+	if !strings.Contains(out, "✓ us-east-1") {
+		t.Errorf("expected spawn-support marker before region (#135):\n%s", out)
 	}
 }
 

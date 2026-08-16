@@ -20,9 +20,12 @@ truffle search [instance-type-pattern] [flags]
 | `--min-vcpu` |  | int |  | Minimum number of vCPUs |
 | `--nested-virtualization` |  | bool |  | Only types supporting nested virtualization (KVM/Hyper-V in-instance) |
 | `--pick-first` |  | bool |  | Output only the top result's instance type (useful for piping to spawn) |
+| `--price-unit` |  | string | `hour` | Price display unit for --show-price: hour, minute, or second |
 | `--service` |  | string | `ec2` | Instance namespace to search: ec2 or sagemaker (ml.* types) |
+| `--show-mem-per-cpu` |  | bool |  | Show memory per physical core alongside total memory |
 | `--show-price` |  | bool |  | Show on-demand pricing (uses static pricing data) |
 | `--show-quota` |  | bool |  | Show the per-type training-job quota (SageMaker only) |
+| `--show-real-cores` |  | bool |  | Show physical CPU core count alongside vCPUs (format: vCPU/CPU, e.g. 96/48) |
 | `--skip-azs` |  | bool |  | Skip availability zone lookup (faster but less detailed) |
 | `--timeout` |  | duration | `5m0s` | Timeout for AWS API calls |
 

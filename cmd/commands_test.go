@@ -15,8 +15,14 @@ func resetCmdState() {
 	skipAZs = false
 	searchPickFirst = false
 	searchShowPrice = false
+	searchShowRealCores = false
+	searchShowMemPerCPU = false
+	searchPriceUnit = "hour"
 	findPickFirst = false
 	findShowPrice = false
+	findShowRealCores = false
+	findShowMemPerCPU = false
+	findPriceUnit = "hour"
 }
 
 func TestSearchCommand_Flags(t *testing.T) {
@@ -29,6 +35,23 @@ func TestSearchCommand_Flags(t *testing.T) {
 	}
 	if !strings.Contains(out, "--pick-first") {
 		t.Errorf("search should have --pick-first flag: %s", out)
+	}
+	if !strings.Contains(out, "--show-real-cores") {
+		t.Errorf("search should have --show-real-cores flag: %s", out)
+	}
+	if !strings.Contains(out, "--show-mem-per-cpu") {
+		t.Errorf("search should have --show-mem-per-cpu flag: %s", out)
+	}
+	if !strings.Contains(out, "--price-unit") {
+		t.Errorf("search should have --price-unit flag: %s", out)
+	}
+}
+
+func TestSearchCommand_InvalidPriceUnit(t *testing.T) {
+	resetCmdState()
+	searchPriceUnit = "fortnight"
+	if _, err := validatePriceUnitFlag(searchPriceUnit); err == nil {
+		t.Error("expected error for invalid --price-unit value")
 	}
 }
 
@@ -229,6 +252,23 @@ func TestFindCommand_Flags(t *testing.T) {
 	}
 	if !strings.Contains(out, "--show-price") {
 		t.Errorf("find should have --show-price flag (#50): %s", out)
+	}
+	if !strings.Contains(out, "--show-real-cores") {
+		t.Errorf("find should have --show-real-cores flag: %s", out)
+	}
+	if !strings.Contains(out, "--show-mem-per-cpu") {
+		t.Errorf("find should have --show-mem-per-cpu flag: %s", out)
+	}
+	if !strings.Contains(out, "--price-unit") {
+		t.Errorf("find should have --price-unit flag: %s", out)
+	}
+}
+
+func TestFindCommand_InvalidPriceUnit(t *testing.T) {
+	resetCmdState()
+	findPriceUnit = "fortnight"
+	if _, err := validatePriceUnitFlag(findPriceUnit); err == nil {
+		t.Error("expected error for invalid --price-unit value")
 	}
 }
 
