@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`find`/`search --show-real-cores`** — vCPU column also shows the
+  physical CPU core count (format `vCPU/CPU`, e.g. `96/48`), for comparing
+  compute density across families with different threads-per-core
+  (Graviton: 1, most x86: 2) (#136).
+- **`find`/`search --show-mem-per-cpu`** — memory column appends a
+  per-physical-core figure, e.g. `384.0 (8.0/core)`, dividing by physical
+  cores rather than vCPUs (#137).
+- **`find`/`search --price-unit hour|minute|second`** (default `hour`) —
+  displays the on-demand price column per minute or per second instead of
+  per hour; the underlying `$/hr` rate and CSV/JSON/YAML output are
+  unchanged (#138).
+- **`aws.InstanceTypeResult.GPUMemoryPerMiB`, `GPUPartitionSize`,
+  `LogicalGPUs`** — per-GPU VRAM and fractional-GPU metadata, populated
+  directly from each GPU device's own `MemoryInfo`/`GpuPartitionSize`
+  fields rather than derived by dividing the aggregate (which broke for
+  fractional-GPU types like `g6f.large` reporting `GPUs == 0`). `find`/
+  `search`'s VRAM column now shows per-GPU VRAM alongside the existing
+  total (e.g. `96 (24/gpu)`), and fractional-GPU rows now get GPU columns
+  at all instead of being silently excluded (Closes #116).
+- **`output.TableOptions`, `Printer.PrintTableWithOptions`** — a new
+  options struct supersedes ad hoc positional bool parameters for `find`/
+  `search`'s table renderer, now that this PR's toggle count made that
+  unwieldy; `PrintTable`/`PrintTableWithQuota` remain as unchanged
+  convenience wrappers.
+
+### Changed
+- **`find`/`search` table**: the spawn-supported `✓` indicator now renders
+  *before* the region name (`✓ us-east-1`) instead of after it
+  (`us-east-1 ✓`), for easier scanning (#135).
+
 ## [0.49.1] - 2026-08-11
 
 ### Changed

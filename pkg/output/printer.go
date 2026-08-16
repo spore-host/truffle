@@ -119,19 +119,57 @@ func (t *table) render() error {
 	return nil
 }
 
-// PrintTable outputs results as a formatted table
+// PriceUnit selects the time unit a table's price column is displayed in.
+// The underlying [aws.InstanceTypeResult.OnDemandPrice] always stays $/hr
+// (the source of truth for CSV/JSON/YAML export and cost math elsewhere) —
+// PriceUnit only controls the table's display-time formatting.
+type PriceUnit int
+
+const (
+	PriceUnitHour   PriceUnit = iota // zero value = today's exact behavior ($/hr)
+	PriceUnitMinute                  // $/min
+	PriceUnitSecond                  // $/sec
+)
+
+// TableOptions controls which optional columns/formatting [Printer.PrintTableWithOptions]
+// renders. The zero value reproduces find/search/az's historical default:
+// no AZs, no price, no quota, plain vCPU/memory cells, hourly pricing.
+type TableOptions struct {
+	IncludeAZs    bool
+	ShowPrice     bool
+	ShowQuota     bool
+	ShowRealCores bool      // vCPU column also shows "/physicalCores" (truffle#136)
+	ShowMemPerCPU bool      // Memory column appends a per-physical-core figure (truffle#137)
+	PriceUnit     PriceUnit // hour (default), minute, or second (truffle#138)
+}
+
+// PrintTable outputs results as a formatted table using default options
+// (see [TableOptions]) plus the two legacy toggles existing callers already pass.
 func (p *Printer) PrintTable(results []aws.InstanceTypeResult, includeAZs bool, showPrice bool) error {
-	return p.printTable(results, includeAZs, showPrice, false)
+	return p.PrintTableWithOptions(results, TableOptions{IncludeAZs: includeAZs, ShowPrice: showPrice})
 }
 
 // PrintTableWithQuota is like [Printer.PrintTable] but also renders the
 // SageMaker per-type training-job quota column. Used by the --show-quota path.
 func (p *Printer) PrintTableWithQuota(results []aws.InstanceTypeResult, includeAZs bool, showPrice bool) error {
-	return p.printTable(results, includeAZs, showPrice, true)
+	return p.PrintTableWithOptions(results, TableOptions{IncludeAZs: includeAZs, ShowPrice: showPrice, ShowQuota: true})
 }
 
-func (p *Printer) printTable(results []aws.InstanceTypeResult, includeAZs bool, showPrice bool, showQuota bool) error {
-	// Check if any results have GPU info
+// PrintTableWithOptions is the general entry point for table rendering, giving
+// callers with more than 2-3 toggles ([TableOptions]'s field count) a way to
+// pass them without a wall of positional bools. [Printer.PrintTable] and
+// [Printer.PrintTableWithQuota] are thin convenience wrappers kept for
+// existing call sites.
+func (p *Printer) PrintTableWithOptions(results []aws.InstanceTypeResult, opts TableOptions) error {
+	return p.printTable(results, opts)
+}
+
+func (p *Printer) printTable(results []aws.InstanceTypeResult, opts TableOptions) error {
+	includeAZs, showPrice, showQuota := opts.IncludeAZs, opts.ShowPrice, opts.ShowQuota
+
+	// Check if any results have GPU info. A fractional GPU (e.g. g6f.large)
+	// reports GPUs==0 but has real per-GPU VRAM (GPUMemoryPerMiB>0) — include
+	// it here so those rows don't silently lose their GPU columns (truffle#116).
 	hasGPU := false
 	// Show the nested-virt column only when at least one result supports it
 	// (matches the conditional-GPU-columns convention).
@@ -140,7 +178,7 @@ func (p *Printer) printTable(results []aws.InstanceTypeResult, includeAZs bool, 
 	// SageMaker result is eligible — no flag needed, since it's derived data.
 	hasSpotEligible := false
 	for _, r := range results {
-		if r.GPUs > 0 {
+		if r.GPUs > 0 || r.GPUMemoryPerMiB > 0 {
 			hasGPU = true
 		}
 		if r.NestedVirt {
@@ -168,7 +206,7 @@ func (p *Printer) printTable(results []aws.InstanceTypeResult, includeAZs bool, 
 		headers = append(headers, "Spot-Eligible")
 	}
 	if showPrice {
-		headers = append(headers, "$/hr")
+		headers = append(headers, priceHeaderFor(opts.PriceUnit))
 	}
 	if showQuota {
 		headers = append(headers, "Train Quota")
@@ -193,36 +231,66 @@ func (p *Printer) printTable(results []aws.InstanceTypeResult, includeAZs bool, 
 
 	grouped := groupByInstanceType(deduped)
 
+	// Track whether any row actually renders the real-cores / mem-per-cpu
+	// detail (both are guarded by PhysicalCores>0 per-row), so the footer
+	// notes below don't claim a format that never appeared.
+	realCoresShown := false
+	memPerCPUShown := false
+
 	for instanceType, regions := range grouped {
 		for i, result := range regions {
 			memGiB := fmt.Sprintf("%.1f", float64(result.MemoryMiB)/1024.0)
+			memDisplay := memGiB
+			if opts.ShowMemPerCPU && result.PhysicalCores > 0 {
+				memPerCoreGiB := float64(result.MemoryMiB) / 1024.0 / float64(result.PhysicalCores)
+				memDisplay = fmt.Sprintf("%s (%.1f/core)", memGiB, memPerCoreGiB)
+				memPerCPUShown = true
+			}
 
-			// Add spawn support indicator to region
+			vcpuDisplay := strconv.Itoa(int(result.VCPUs))
+			if opts.ShowRealCores && result.PhysicalCores > 0 {
+				vcpuDisplay = fmt.Sprintf("%d/%d", result.VCPUs, result.PhysicalCores)
+				realCoresShown = true
+			}
+
+			// Add spawn support indicator before the region name.
 			regionDisplay := result.Region
 			if result.SpawnSupported {
 				if p.useColor {
 					green := color.New(color.FgGreen)
-					regionDisplay = result.Region + " " + green.Sprint("✓")
+					regionDisplay = green.Sprint("✓") + " " + result.Region
 				} else {
-					regionDisplay = result.Region + " ✓"
+					regionDisplay = "✓ " + result.Region
 				}
 			}
 
 			row := []string{
 				instanceType,
 				regionDisplay,
-				strconv.Itoa(int(result.VCPUs)),
-				memGiB,
+				vcpuDisplay,
+				memDisplay,
 				result.Architecture,
 			}
 			if hasGPU {
-				if result.GPUs > 0 {
+				if result.GPUs > 0 || result.GPUMemoryPerMiB > 0 {
 					gpuModel := result.GPUModel
 					if result.GPUManufacturer != "" {
 						gpuModel = result.GPUManufacturer + " " + gpuModel
 					}
 					vramGiB := fmt.Sprintf("%.0f", float64(result.GPUMemoryMiB)/1024.0)
-					row = append(row, strconv.Itoa(int(result.GPUs)), gpuModel, vramGiB)
+					vramDisplay := vramGiB
+					if result.GPUMemoryPerMiB > 0 {
+						perGPUGiB := float64(result.GPUMemoryPerMiB) / 1024.0
+						vramDisplay = fmt.Sprintf("%s (%.0f/gpu)", vramGiB, perGPUGiB)
+					}
+					gpuCountDisplay := strconv.Itoa(int(result.GPUs))
+					if result.GPUs == 0 && result.GPUPartitionSize > 0 {
+						// Fractional GPU (e.g. g6f.large): AWS reports Count as 0
+						// by convention. Show the partition fraction instead of a
+						// misleading "0" (truffle#116).
+						gpuCountDisplay = fmt.Sprintf("%.3g", result.GPUPartitionSize)
+					}
+					row = append(row, gpuCountDisplay, gpuModel, vramDisplay)
 				} else {
 					row = append(row, "-", "-", "-")
 				}
@@ -243,7 +311,7 @@ func (p *Printer) printTable(results []aws.InstanceTypeResult, includeAZs bool, 
 			}
 			if showPrice {
 				if result.OnDemandPrice > 0 {
-					row = append(row, fmt.Sprintf("$%.4f", result.OnDemandPrice))
+					row = append(row, formatPrice(result.OnDemandPrice, opts.PriceUnit))
 				} else {
 					row = append(row, "N/A")
 				}
@@ -307,9 +375,16 @@ func (p *Printer) printTable(results []aws.InstanceTypeResult, includeAZs bool, 
 		}
 	}
 
+	if realCoresShown {
+		printFooterNote(p.useColor, "  vCPUs shown as vCPU/physical-core (e.g. 96/48 = 96 vCPUs across 48 physical cores)")
+	}
+	if memPerCPUShown {
+		printFooterNote(p.useColor, "  Memory shown as total (per-physical-core) — the per-core figure divides by physical cores, not vCPUs")
+	}
+
 	// Note SageMaker (ml.*) results: they run on the underlying EC2 hardware but
 	// are billed under the AmazonSageMaker offer (a management premium over the
-	// EC2 rate), which is what the $/hr column reflects for these rows.
+	// EC2 rate), which is what the price column reflects for these rows.
 	hasSageMaker := false
 	for _, r := range deduped {
 		if r.Service == "sagemaker" {
@@ -319,7 +394,7 @@ func (p *Printer) printTable(results []aws.InstanceTypeResult, includeAZs bool, 
 	}
 	if hasSageMaker {
 		fmt.Println()
-		note := "  🤖 SageMaker ml.* types: specs from the underlying EC2 type; $/hr is the SageMaker rate (includes the management premium)"
+		note := "  🤖 SageMaker ml.* types: specs from the underlying EC2 type; " + priceHeaderFor(opts.PriceUnit) + " is the SageMaker rate (includes the management premium)"
 		if p.useColor {
 			fmt.Println(color.New(color.FgCyan).Sprint(note))
 		} else {
@@ -336,6 +411,46 @@ func (p *Printer) printTable(results []aws.InstanceTypeResult, includeAZs bool, 
 	}
 
 	return nil
+}
+
+// printFooterNote prints a single-line note below the table, following the
+// same color/no-color branching every other footer note in printTable uses.
+func printFooterNote(useColor bool, note string) {
+	fmt.Println()
+	if useColor {
+		fmt.Println(color.New(color.FgCyan).Sprint(note))
+	} else {
+		fmt.Println(note)
+	}
+}
+
+// priceHeaderFor returns the table header for a price column in the given unit.
+func priceHeaderFor(u PriceUnit) string {
+	switch u {
+	case PriceUnitMinute:
+		return "$/min"
+	case PriceUnitSecond:
+		return "$/sec"
+	default:
+		return "$/hr"
+	}
+}
+
+// formatPrice renders an hourly $/hr rate in the requested display unit.
+// hourlyRate itself always stays $/hr (the source of truth for CSV/JSON/YAML
+// and cost math elsewhere) — this is a pure display-time transform. Precision
+// widens at finer units so cheap instance types don't round to all zeros
+// (e.g. a $0.01/hr rate is ~$0.0000028/sec, which needs 8 decimals to show
+// at all).
+func formatPrice(hourlyRate float64, u PriceUnit) string {
+	switch u {
+	case PriceUnitMinute:
+		return fmt.Sprintf("$%.6f", hourlyRate/60.0)
+	case PriceUnitSecond:
+		return fmt.Sprintf("$%.8f", hourlyRate/3600.0)
+	default:
+		return fmt.Sprintf("$%.4f", hourlyRate)
+	}
 }
 
 // PrintJSON outputs results as JSON

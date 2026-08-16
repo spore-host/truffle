@@ -37,10 +37,13 @@ truffle find <query> [flags]
 | `--app` |  | string |  | Application name from catalog (e.g. paraview, igv) |
 | `--exact` |  | bool |  | Match exact vCPU and memory values instead of minimum |
 | `--pick-first` |  | bool |  | Output only the top result's instance type (useful for piping to spawn) |
+| `--price-unit` |  | string | `hour` | Price display unit for --show-price: hour, minute, or second |
 | `--service` |  | string | `ec2` | Instance namespace to search: ec2 or sagemaker (ml.* types) |
+| `--show-mem-per-cpu` |  | bool |  | Show memory per physical core alongside total memory |
 | `--show-price` |  | bool |  | Show on-demand pricing (live AWS Price List; warns if it falls back to built-in data) |
 | `--show-query` |  | bool |  | Show parsed query details |
 | `--show-quota` |  | bool |  | Show the per-type training-job quota (SageMaker only) |
+| `--show-real-cores` |  | bool |  | Show physical CPU core count alongside vCPUs (format: vCPU/CPU, e.g. 96/48) |
 | `--skip-azs` |  | bool |  | Skip availability zone lookup (faster) |
 | `--timeout` |  | duration | `5m0s` | Timeout for AWS API calls |
 
