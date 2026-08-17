@@ -644,3 +644,109 @@ func TestBuildCriteria_NestedVirt(t *testing.T) {
 		t.Error("FilterOptions.NestedVirt should be true")
 	}
 }
+
+// TestParseQuery_AndOrTokens confirms "and"/"or" classify as TokenAnd/TokenOr
+// (not TokenUnknown) and set pq.Operator accordingly (#144).
+func TestParseQuery_AndOrTokens(t *testing.T) {
+	tests := []struct {
+		name         string
+		query        string
+		wantOperator DimensionOperator
+	}{
+		{"no operator defaults to AND", "h100 efa", OperatorAnd},
+		{"explicit or", "h100 or efa", OperatorOr},
+		{"explicit and is a no-op vs default", "h100 and efa", OperatorAnd},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pq, err := ParseQuery(tt.query)
+			if err != nil {
+				t.Fatalf("ParseQuery(%q) error = %v", tt.query, err)
+			}
+			if pq.Operator != tt.wantOperator {
+				t.Errorf("Operator = %v, want %v", pq.Operator, tt.wantOperator)
+			}
+			for _, tok := range pq.RawTokens {
+				if tok.Raw == "and" && tok.Type != TokenAnd {
+					t.Errorf("token %q classified as %v, want TokenAnd", tok.Raw, tok.Type)
+				}
+				if tok.Raw == "or" && tok.Type != TokenOr {
+					t.Errorf("token %q classified as %v, want TokenOr", tok.Raw, tok.Type)
+				}
+			}
+		})
+	}
+}
+
+// TestResolveInstanceFamilies_ANDByDefault confirms cross-dimension
+// combination defaults to intersection (#144): "h100 efa" must resolve to
+// exactly H100's own family (p5, which is also EFA-capable), not the full
+// EFA-capable family list.
+func TestResolveInstanceFamilies_ANDByDefault(t *testing.T) {
+	pq, err := ParseQuery("h100 efa")
+	if err != nil {
+		t.Fatalf("ParseQuery error: %v", err)
+	}
+	families := pq.ResolveInstanceFamilies()
+	if len(families) != 1 || families[0] != "p5" {
+		t.Errorf("ResolveInstanceFamilies() for \"h100 efa\" = %v, want exactly [p5]", families)
+	}
+
+	// A combo whose dimensions share no family (Graviton vendor vs. NVIDIA
+	// MIG-capable GPU families) must resolve to zero results under AND, not
+	// silently fall back to union.
+	pq2, err := ParseQuery("graviton mig")
+	if err != nil {
+		t.Fatalf("ParseQuery error: %v", err)
+	}
+	if families2 := pq2.ResolveInstanceFamilies(); len(families2) != 0 {
+		t.Errorf("ResolveInstanceFamilies() for \"graviton mig\" = %v, want empty (Graviton and MIG-capable families never overlap)", families2)
+	}
+}
+
+// TestResolveInstanceFamilies_ExplicitOr confirms "or" restores the old
+// union behavior across dimensions (#144).
+func TestResolveInstanceFamilies_ExplicitOr(t *testing.T) {
+	pqAnd, err := ParseQuery("h100 efa")
+	if err != nil {
+		t.Fatalf("ParseQuery error: %v", err)
+	}
+	pqOr, err := ParseQuery("h100 or efa")
+	if err != nil {
+		t.Fatalf("ParseQuery error: %v", err)
+	}
+	andFamilies := pqAnd.ResolveInstanceFamilies()
+	orFamilies := pqOr.ResolveInstanceFamilies()
+	if len(orFamilies) <= len(andFamilies) {
+		t.Errorf("ResolveInstanceFamilies() for \"h100 or efa\" (%d families) should be strictly larger than \"h100 efa\" (%d families)", len(orFamilies), len(andFamilies))
+	}
+	orSet := make(map[string]bool, len(orFamilies))
+	for _, f := range orFamilies {
+		orSet[f] = true
+	}
+	if !orSet["p5"] {
+		t.Errorf("ResolveInstanceFamilies() for \"h100 or efa\" missing p5 (H100's family): %v", orFamilies)
+	}
+	if !orSet["c6a"] {
+		t.Errorf("ResolveInstanceFamilies() for \"h100 or efa\" missing c6a (an EFA-capable family unrelated to H100): %v", orFamilies)
+	}
+}
+
+// TestResolveInstanceFamilies_WithinDimensionStaysOR confirms multiple values
+// within a single dimension (e.g. two GPU terms) still union together
+// regardless of the cross-dimension operator default (#144) — no instance
+// can be both A100 and H100, so this must never become an AND.
+func TestResolveInstanceFamilies_WithinDimensionStaysOR(t *testing.T) {
+	pq, err := ParseQuery("a100 h100")
+	if err != nil {
+		t.Fatalf("ParseQuery error: %v", err)
+	}
+	families := pq.ResolveInstanceFamilies()
+	set := make(map[string]bool, len(families))
+	for _, f := range families {
+		set[f] = true
+	}
+	if !set["p4d"] || !set["p4de"] || !set["p5"] {
+		t.Errorf("ResolveInstanceFamilies() for \"a100 h100\" = %v, want union including p4d, p4de, p5", families)
+	}
+}

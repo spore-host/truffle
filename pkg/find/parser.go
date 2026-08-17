@@ -52,6 +52,8 @@ const (
 	TokenQualitative    // Qualitative/subjective keyword (e.g. "cheap", "fastest")
 	TokenInstructionSet // CPU instruction-set extension (e.g. "avx2", "avx-512", "sve", "sve2")
 	TokenMIG            // NVIDIA Multi-Instance GPU capability (e.g. "mig")
+	TokenAnd            // Explicit "and" keyword — combine dimensions with intersection (default)
+	TokenOr             // Explicit "or" keyword — combine dimensions with union
 )
 
 // Token represents a single classified word from a natural language query.
@@ -64,24 +66,38 @@ type Token struct {
 // ParsedQuery is the structured output of [ParseQuery]. It holds all constraints
 // extracted from the user's free-text input and is consumed by [ParsedQuery.BuildCriteria].
 type ParsedQuery struct {
-	Vendors         []string // Hardware vendor filters, e.g. ["amd"], ["nvidia"]
-	Processors      []string // Processor code names, e.g. ["genoa", "sapphire rapids"]
-	GPUs            []string // GPU model names, e.g. ["h100", "a100"]
-	InstructionSets []string // CPU instruction-set extensions, e.g. ["avx-512", "sve2"]
-	Sizes           []string // Size-category filters, e.g. ["large", "xlarge"]
-	MinVCPU         int      // Minimum vCPU count; 0 means unconstrained
-	MinPhysCores    int      // Minimum physical core count; 0 means unconstrained
-	MinMemory       float64  // Minimum memory in GiB; 0 means unconstrained
-	GPUCount        int      // Minimum number of GPUs; 0 means unconstrained
-	Architecture    string   // "x86_64" or "arm64"; empty means both
-	MinNetworkGbps  int      // Minimum network bandwidth in Gbps; 0 means unconstrained
-	RequireEFA      bool     // If true, only match instance families with EFA support
-	RequireMIG      bool     // If true, only match GPU families supporting NVIDIA Multi-Instance GPU (#143)
-	RequireNestedV  bool     // If true, only match instance types supporting nested virtualization
-	ExactMatch      bool     // If true, match exact vCPU and memory values instead of minimum
-	RawTokens       []Token  // Parsed tokens in input order, useful for diagnostics
-	Apps            []string // Application names from catalog (e.g. ["paraview"]); resolved to hardware in BuildCriteria
+	Vendors         []string          // Hardware vendor filters, e.g. ["amd"], ["nvidia"]
+	Processors      []string          // Processor code names, e.g. ["genoa", "sapphire rapids"]
+	GPUs            []string          // GPU model names, e.g. ["h100", "a100"]
+	InstructionSets []string          // CPU instruction-set extensions, e.g. ["avx-512", "sve2"]
+	Sizes           []string          // Size-category filters, e.g. ["large", "xlarge"]
+	MinVCPU         int               // Minimum vCPU count; 0 means unconstrained
+	MinPhysCores    int               // Minimum physical core count; 0 means unconstrained
+	MinMemory       float64           // Minimum memory in GiB; 0 means unconstrained
+	GPUCount        int               // Minimum number of GPUs; 0 means unconstrained
+	Architecture    string            // "x86_64" or "arm64"; empty means both
+	MinNetworkGbps  int               // Minimum network bandwidth in Gbps; 0 means unconstrained
+	RequireEFA      bool              // If true, only match instance families with EFA support
+	RequireMIG      bool              // If true, only match GPU families supporting NVIDIA Multi-Instance GPU (#143)
+	RequireNestedV  bool              // If true, only match instance types supporting nested virtualization
+	ExactMatch      bool              // If true, match exact vCPU and memory values instead of minimum
+	RawTokens       []Token           // Parsed tokens in input order, useful for diagnostics
+	Apps            []string          // Application names from catalog (e.g. ["paraview"]); resolved to hardware in BuildCriteria
+	Operator        DimensionOperator // How cross-dimension constraints combine (#144); AND is the default (zero value)
 }
+
+// DimensionOperator controls how the distinct query dimensions (vendor,
+// processor, GPU, instruction set, EFA, MIG, network speed) combine in
+// [ParsedQuery.ResolveInstanceFamilies]. Within a single dimension, values
+// always stay OR'd (e.g. "a100 h100" always means A100-or-H100) — this
+// operator only governs combination *across* dimensions (e.g. whether
+// "h100 efa" means H100-and-EFA or H100-or-EFA).
+type DimensionOperator int
+
+const (
+	OperatorAnd DimensionOperator = iota // default: intersect across dimensions
+	OperatorOr                           // explicit "or": union across dimensions
+)
 
 var (
 	numberRegex       = regexp.MustCompile(`^\d+$`)
@@ -211,6 +227,10 @@ func ParseQuery(query string) (*ParsedQuery, error) {
 			pq.RequireNestedV = true
 		case TokenApp:
 			pq.Apps = append(pq.Apps, token.Value)
+		case TokenOr:
+			pq.Operator = OperatorOr
+		case TokenAnd:
+			pq.Operator = OperatorAnd
 		}
 	}
 
@@ -264,6 +284,10 @@ func classifyTokens(words []string) []Token {
 			tokens = append(tokens, Token{Type: TokenEFA, Value: "efa", Raw: word})
 		} else if word == "mig" {
 			tokens = append(tokens, Token{Type: TokenMIG, Value: "mig", Raw: word})
+		} else if word == "and" {
+			tokens = append(tokens, Token{Type: TokenAnd, Value: "and", Raw: word})
+		} else if word == "or" {
+			tokens = append(tokens, Token{Type: TokenOr, Value: "or", Raw: word})
 		} else if word == "nested-virt" || word == "nested-virtualization" || word == "nestedvirt" {
 			tokens = append(tokens, Token{Type: TokenNestedVirt, Value: "nested-virt", Raw: word})
 		} else if alias, ok := metadata.NetworkAliases[word]; ok {
@@ -457,58 +481,121 @@ func (pq *ParsedQuery) Validate() error {
 	return nil
 }
 
-// ResolveInstanceFamilies returns all instance families matching the query
+// familySet builds a map[string]bool from a family slice, for use as one
+// input to intersectAll/unionAll.
+func familySet(families []string) map[string]bool {
+	set := make(map[string]bool, len(families))
+	for _, f := range families {
+		set[f] = true
+	}
+	return set
+}
+
+// intersectAll returns the intersection of all given sets. An empty input
+// slice returns an empty (non-nil) set, matching the "no active dimensions"
+// case, which must NOT be treated as "everything".
+func intersectAll(sets []map[string]bool) map[string]bool {
+	if len(sets) == 0 {
+		return map[string]bool{}
+	}
+	result := make(map[string]bool)
+	for k := range sets[0] {
+		result[k] = true
+	}
+	for _, s := range sets[1:] {
+		for k := range result {
+			if !s[k] {
+				delete(result, k)
+			}
+		}
+	}
+	return result
+}
+
+// unionAll returns the union of all given sets.
+func unionAll(sets []map[string]bool) map[string]bool {
+	result := make(map[string]bool)
+	for _, s := range sets {
+		for k := range s {
+			result[k] = true
+		}
+	}
+	return result
+}
+
+// ResolveInstanceFamilies returns all instance families matching the query.
+//
+// Each query dimension (vendor, processor, GPU, instruction set, EFA, MIG,
+// network speed) is resolved to its own family set; within a dimension,
+// multiple values always OR together (e.g. "a100 h100" means A100-or-H100,
+// since no instance can be both). Only dimensions the user actually
+// specified participate in the cross-dimension combination step, which
+// defaults to AND (intersection) and switches to OR (union) when the query
+// contains an explicit "or" (#144).
 func (pq *ParsedQuery) ResolveInstanceFamilies() []string {
-	// Collect families from query constraints (vendors, processors, GPUs, network)
-	queryFamilies := make(map[string]bool)
+	var dimensions []map[string]bool
 
-	for _, proc := range pq.Processors {
-		if info, ok := metadata.ProcessorDatabase[proc]; ok {
-			for _, family := range info.Families {
-				queryFamilies[family] = true
+	if len(pq.Processors) > 0 {
+		set := make(map[string]bool)
+		for _, proc := range pq.Processors {
+			if info, ok := metadata.ProcessorDatabase[proc]; ok {
+				for _, family := range info.Families {
+					set[family] = true
+				}
 			}
 		}
+		dimensions = append(dimensions, set)
 	}
 
-	for _, vendor := range pq.Vendors {
-		families := metadata.GetFamiliesByVendor(vendor)
-		for _, family := range families {
-			queryFamilies[family] = true
-		}
-	}
-
-	for _, gpu := range pq.GPUs {
-		if info, ok := metadata.GPUDatabase[gpu]; ok {
-			for _, family := range info.Families {
-				queryFamilies[family] = true
+	if len(pq.Vendors) > 0 {
+		set := make(map[string]bool)
+		for _, vendor := range pq.Vendors {
+			for _, family := range metadata.GetFamiliesByVendor(vendor) {
+				set[family] = true
 			}
 		}
+		dimensions = append(dimensions, set)
 	}
 
-	for _, is := range pq.InstructionSets {
-		for _, family := range metadata.GetFamiliesByInstructionSet(is) {
-			queryFamilies[family] = true
+	if len(pq.GPUs) > 0 {
+		set := make(map[string]bool)
+		for _, gpu := range pq.GPUs {
+			if info, ok := metadata.GPUDatabase[gpu]; ok {
+				for _, family := range info.Families {
+					set[family] = true
+				}
+			}
 		}
+		dimensions = append(dimensions, set)
+	}
+
+	if len(pq.InstructionSets) > 0 {
+		set := make(map[string]bool)
+		for _, is := range pq.InstructionSets {
+			for _, family := range metadata.GetFamiliesByInstructionSet(is) {
+				set[family] = true
+			}
+		}
+		dimensions = append(dimensions, set)
 	}
 
 	if pq.RequireEFA {
-		efaFamilies := metadata.GetFamiliesByEFA()
-		for _, family := range efaFamilies {
-			queryFamilies[family] = true
-		}
+		dimensions = append(dimensions, familySet(metadata.GetFamiliesByEFA()))
 	}
 
 	if pq.RequireMIG {
-		for _, family := range metadata.GetMIGCapableFamilies() {
-			queryFamilies[family] = true
-		}
+		dimensions = append(dimensions, familySet(metadata.GetMIGCapableFamilies()))
 	}
 
 	if pq.MinNetworkGbps > 0 {
-		networkFamilies := metadata.GetFamiliesByNetworkSpeed(pq.MinNetworkGbps)
-		for _, family := range networkFamilies {
-			queryFamilies[family] = true
-		}
+		dimensions = append(dimensions, familySet(metadata.GetFamiliesByNetworkSpeed(pq.MinNetworkGbps)))
+	}
+
+	var queryResult map[string]bool
+	if pq.Operator == OperatorOr {
+		queryResult = unionAll(dimensions)
+	} else {
+		queryResult = intersectAll(dimensions)
 	}
 
 	// Collect families from app catalog entries
@@ -521,21 +608,23 @@ func (pq *ParsedQuery) ResolveInstanceFamilies() []string {
 		}
 	}
 
-	// If both app families and query families are present, intersect them.
+	// If both app families and query dimensions are present, intersect them.
 	// This ensures "graviton --app paraview" only returns families that satisfy
-	// BOTH constraints, not the union of all.
+	// BOTH constraints, not the union of all. App-vs-query is always an
+	// intersection regardless of pq.Operator — the operator governs
+	// combination among the query's own dimensions only.
 	var result map[string]bool
-	if len(appFamilies) > 0 && len(queryFamilies) > 0 {
+	if len(appFamilies) > 0 && len(dimensions) > 0 {
 		result = make(map[string]bool)
 		for family := range appFamilies {
-			if queryFamilies[family] {
+			if queryResult[family] {
 				result[family] = true
 			}
 		}
 	} else if len(appFamilies) > 0 {
 		result = appFamilies
 	} else {
-		result = queryFamilies
+		result = queryResult
 	}
 
 	families := make([]string, 0, len(result))
@@ -559,6 +648,15 @@ func (pq *ParsedQuery) hasConflictingFamilyConstraints() bool {
 	}
 	// Both are present — if ResolveInstanceFamilies returned empty, they conflict
 	return len(pq.ResolveInstanceFamilies()) == 0
+}
+
+// hasOtherActiveDimensions reports whether any family-contributing dimension
+// OTHER than GPUs is present in the query (vendor, processor, instruction
+// set, EFA, MIG, network speed). Used by buildInstanceTypePattern to decide
+// whether the GPU-exact-instance-type shortcut is safe to take (#144) — it
+// isn't, once another dimension also needs to constrain the result.
+func (pq *ParsedQuery) hasOtherActiveDimensions() bool {
+	return len(pq.Vendors) > 0 || len(pq.Processors) > 0 || len(pq.InstructionSets) > 0 || pq.RequireEFA || pq.RequireMIG || pq.MinNetworkGbps > 0
 }
 
 // ResolveGPUInstances returns exact instance types for GPU queries

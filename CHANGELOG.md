@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **`find`/`search` multi-constraint queries now combine dimensions (vendor,
+  processor, GPU, instruction set, EFA, MIG, network speed) with AND by
+  default instead of OR** — e.g. `truffle find "h100 efa"` now means "H100
+  instances that also have EFA" (family `p5` only), not "any H100 OR any
+  EFA-capable family" (previously 50+ families). Add the literal word `or`
+  anywhere in the query to restore the old union behavior (`truffle find
+  "h100 or efa"`); `and` is also accepted explicitly (a no-op, since it's
+  the default). Multiple values within a single dimension are unaffected
+  and always still mean OR (`"a100 h100"` still means A100-or-H100). This is
+  a genuine behavior change: some existing multi-dimension queries will now
+  return fewer (but correct) results (#144).
+
+### Fixed
+- **`find`'s GPU queries silently discarded every other constraint** — a
+  query naming a GPU (e.g. `"h100 efa"`) took an exact-instance-type
+  shortcut straight from the GPU term and never even evaluated EFA, MIG,
+  vendor, processor, instruction-set, or network-speed constraints in the
+  same query. Now the shortcut is only taken when GPU is the sole
+  constraint present; otherwise GPU's family (not exact instance type)
+  combines with the other active constraints like every other dimension
+  (#144).
+
 ## [0.51.0] - 2026-08-16
 
 ### Added

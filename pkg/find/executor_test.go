@@ -1,8 +1,27 @@
 package find
 
 import (
+	"strings"
 	"testing"
 )
+
+// extractFamilySet pulls the pipe-separated alternatives out of the first
+// "(...)" group in a compiled pattern string, e.g. "^(m6i|c6i)\\..*$" ->
+// {"m6i": true, "c6i": true}. Used to compare patterns by family-set content
+// rather than by exact string (family order within the group isn't
+// significant, since it comes from map iteration).
+func extractFamilySet(pattern string) map[string]bool {
+	start := strings.Index(pattern, "(")
+	end := strings.Index(pattern, ")")
+	set := make(map[string]bool)
+	if start == -1 || end == -1 || end <= start {
+		return set
+	}
+	for _, part := range strings.Split(pattern[start+1:end], "|") {
+		set[part] = true
+	}
+	return set
+}
 
 func TestBuildCriteria(t *testing.T) {
 	tests := []struct {
@@ -63,10 +82,20 @@ func TestBuildCriteria(t *testing.T) {
 			}
 
 			if tt.wantPattern != "" {
-				// For pattern testing, we check if it matches expected instance types
-				// This is approximate since the pattern may vary in family order
 				if criteria.InstanceTypePattern == nil {
-					t.Error("InstanceTypePattern is nil")
+					t.Fatal("InstanceTypePattern is nil")
+				}
+				// Subset check, not exact-set equality: ProcessorDatabase/
+				// GPUDatabase family lists grow over time (new AZ/storage
+				// variants, new generations) without that being a behavior
+				// regression, so pin "these families must be present" rather
+				// than "exactly these families and no others".
+				got := criteria.InstanceTypePattern.String()
+				gotFamilies := extractFamilySet(got)
+				for f := range extractFamilySet(tt.wantPattern) {
+					if !gotFamilies[f] {
+						t.Errorf("pattern = %q missing family %q; want pattern including %q", got, f, tt.wantPattern)
+					}
 				}
 			}
 
@@ -114,6 +143,32 @@ func TestBuildCriteria_IncludeAZs(t *testing.T) {
 	}
 	if withoutAZs.FilterOptions.IncludeAZs {
 		t.Error("BuildCriteria(false).FilterOptions.IncludeAZs = true, want false (--skip-azs must reach search time, not just table display)")
+	}
+}
+
+// TestBuildInstanceTypePattern_GPUWithOtherDimensions regression-guards the
+// GPU early-return bug found while planning #144: buildInstanceTypePattern
+// used to jump straight to GPU's exact-instance-type list whenever any GPU
+// term was present, discarding every other active dimension (EFA, MIG,
+// vendor, processor, instruction set, network speed) unconditionally.
+func TestBuildInstanceTypePattern_GPUWithOtherDimensions(t *testing.T) {
+	pq, err := ParseQuery("h100 efa")
+	if err != nil {
+		t.Fatalf("ParseQuery error: %v", err)
+	}
+	criteria, err := pq.BuildCriteria(true)
+	if err != nil {
+		t.Fatalf("BuildCriteria error: %v", err)
+	}
+	matcher := criteria.Matcher()
+	if !matcher("p5.48xlarge") {
+		t.Error("matcher(\"p5.48xlarge\") = false, want true (H100 family, EFA-capable)")
+	}
+	if matcher("c6a.large") {
+		t.Error("matcher(\"c6a.large\") = true, want false (EFA-capable but not H100's family)")
+	}
+	if matcher("p4d.24xlarge") {
+		t.Error("matcher(\"p4d.24xlarge\") = true, want false (A100, not H100)")
 	}
 }
 
