@@ -77,6 +77,19 @@ vendorDone:
 	}
 gpuDone:
 
+	// Check instruction-set match
+	for _, is := range query.InstructionSets {
+		for _, f := range metadata.GetFamiliesByInstructionSet(is) {
+			if f == family {
+				if info, ok := metadata.InstructionSetDatabase[is]; ok {
+					reasons = append(reasons, fmt.Sprintf("Instruction set: %s", info.Name))
+				}
+				goto instructionSetDone
+			}
+		}
+	}
+instructionSetDone:
+
 	// Check size match
 	for _, size := range query.Sizes {
 		sizes := metadata.GetSizesForCategory(size)

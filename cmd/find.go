@@ -14,6 +14,7 @@ import (
 	"github.com/spore-host/libs/i18n"
 	"github.com/spore-host/truffle/pkg/aws"
 	"github.com/spore-host/truffle/pkg/find"
+	"github.com/spore-host/truffle/pkg/metadata"
 	"github.com/spore-host/truffle/pkg/output"
 	"github.com/spore-host/truffle/pkg/progress"
 )
@@ -46,6 +47,7 @@ Understands:
   - CPU vendors: intel, amd, graviton, nvidia
   - Processors: emerald rapids, sapphire rapids, ice lake, genoa, turin, milan
   - GPUs: h200, h100, a100, b200, b300, l40s, l4, a10g, t4, rtx, inferentia, trainium
+  - Instruction sets: avx2, avx-512, sve, sve2
   - Specs: 8 cores, 8 physical cores, 32gb, 4 gpus
   - Sizes: tiny, small, medium, large, huge
   - Architecture: x86_64, arm64
@@ -60,7 +62,9 @@ Examples:
   truffle find "8 physical cores 32gb"        (physical core count)
   truffle find "cheap graviton 8 cores"       (sorted by price)
   truffle find nvidia                         (all NVIDIA GPU instances)
-  truffle find "h100 efa"                     (GPU + network)`,
+  truffle find "h100 efa"                     (GPU + network)
+  truffle find avx-512                        (instruction-set search)
+  truffle find "sve2 graviton"                (instruction set + vendor)`,
 	Args: cobra.ArbitraryArgs, // 0 args allowed when --app is used
 	RunE: runFind,
 }
@@ -156,8 +160,10 @@ func runFind(cmd *cobra.Command, args []string) error {
 		printParsedQuery(query)
 	}
 
-	// Build search criteria
-	criteria, err := query.BuildCriteria()
+	// Build search criteria. IncludeAZs drives the search-time per-type AZ
+	// lookup (expensive — one extra API call per matched type, truffle#141),
+	// not just the table's AZ column — so --skip-azs must reach it here.
+	criteria, err := query.BuildCriteria(!findSkipAZs)
 	if err != nil {
 		return fmt.Errorf("failed to build search criteria: %w", err)
 	}
@@ -340,6 +346,9 @@ func printParsedQuery(query *find.ParsedQuery) {
 	if len(query.GPUs) > 0 {
 		fmt.Fprintf(os.Stderr, "   GPU: %s\n", strings.Join(query.GPUs, ", "))
 	}
+	if len(query.InstructionSets) > 0 {
+		fmt.Fprintf(os.Stderr, "   Instruction set: %s\n", strings.Join(query.InstructionSets, ", "))
+	}
 	if len(query.Sizes) > 0 {
 		fmt.Fprintf(os.Stderr, "   Size: %s\n", strings.Join(query.Sizes, ", "))
 	}
@@ -387,10 +396,11 @@ func printSuggestions(query *find.ParsedQuery) {
 		fmt.Fprintln(os.Stderr, "  - Try: intel, amd, graviton, ice lake, milan, a100, v100, h100")
 	}
 
-	if len(query.Vendors) == 0 && len(query.Processors) == 0 && len(query.GPUs) == 0 {
+	if len(query.Vendors) == 0 && len(query.Processors) == 0 && len(query.GPUs) == 0 && len(query.InstructionSets) == 0 {
 		fmt.Fprintln(os.Stderr, "  - Specify a vendor (intel, amd, graviton)")
 		fmt.Fprintln(os.Stderr, "  - Or a processor (ice lake, milan, sapphire rapids)")
 		fmt.Fprintln(os.Stderr, "  - Or a GPU (a100, v100, h100, inferentia)")
+		fmt.Fprintln(os.Stderr, "  - Or an instruction set (avx2, avx-512, sve, sve2)")
 	}
 
 	if query.MinVCPU > 128 {
@@ -488,10 +498,43 @@ func looksLikePattern(query string) bool {
 	// parser, which emitted a ".*" match-everything pattern and hung/returned the
 	// whole catalog (#69-class bug). Match one-or-more leading letters + a
 	// generation digit instead.
+	//
+	// EXCEPTION: a handful of real vocabulary terms also match this shape
+	// (avx2, sve2, and any future "sveN"/"avxN"-style instruction set) — check
+	// GPU/instruction-set/processor tables first so a recognized keyword is
+	// never misrouted to the literal pattern matcher (which would 0-match it,
+	// since no instance family is literally named "avx2" or "sve2").
 	if !strings.Contains(query, " ") {
+		if isKnownVocabularyTerm(query) {
+			return false
+		}
 		if matched, _ := regexp.MatchString(`^[a-z]+\d`, query); matched {
 			return true
 		}
+	}
+	return false
+}
+
+// isKnownVocabularyTerm reports whether word is a recognized single-word
+// GPU, processor, or instruction-set term (including aliases) — the same
+// tables pkg/find's tokenizer itself checks. Used by looksLikePattern to
+// avoid misrouting a real vocabulary word that happens to end in a digit
+// (e.g. "avx2", "sve2") to the literal instance-type pattern matcher.
+func isKnownVocabularyTerm(word string) bool {
+	if _, ok := metadata.InstructionSetDatabase[word]; ok {
+		return true
+	}
+	if _, ok := metadata.InstructionSetAliases[word]; ok {
+		return true
+	}
+	if _, ok := metadata.GPUDatabase[word]; ok {
+		return true
+	}
+	if _, ok := metadata.GPUAliases[word]; ok {
+		return true
+	}
+	if _, ok := metadata.ProcessorDatabase[word]; ok {
+		return true
 	}
 	return false
 }
