@@ -18,8 +18,8 @@ var GPUDatabase = map[string]GPUInfo{
 		Vendor:        "nvidia",
 		MemoryGB:      141,
 		UseCase:       "training",
-		Families:      []string{"p5e"},
-		InstanceTypes: []string{"p5e.48xlarge"},
+		Families:      []string{"p5e", "p5en"},
+		InstanceTypes: []string{"p5e.48xlarge", "p5en.48xlarge"},
 	},
 	"h100": {
 		Name:          "H100",
@@ -95,10 +95,17 @@ var GPUDatabase = map[string]GPUInfo{
 		Vendor:   "nvidia",
 		MemoryGB: 22,
 		UseCase:  "inference",
-		Families: []string{"g6"},
+		// g6f/gr6f are time-sliced/fractional L4 partitions (AWS reports
+		// Count==0 for these; see aws.InstanceTypeResult.GPUPartitionSize,
+		// #116) — still real L4 silicon, so they belong in this family list.
+		// gr6 is the graphics-optimized full-L4 sibling of g6.
+		Families: []string{"g6", "gr6", "g6f", "gr6f"},
 		InstanceTypes: []string{
 			"g6.xlarge", "g6.2xlarge", "g6.4xlarge", "g6.8xlarge",
 			"g6.12xlarge", "g6.16xlarge", "g6.24xlarge", "g6.48xlarge",
+			"gr6.4xlarge", "gr6.8xlarge",
+			"g6f.large", "g6f.xlarge", "g6f.2xlarge", "g6f.4xlarge",
+			"gr6f.4xlarge",
 		},
 	},
 	"l40s": {
@@ -157,7 +164,7 @@ var GPUDatabase = map[string]GPUInfo{
 		Vendor:   "nvidia",
 		MemoryGB: 0,
 		UseCase:  "any",
-		Families: []string{"p5e", "p5", "p4d", "p4de", "p3", "p2", "g3", "g5", "g4dn", "g6", "g6e", "g7", "g7e", "p6"},
+		Families: []string{"p5e", "p5en", "p5", "p4d", "p4de", "p3", "p2", "g3", "g5", "g4dn", "g6", "gr6", "g6f", "gr6f", "g6e", "g7", "g7e", "p6"},
 	},
 
 	// AMD GPUs

@@ -79,6 +79,28 @@ func TestExplainMatch(t *testing.T) {
 			},
 			wantReasons: 2, // vendor + size match
 		},
+		{
+			name:  "avx-512 instruction set match",
+			query: "avx-512",
+			result: aws.InstanceTypeResult{
+				InstanceType: "m7i.2xlarge",
+				VCPUs:        8,
+				MemoryMiB:    32768,
+				Architecture: "x86_64",
+			},
+			wantReasons: 1, // instruction-set match
+		},
+		{
+			name:  "sve2 instruction set match",
+			query: "sve2",
+			result: aws.InstanceTypeResult{
+				InstanceType: "r8g.2xlarge",
+				VCPUs:        8,
+				MemoryMiB:    65536,
+				Architecture: "arm64",
+			},
+			wantReasons: 1, // instruction-set match
+		},
 	}
 
 	for _, tt := range tests {

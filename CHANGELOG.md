@@ -7,6 +7,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`find`/`search` instruction-set query terms**: `avx2`, `avx-512` (aliases
+  `avx512`, `avx-512f`, `avx 512`), `sve`, `sve2` — for finding instances by
+  CPU capability (e.g. `truffle find avx-512`, `truffle find "sve2 graviton"`)
+  without needing to know which processor generation or AWS instance family
+  provides it. AWS's API exposes no instruction-set data, so this is a
+  hand-maintained table (`pkg/metadata/instructionsets.go`) derived from
+  `ProcessorDatabase`'s own (now-corrected, see below) family lists (#140).
+
+### Fixed
+- **`ProcessorDatabase`'s family lists were missing most of each processor
+  generation's real AWS instance families** — every AZ/storage/network
+  variant suffix (`-d`, `-n`, `-dn`, `-flex`, `-b`, `-in`, `-ine`, `-zn`, ...)
+  was absent, only the bare family name was listed. Also added the entirely
+  missing **Granite Rapids** (`m8i`/`c8i`/`r8i`/`x8i` — previously
+  mis-attributed to `emerald rapids`, which is actually just `i7i`/`i7ie`)
+  and **Graviton5** (`m9g`/`m9gd`/`c9g`/`c9gd`) generations. Verified against
+  live `DescribeInstanceTypes` output cross-referenced with each family's
+  documented processor. This directly affects `find`'s processor/vendor
+  search (e.g. `truffle find "ice lake"` previously missed most Ice
+  Lake–based instance types) and is what the new instruction-set terms above
+  are built on.
+- **`GPUDatabase`'s `l4` entry was missing `gr6`, `g6f`, and `gr6f`** — the
+  graphics-optimized and fractional/time-sliced L4 partition families (the
+  same fractional-GPU family the VRAM display fix in #116 covers). `h200`
+  was missing `p5en`. `truffle find "nvidia l4"` previously never surfaced
+  these.
+- **`find`'s single-word routing heuristic (`looksLikePattern`) misrouted
+  vocabulary terms ending in a digit** (e.g. `a100`, `h100`, `avx2`, `sve2`)
+  to the literal instance-type pattern matcher instead of the natural-language
+  parser, since they match the same shape as a real instance family +
+  generation number (`c6i`, `trn1`). This silently returned zero results for
+  `truffle find a100`/`h100`/`v100`/`t4` and any of this PR's new instruction
+  sets ending in a digit. Fixed by checking the GPU/processor/instruction-set
+  vocabulary tables before applying the digit-suffix heuristic.
+- **`find`'s `--skip-azs` flag didn't actually skip the search-time
+  availability-zone lookup** — it only suppressed the AZ column in table
+  output. `pkg/find.BuildCriteria` hardcoded `FilterOptions.IncludeAZs: true`
+  regardless of the flag, so every matched instance type still triggered a
+  separate, serial `DescribeInstanceTypeOfferings` API call during the
+  search itself. For a broad query (e.g. `avx2`, resolving to ~90 families)
+  this took minutes and looked hung — confirmed via `time` that AWS's own
+  API returns the full instance-type catalog in ~9s, so the multi-minute
+  wall clock was almost entirely truffle-side serial I/O wait, not AWS
+  latency. `BuildCriteria` now takes an explicit `includeAZs` parameter
+  threaded from `--skip-azs` (#141 — the AZ-lookup loop itself is still
+  serial, not parallelized; a broad query is now correct and much faster,
+  but not yet as fast as it could be, tracked as a follow-up).
+
 ## [0.50.0] - 2026-08-16
 
 ### Added

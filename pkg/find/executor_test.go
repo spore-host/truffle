@@ -57,7 +57,7 @@ func TestBuildCriteria(t *testing.T) {
 				t.Fatalf("ParseQuery() error = %v", err)
 			}
 
-			criteria, err := pq.BuildCriteria()
+			criteria, err := pq.BuildCriteria(true)
 			if err != nil {
 				t.Fatalf("BuildCriteria() error = %v", err)
 			}
@@ -85,6 +85,35 @@ func TestBuildCriteria(t *testing.T) {
 					criteria.FilterOptions.MinMemory, tt.wantMinMemory)
 			}
 		})
+	}
+}
+
+// TestBuildCriteria_IncludeAZs is the regression guard for truffle#141:
+// BuildCriteria's includeAZs parameter must reach FilterOptions.IncludeAZs
+// directly — this is what pkg/aws.SearchInstanceTypes uses to decide whether
+// to do the expensive per-matched-type AZ lookup. Before the fix, this was
+// hardcoded true regardless of what the caller (cmd/find.go's --skip-azs)
+// asked for.
+func TestBuildCriteria_IncludeAZs(t *testing.T) {
+	pq, err := ParseQuery("graviton")
+	if err != nil {
+		t.Fatalf("ParseQuery() error = %v", err)
+	}
+
+	withAZs, err := pq.BuildCriteria(true)
+	if err != nil {
+		t.Fatalf("BuildCriteria(true) error = %v", err)
+	}
+	if !withAZs.FilterOptions.IncludeAZs {
+		t.Error("BuildCriteria(true).FilterOptions.IncludeAZs = false, want true")
+	}
+
+	withoutAZs, err := pq.BuildCriteria(false)
+	if err != nil {
+		t.Fatalf("BuildCriteria(false) error = %v", err)
+	}
+	if withoutAZs.FilterOptions.IncludeAZs {
+		t.Error("BuildCriteria(false).FilterOptions.IncludeAZs = true, want false (--skip-azs must reach search time, not just table display)")
 	}
 }
 
@@ -146,7 +175,7 @@ func TestSearchCriteria_Matcher(t *testing.T) {
 				t.Fatalf("ParseQuery() error = %v", err)
 			}
 
-			criteria, err := pq.BuildCriteria()
+			criteria, err := pq.BuildCriteria(true)
 			if err != nil {
 				t.Fatalf("BuildCriteria() error = %v", err)
 			}

@@ -14,7 +14,7 @@
 // Typical usage:
 //
 //	pq, err := find.ParseQuery("nvidia h100 8gpu")
-//	criteria, err := pq.BuildCriteria()
+//	criteria, err := pq.BuildCriteria(true) // true = include AZs (search-time lookup)
 //	results, err := client.SearchInstanceTypes(ctx, regions, criteria.InstanceTypePattern, criteria.FilterOptions)
 //	for _, r := range results {
 //	    reasons := find.ExplainMatch(r, pq)
@@ -46,10 +46,11 @@ const (
 	TokenArchitecture
 	TokenNetworkSpeed
 	TokenEFA
-	TokenNestedVirt    // Nested-virtualization support (e.g. "nested-virt")
-	TokenPhysicalCores // Physical core count (e.g. "8 physical cores")
-	TokenApp           // Application name from pkg/catalog (e.g. "paraview", "igv")
-	TokenQualitative   // Qualitative/subjective keyword (e.g. "cheap", "fastest")
+	TokenNestedVirt     // Nested-virtualization support (e.g. "nested-virt")
+	TokenPhysicalCores  // Physical core count (e.g. "8 physical cores")
+	TokenApp            // Application name from pkg/catalog (e.g. "paraview", "igv")
+	TokenQualitative    // Qualitative/subjective keyword (e.g. "cheap", "fastest")
+	TokenInstructionSet // CPU instruction-set extension (e.g. "avx2", "avx-512", "sve", "sve2")
 )
 
 // Token represents a single classified word from a natural language query.
@@ -62,21 +63,22 @@ type Token struct {
 // ParsedQuery is the structured output of [ParseQuery]. It holds all constraints
 // extracted from the user's free-text input and is consumed by [ParsedQuery.BuildCriteria].
 type ParsedQuery struct {
-	Vendors        []string // Hardware vendor filters, e.g. ["amd"], ["nvidia"]
-	Processors     []string // Processor code names, e.g. ["genoa", "sapphire rapids"]
-	GPUs           []string // GPU model names, e.g. ["h100", "a100"]
-	Sizes          []string // Size-category filters, e.g. ["large", "xlarge"]
-	MinVCPU        int      // Minimum vCPU count; 0 means unconstrained
-	MinPhysCores   int      // Minimum physical core count; 0 means unconstrained
-	MinMemory      float64  // Minimum memory in GiB; 0 means unconstrained
-	GPUCount       int      // Minimum number of GPUs; 0 means unconstrained
-	Architecture   string   // "x86_64" or "arm64"; empty means both
-	MinNetworkGbps int      // Minimum network bandwidth in Gbps; 0 means unconstrained
-	RequireEFA     bool     // If true, only match instance families with EFA support
-	RequireNestedV bool     // If true, only match instance types supporting nested virtualization
-	ExactMatch     bool     // If true, match exact vCPU and memory values instead of minimum
-	RawTokens      []Token  // Parsed tokens in input order, useful for diagnostics
-	Apps           []string // Application names from catalog (e.g. ["paraview"]); resolved to hardware in BuildCriteria
+	Vendors         []string // Hardware vendor filters, e.g. ["amd"], ["nvidia"]
+	Processors      []string // Processor code names, e.g. ["genoa", "sapphire rapids"]
+	GPUs            []string // GPU model names, e.g. ["h100", "a100"]
+	InstructionSets []string // CPU instruction-set extensions, e.g. ["avx-512", "sve2"]
+	Sizes           []string // Size-category filters, e.g. ["large", "xlarge"]
+	MinVCPU         int      // Minimum vCPU count; 0 means unconstrained
+	MinPhysCores    int      // Minimum physical core count; 0 means unconstrained
+	MinMemory       float64  // Minimum memory in GiB; 0 means unconstrained
+	GPUCount        int      // Minimum number of GPUs; 0 means unconstrained
+	Architecture    string   // "x86_64" or "arm64"; empty means both
+	MinNetworkGbps  int      // Minimum network bandwidth in Gbps; 0 means unconstrained
+	RequireEFA      bool     // If true, only match instance families with EFA support
+	RequireNestedV  bool     // If true, only match instance types supporting nested virtualization
+	ExactMatch      bool     // If true, match exact vCPU and memory values instead of minimum
+	RawTokens       []Token  // Parsed tokens in input order, useful for diagnostics
+	Apps            []string // Application names from catalog (e.g. ["paraview"]); resolved to hardware in BuildCriteria
 }
 
 var (
@@ -108,6 +110,12 @@ func computeMaxPhraseWords() int {
 	for k := range metadata.GPUAliases {
 		consider(k)
 	}
+	for k := range metadata.InstructionSetDatabase {
+		consider(k)
+	}
+	for k := range metadata.InstructionSetAliases {
+		consider(k)
+	}
 	return max
 }
 
@@ -132,6 +140,12 @@ func matchPhrase(words []string, i int) (Token, int, bool) {
 		}
 		if alias, ok := metadata.GPUAliases[phrase]; ok {
 			return Token{Type: TokenGPU, Value: alias, Raw: phrase}, n, true
+		}
+		if _, ok := metadata.InstructionSetDatabase[phrase]; ok {
+			return Token{Type: TokenInstructionSet, Value: phrase, Raw: phrase}, n, true
+		}
+		if alias, ok := metadata.InstructionSetAliases[phrase]; ok {
+			return Token{Type: TokenInstructionSet, Value: alias, Raw: phrase}, n, true
 		}
 	}
 	return Token{}, 0, false
@@ -161,6 +175,8 @@ func ParseQuery(query string) (*ParsedQuery, error) {
 			pq.Processors = append(pq.Processors, token.Value)
 		case TokenGPU:
 			pq.GPUs = append(pq.GPUs, token.Value)
+		case TokenInstructionSet:
+			pq.InstructionSets = append(pq.InstructionSets, token.Value)
 		case TokenSize:
 			pq.Sizes = append(pq.Sizes, token.Value)
 		case TokenVCPU:
@@ -234,6 +250,10 @@ func classifyTokens(words []string) []Token {
 			tokens = append(tokens, Token{Type: TokenGPU, Value: word, Raw: word})
 		} else if alias, ok := metadata.GPUAliases[word]; ok {
 			tokens = append(tokens, Token{Type: TokenGPU, Value: alias, Raw: word})
+		} else if _, ok := metadata.InstructionSetDatabase[word]; ok {
+			tokens = append(tokens, Token{Type: TokenInstructionSet, Value: word, Raw: word})
+		} else if alias, ok := metadata.InstructionSetAliases[word]; ok {
+			tokens = append(tokens, Token{Type: TokenInstructionSet, Value: alias, Raw: word})
 		} else if _, ok := metadata.SizeCategories[word]; ok {
 			tokens = append(tokens, Token{Type: TokenSize, Value: word, Raw: word})
 		} else if word == "efa" {
@@ -408,6 +428,13 @@ func (pq *ParsedQuery) Validate() error {
 		}
 	}
 
+	// From instruction sets
+	for _, is := range pq.InstructionSets {
+		if info, ok := metadata.InstructionSetDatabase[is]; ok {
+			archSet[info.Architecture] = true
+		}
+	}
+
 	// From explicit architecture
 	if pq.Architecture != "" {
 		archSet[pq.Architecture] = true
@@ -449,6 +476,12 @@ func (pq *ParsedQuery) ResolveInstanceFamilies() []string {
 			for _, family := range info.Families {
 				queryFamilies[family] = true
 			}
+		}
+	}
+
+	for _, is := range pq.InstructionSets {
+		for _, family := range metadata.GetFamiliesByInstructionSet(is) {
+			queryFamilies[family] = true
 		}
 	}
 
@@ -508,7 +541,7 @@ func (pq *ParsedQuery) hasConflictingFamilyConstraints() bool {
 	if len(pq.Apps) == 0 {
 		return false
 	}
-	hasQueryFamilies := len(pq.Vendors) > 0 || len(pq.Processors) > 0 || len(pq.GPUs) > 0 || pq.RequireEFA || pq.MinNetworkGbps > 0
+	hasQueryFamilies := len(pq.Vendors) > 0 || len(pq.Processors) > 0 || len(pq.GPUs) > 0 || len(pq.InstructionSets) > 0 || pq.RequireEFA || pq.MinNetworkGbps > 0
 	if !hasQueryFamilies {
 		return false
 	}
@@ -557,6 +590,13 @@ func (pq *ParsedQuery) DeriveArchitecture() string {
 			if info.Vendor == vendor {
 				archSet[info.Architecture] = true
 			}
+		}
+	}
+
+	// From instruction sets
+	for _, is := range pq.InstructionSets {
+		if info, ok := metadata.InstructionSetDatabase[is]; ok {
+			archSet[info.Architecture] = true
 		}
 	}
 

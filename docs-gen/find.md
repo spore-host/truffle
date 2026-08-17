@@ -10,6 +10,7 @@ Understands:
   - CPU vendors: intel, amd, graviton, nvidia
   - Processors: emerald rapids, sapphire rapids, ice lake, genoa, turin, milan
   - GPUs: h200, h100, a100, b200, b300, l40s, l4, a10g, t4, rtx, inferentia, trainium
+  - Instruction sets: avx2, avx-512, sve, sve2
   - Specs: 8 cores, 8 physical cores, 32gb, 4 gpus
   - Sizes: tiny, small, medium, large, huge
   - Architecture: x86_64, arm64
@@ -25,6 +26,8 @@ Examples:
   truffle find "cheap graviton 8 cores"       (sorted by price)
   truffle find nvidia                         (all NVIDIA GPU instances)
   truffle find "h100 efa"                     (GPU + network)
+  truffle find avx-512                        (instruction-set search)
+  truffle find "sve2 graviton"                (instruction set + vendor)
 
 ```
 truffle find <query> [flags]

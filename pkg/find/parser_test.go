@@ -230,6 +230,18 @@ func TestParsedQuery_ResolveInstanceFamilies(t *testing.T) {
 			query:   "intel",
 			wantMin: 10,
 		},
+		{
+			name:         "avx-512",
+			query:        "avx-512",
+			wantMin:      5,
+			wantFamilies: []string{"m6i", "m7i", "m7a"},
+		},
+		{
+			name:         "sve2",
+			query:        "sve2",
+			wantMin:      1,
+			wantFamilies: []string{"r8g"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -307,6 +319,81 @@ func TestParsedQuery_DeriveArchitecture(t *testing.T) {
 
 			arch := pq.DeriveArchitecture()
 			if arch != tt.wantArch {
+				t.Errorf("DeriveArchitecture() = %v, want %v", arch, tt.wantArch)
+			}
+		})
+	}
+}
+
+func TestParseQuery_InstructionSetToken(t *testing.T) {
+	tests := []struct {
+		name    string
+		query   string
+		want    []string
+		wantErr bool
+	}{
+		{name: "avx2", query: "avx2", want: []string{"avx2"}},
+		{name: "avx-512 canonical", query: "avx-512", want: []string{"avx-512"}},
+		{name: "avx512 alias (no hyphen)", query: "avx512", want: []string{"avx-512"}},
+		{name: "avx 512 two-word alias", query: "avx 512", want: []string{"avx-512"}},
+		{name: "sve", query: "sve", want: []string{"sve"}},
+		{name: "sve2", query: "sve2", want: []string{"sve2"}},
+		{name: "instruction set combined with spec", query: "avx-512 8 cores", want: []string{"avx-512"}, wantErr: false},
+		{
+			name:    "sve2 conflicts with explicit x86_64",
+			query:   "sve2 x86_64",
+			wantErr: true,
+		},
+		{
+			name:    "avx-512 conflicts with graviton",
+			query:   "avx-512 graviton",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pq, err := ParseQuery(tt.query)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("ParseQuery(%q) error = nil, want error (conflicting architecture)", tt.query)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ParseQuery(%q) error = %v", tt.query, err)
+			}
+			if len(pq.InstructionSets) != len(tt.want) {
+				t.Fatalf("InstructionSets = %v, want %v", pq.InstructionSets, tt.want)
+			}
+			for i, w := range tt.want {
+				if pq.InstructionSets[i] != w {
+					t.Errorf("InstructionSets[%d] = %q, want %q", i, pq.InstructionSets[i], w)
+				}
+			}
+		})
+	}
+}
+
+func TestParsedQuery_DeriveArchitecture_InstructionSet(t *testing.T) {
+	tests := []struct {
+		name     string
+		query    string
+		wantArch string
+	}{
+		{name: "avx2 implies x86_64", query: "avx2", wantArch: "x86_64"},
+		{name: "avx-512 implies x86_64", query: "avx-512", wantArch: "x86_64"},
+		{name: "sve implies arm64", query: "sve", wantArch: "arm64"},
+		{name: "sve2 implies arm64", query: "sve2", wantArch: "arm64"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pq, err := ParseQuery(tt.query)
+			if err != nil {
+				t.Fatalf("ParseQuery() error = %v", err)
+			}
+			if arch := pq.DeriveArchitecture(); arch != tt.wantArch {
 				t.Errorf("DeriveArchitecture() = %v, want %v", arch, tt.wantArch)
 			}
 		})
@@ -436,7 +523,7 @@ func TestBuildCriteria_AppMinHardware(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseQuery error: %v", err)
 	}
-	criteria, err := pq.BuildCriteria()
+	criteria, err := pq.BuildCriteria(true)
 	if err != nil {
 		t.Fatalf("BuildCriteria error: %v", err)
 	}
@@ -457,7 +544,7 @@ func TestBuildCriteria_AppDoesNotOverrideExplicit(t *testing.T) {
 	if pq.MinVCPU != 32 {
 		t.Fatalf("Expected MinVCPU=32, got %d", pq.MinVCPU)
 	}
-	criteria, err := pq.BuildCriteria()
+	criteria, err := pq.BuildCriteria(true)
 	if err != nil {
 		t.Fatalf("BuildCriteria error: %v", err)
 	}
@@ -492,7 +579,7 @@ func TestBuildCriteria_NestedVirt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseQuery: %v", err)
 	}
-	sc, err := pq.BuildCriteria()
+	sc, err := pq.BuildCriteria(true)
 	if err != nil {
 		t.Fatalf("BuildCriteria: %v", err)
 	}

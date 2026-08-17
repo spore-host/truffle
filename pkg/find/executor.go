@@ -15,11 +15,16 @@ type SearchCriteria struct {
 	FilterOptions       aws.FilterOptions // Numeric and categorical filters passed to SearchInstanceTypes
 }
 
-// BuildCriteria converts a ParsedQuery into SearchCriteria for execution
-func (pq *ParsedQuery) BuildCriteria() (*SearchCriteria, error) {
+// BuildCriteria converts a ParsedQuery into SearchCriteria for execution.
+// includeAZs controls whether the search itself performs the (expensive: one
+// extra API round-trip per matched instance type, done serially — truffle#141)
+// per-type availability-zone lookup. This is a CLI-flag concern (--skip-azs),
+// not something derived from the query text itself, so it's a parameter here
+// rather than a ParsedQuery field.
+func (pq *ParsedQuery) BuildCriteria(includeAZs bool) (*SearchCriteria, error) {
 	sc := &SearchCriteria{
 		FilterOptions: aws.FilterOptions{
-			IncludeAZs:       true,
+			IncludeAZs:       includeAZs,
 			MinVCPUs:         pq.MinVCPU,
 			MinMemory:        pq.MinMemory,
 			MinPhysicalCores: pq.MinPhysCores,
