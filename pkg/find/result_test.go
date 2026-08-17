@@ -101,6 +101,17 @@ func TestExplainMatch(t *testing.T) {
 			},
 			wantReasons: 1, // instruction-set match
 		},
+		{
+			name:  "mig capability match",
+			query: "mig",
+			result: aws.InstanceTypeResult{
+				InstanceType: "p5.48xlarge",
+				VCPUs:        192,
+				MemoryMiB:    2097152,
+				Architecture: "x86_64",
+			},
+			wantReasons: 1, // MIG match
+		},
 	}
 
 	for _, tt := range tests {

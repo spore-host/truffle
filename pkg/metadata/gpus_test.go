@@ -165,3 +165,101 @@ func TestGetGPUsByUseCase(t *testing.T) {
 		})
 	}
 }
+
+// TestMIGCapable pins the GPU chips NVIDIA's own MIG User Guide "Supported
+// GPUs" table (checked 2026-08) lists as MIG-capable, and the ones it does
+// NOT list (#143). L4/L40S/T4/A10G are Ada-generation inference/graphics
+// chips absent from that table entirely; V100 predates MIG (Ampere+ only);
+// B300 shares the p6 family prefix with B200 but is not listed.
+func TestMIGCapable(t *testing.T) {
+	migCapable := []string{"a100", "h100", "h200", "b200", "rtx pro server 6000", "rtx pro 4500"}
+	for _, key := range migCapable {
+		t.Run(key, func(t *testing.T) {
+			info, ok := GPUDatabase[key]
+			if !ok {
+				t.Fatalf("GPU %q not found in database", key)
+			}
+			if !info.MIGCapable {
+				t.Errorf("GPUDatabase[%q].MIGCapable = false, want true", key)
+			}
+			if info.MaxMIGInstances <= 0 {
+				t.Errorf("GPUDatabase[%q].MaxMIGInstances = %d, want > 0", key, info.MaxMIGInstances)
+			}
+		})
+	}
+
+	notMIGCapable := []string{"l4", "l40s", "t4", "a10g", "v100", "b300"}
+	for _, key := range notMIGCapable {
+		t.Run(key, func(t *testing.T) {
+			info, ok := GPUDatabase[key]
+			if !ok {
+				t.Fatalf("GPU %q not found in database", key)
+			}
+			if info.MIGCapable {
+				t.Errorf("GPUDatabase[%q].MIGCapable = true, want false", key)
+			}
+		})
+	}
+}
+
+func TestGetMIGCapableFamilies(t *testing.T) {
+	families := GetMIGCapableFamilies()
+	mustInclude := []string{"p4d", "p4de", "p5", "p5e", "p5en", "p6-b200", "g7e", "g7"}
+	familySet := make(map[string]bool, len(families))
+	for _, f := range families {
+		familySet[f] = true
+	}
+	for _, f := range mustInclude {
+		if !familySet[f] {
+			t.Errorf("GetMIGCapableFamilies() missing %q, got %v", f, families)
+		}
+	}
+	mustExclude := []string{"g6", "g6e", "g5", "g4dn", "p3", "p6-b300"}
+	for _, f := range mustExclude {
+		if familySet[f] {
+			t.Errorf("GetMIGCapableFamilies() should not include %q (not MIG-capable), got %v", f, families)
+		}
+	}
+}
+
+func TestIsMIGSupported(t *testing.T) {
+	if !IsMIGSupported("p5") {
+		t.Error("IsMIGSupported(\"p5\") = false, want true (H100)")
+	}
+	if IsMIGSupported("g6") {
+		t.Error("IsMIGSupported(\"g6\") = true, want false (L4 is not MIG-capable)")
+	}
+}
+
+// TestMPSAlias confirms "mps" resolves to the same family list as the
+// "nvidia" vendor entry — MPS is a CUDA runtime feature available on any
+// NVIDIA GPU, not a hardware capability tied to a specific chip (#143).
+func TestMPSAlias(t *testing.T) {
+	canonical, ok := GPUAliases["mps"]
+	if !ok {
+		t.Fatal("GPUAliases[\"mps\"] not found")
+	}
+	if canonical != "nvidia" {
+		t.Errorf("GPUAliases[\"mps\"] = %q, want \"nvidia\"", canonical)
+	}
+}
+
+// TestBareP6FamilyFixed regression-guards #143's b200/b300 family-prefix fix:
+// the real AWS instance-type family is "p6-b200"/"p6-b300", not bare "p6",
+// which never matched any real instance type via the fuzzy-family path.
+func TestBareP6FamilyFixed(t *testing.T) {
+	for _, key := range []string{"b200", "b300"} {
+		info := GPUDatabase[key]
+		for _, f := range info.Families {
+			if f == "p6" {
+				t.Errorf("GPUDatabase[%q].Families still contains bare \"p6\", which matches no real instance type", key)
+			}
+		}
+	}
+	nvidia := GPUDatabase["nvidia"]
+	for _, f := range nvidia.Families {
+		if f == "p6" {
+			t.Error("GPUDatabase[\"nvidia\"].Families still contains bare \"p6\"")
+		}
+	}
+}

@@ -48,6 +48,11 @@ Understands:
   - Processors: emerald rapids, sapphire rapids, ice lake, genoa, turin, milan
   - GPUs: h200, h100, a100, b200, b300, l40s, l4, a10g, t4, rtx, inferentia, trainium
   - Instruction sets: avx2, avx-512, sve, sve2
+  - NVIDIA MIG: mig (matches only GPUs supporting Multi-Instance GPU
+    partitioning — A100, H100, H200, B200, RTX PRO 6000/4500; NOT
+    L4/L40S/T4/A10G/V100/B300)
+  - NVIDIA MPS: mps (matches ANY NVIDIA GPU — MPS is a CUDA runtime feature,
+    not a hardware capability tied to instance type, unlike MIG above)
   - Specs: 8 cores, 8 physical cores, 32gb, 4 gpus
   - Sizes: tiny, small, medium, large, huge
   - Architecture: x86_64, arm64
@@ -64,7 +69,9 @@ Examples:
   truffle find nvidia                         (all NVIDIA GPU instances)
   truffle find "h100 efa"                     (GPU + network)
   truffle find avx-512                        (instruction-set search)
-  truffle find "sve2 graviton"                (instruction set + vendor)`,
+  truffle find "sve2 graviton"                (instruction set + vendor)
+  truffle find mig                            (NVIDIA MIG-capable GPUs only)
+  truffle find mps                            (any NVIDIA GPU — MPS runs on all of them)`,
 	Args: cobra.ArbitraryArgs, // 0 args allowed when --app is used
 	RunE: runFind,
 }
@@ -348,6 +355,9 @@ func printParsedQuery(query *find.ParsedQuery) {
 	}
 	if len(query.InstructionSets) > 0 {
 		fmt.Fprintf(os.Stderr, "   Instruction set: %s\n", strings.Join(query.InstructionSets, ", "))
+	}
+	if query.RequireMIG {
+		fmt.Fprintln(os.Stderr, "   NVIDIA MIG: required")
 	}
 	if len(query.Sizes) > 0 {
 		fmt.Fprintf(os.Stderr, "   Size: %s\n", strings.Join(query.Sizes, ", "))

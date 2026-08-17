@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`find`/`search mig`** — matches only GPU instances supporting NVIDIA
+  Multi-Instance GPU partitioning (A100, H100, H200, B200, RTX PRO
+  6000/4500 — confirmed against NVIDIA's own MIG User Guide "Supported
+  GPUs" table; NOT L4/L40S/T4/A10G/V100/B300). `find/search mps` matches
+  ANY NVIDIA GPU, since MPS (Multi-Process Service) is a CUDA runtime
+  daemon rather than a fixed hardware capability — resolves to the same
+  family list as the existing `nvidia` vendor entry rather than being
+  unrecognized (#143).
 - **`find`/`search` instruction-set query terms**: `avx2`, `avx-512` (aliases
   `avx512`, `avx-512f`, `avx 512`), `sve`, `sve2` — for finding instances by
   CPU capability (e.g. `truffle find avx-512`, `truffle find "sve2 graviton"`)
@@ -34,6 +42,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   same fractional-GPU family the VRAM display fix in #116 covers). `h200`
   was missing `p5en`. `truffle find "nvidia l4"` previously never surfaced
   these.
+- **`GPUDatabase`'s `b200`/`b300`/`nvidia` entries listed the instance family
+  as bare `p6`**, which is not a real AWS family prefix — the actual prefix
+  is `p6-b200`/`p6e-gb200`/`p6-b300`. This meant the family-based fuzzy-match
+  path (used by `mig`/`mps`/`nvidia` above, and by size-constrained queries
+  like `"b200 large"`) silently never matched any B200/B300 instance; only
+  an exact-instance-type match (`b200`/`b300` typed alone) worked (#143).
 - **`find`'s single-word routing heuristic (`looksLikePattern`) misrouted
   vocabulary terms ending in a digit** (e.g. `a100`, `h100`, `avx2`, `sve2`)
   to the literal instance-type pattern matcher instead of the natural-language

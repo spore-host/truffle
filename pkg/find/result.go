@@ -127,6 +127,11 @@ sizeDone:
 		reasons = append(reasons, "Network: EFA supported")
 	}
 
+	// Check MIG match
+	if query.RequireMIG && metadata.IsMIGSupported(family) {
+		reasons = append(reasons, "GPU: MIG-capable")
+	}
+
 	// Check network speed match
 	if query.MinNetworkGbps > 0 {
 		// Check if family supports the required bandwidth
