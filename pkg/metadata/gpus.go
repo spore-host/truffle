@@ -2,40 +2,48 @@ package metadata
 
 // GPUInfo contains information about a GPU accelerator used in EC2 instances
 type GPUInfo struct {
-	Name          string   // "A100", "V100", "H100"
-	Vendor        string   // "nvidia", "amd", "aws"
-	MemoryGB      int      // GPU memory per GPU
-	UseCase       string   // "training", "inference", "graphics"
-	Families      []string // Instance families (for fuzzy matching)
-	InstanceTypes []string // Exact instance types (for precise matching)
+	Name            string   // "A100", "V100", "H100"
+	Vendor          string   // "nvidia", "amd", "aws"
+	MemoryGB        int      // GPU memory per GPU
+	UseCase         string   // "training", "inference", "graphics"
+	Families        []string // Instance families (for fuzzy matching)
+	InstanceTypes   []string // Exact instance types (for precise matching)
+	MIGCapable      bool     // Supports NVIDIA Multi-Instance GPU partitioning (#143)
+	MaxMIGInstances int      // Maximum MIG partitions per physical GPU; 0 if MIGCapable is false
 }
 
 // GPUDatabase maps GPU names to their information
 var GPUDatabase = map[string]GPUInfo{
 	// NVIDIA Training GPUs
 	"h200": {
-		Name:          "H200",
-		Vendor:        "nvidia",
-		MemoryGB:      141,
-		UseCase:       "training",
-		Families:      []string{"p5e", "p5en"},
-		InstanceTypes: []string{"p5e.48xlarge", "p5en.48xlarge"},
+		Name:            "H200",
+		Vendor:          "nvidia",
+		MemoryGB:        141,
+		UseCase:         "training",
+		Families:        []string{"p5e", "p5en"},
+		InstanceTypes:   []string{"p5e.48xlarge", "p5en.48xlarge"},
+		MIGCapable:      true,
+		MaxMIGInstances: 7,
 	},
 	"h100": {
-		Name:          "H100",
-		Vendor:        "nvidia",
-		MemoryGB:      80,
-		UseCase:       "training",
-		Families:      []string{"p5"},
-		InstanceTypes: []string{"p5.48xlarge"},
+		Name:            "H100",
+		Vendor:          "nvidia",
+		MemoryGB:        80,
+		UseCase:         "training",
+		Families:        []string{"p5"},
+		InstanceTypes:   []string{"p5.48xlarge"},
+		MIGCapable:      true,
+		MaxMIGInstances: 7,
 	},
 	"a100": {
-		Name:          "A100",
-		Vendor:        "nvidia",
-		MemoryGB:      40,
-		UseCase:       "training",
-		Families:      []string{"p4d", "p4de"},
-		InstanceTypes: []string{"p4d.24xlarge", "p4de.24xlarge"},
+		Name:            "A100",
+		Vendor:          "nvidia",
+		MemoryGB:        40,
+		UseCase:         "training",
+		Families:        []string{"p4d", "p4de"},
+		InstanceTypes:   []string{"p4d.24xlarge", "p4de.24xlarge"},
+		MIGCapable:      true,
+		MaxMIGInstances: 7,
 	},
 	"v100": {
 		Name:     "V100",
@@ -129,6 +137,8 @@ var GPUDatabase = map[string]GPUInfo{
 			"g7e.2xlarge", "g7e.4xlarge", "g7e.8xlarge",
 			"g7e.12xlarge", "g7e.24xlarge", "g7e.48xlarge",
 		},
+		MIGCapable:      true,
+		MaxMIGInstances: 4,
 	},
 	"rtx pro 4500": {
 		Name:     "RTX PRO 4500",
@@ -140,22 +150,31 @@ var GPUDatabase = map[string]GPUInfo{
 			"g7.2xlarge", "g7.4xlarge", "g7.8xlarge",
 			"g7.12xlarge", "g7.24xlarge", "g7.48xlarge",
 		},
+		MIGCapable:      true,
+		MaxMIGInstances: 2,
 	},
 	"b200": {
-		Name:          "B200",
-		Vendor:        "nvidia",
-		MemoryGB:      179,
-		UseCase:       "training",
-		Families:      []string{"p6"},
-		InstanceTypes: []string{"p6-b200.48xlarge", "p6e-gb200.36xlarge"},
+		Name:   "B200",
+		Vendor: "nvidia",
+		// The real instance-type family prefix is "p6-b200" (and "p6e-gb200"
+		// for the GB200 NVL variant) — NOT bare "p6", which never matches any
+		// real instance type via the fuzzy-family path (#143).
+		MemoryGB:        179,
+		UseCase:         "training",
+		Families:        []string{"p6-b200", "p6e-gb200"},
+		InstanceTypes:   []string{"p6-b200.48xlarge", "p6e-gb200.36xlarge"},
+		MIGCapable:      true,
+		MaxMIGInstances: 7,
 	},
 	"b300": {
-		Name:          "B300",
-		Vendor:        "nvidia",
+		Name:   "B300",
+		Vendor: "nvidia",
+		// Real family prefix is "p6-b300", not bare "p6" (#143).
 		MemoryGB:      268,
 		UseCase:       "training",
-		Families:      []string{"p6"},
+		Families:      []string{"p6-b300"},
 		InstanceTypes: []string{"p6-b300.48xlarge"},
+		// NVIDIA's MIG-supported-GPU list does not include B300 (checked 2026-08).
 	},
 
 	// NVIDIA (vendor-level entry for "nvidia" keyword matching)
@@ -164,7 +183,7 @@ var GPUDatabase = map[string]GPUInfo{
 		Vendor:   "nvidia",
 		MemoryGB: 0,
 		UseCase:  "any",
-		Families: []string{"p5e", "p5en", "p5", "p4d", "p4de", "p3", "p2", "g3", "g5", "g4dn", "g6", "gr6", "g6f", "gr6f", "g6e", "g7", "g7e", "p6"},
+		Families: []string{"p5e", "p5en", "p5", "p4d", "p4de", "p3", "p2", "g3", "g5", "g4dn", "g6", "gr6", "g6f", "gr6f", "g6e", "g7", "g7e", "p6-b200", "p6e-gb200", "p6-b300"},
 	},
 
 	// AMD GPUs
@@ -233,6 +252,12 @@ var GPUAliases = map[string]string{
 	"b200":           "b200",
 	"b300":           "b300",
 	"gb200":          "b200",
+	// MPS (Multi-Process Service) is a CUDA runtime daemon, not a hardware
+	// capability tied to instance type — any NVIDIA GPU can run it. Resolve
+	// it to the same family list as the "nvidia" vendor entry rather than
+	// treating it as unrecognized (#143). Contrast with "mig" (pkg/find's
+	// TokenMIG), which IS a hardware capability restricted to specific chips.
+	"mps": "nvidia",
 }
 
 // GetGPUsByVendor returns all GPUs for a given vendor
@@ -255,4 +280,37 @@ func GetGPUsByUseCase(useCase string) []GPUInfo {
 		}
 	}
 	return gpus
+}
+
+// IsMIGSupported reports whether family supports NVIDIA Multi-Instance GPU
+// partitioning (#143).
+func IsMIGSupported(family string) bool {
+	for _, f := range GetMIGCapableFamilies() {
+		if f == family {
+			return true
+		}
+	}
+	return false
+}
+
+// GetMIGCapableFamilies returns the instance families of every GPU in
+// GPUDatabase that supports NVIDIA Multi-Instance GPU partitioning (#143).
+// MIG is restricted to specific silicon (A100/A30, H100/H200, B200/GB200,
+// RTX PRO 6000/5000/4500 — confirmed against NVIDIA's own MIG User Guide
+// "Supported GPUs" table, checked 2026-08); L4/L40S/T4/A10G/V100/B300 are
+// NOT MIG-capable.
+func GetMIGCapableFamilies() []string {
+	familySet := make(map[string]bool)
+	for _, info := range GPUDatabase {
+		if info.MIGCapable {
+			for _, f := range info.Families {
+				familySet[f] = true
+			}
+		}
+	}
+	families := make([]string, 0, len(familySet))
+	for f := range familySet {
+		families = append(families, f)
+	}
+	return families
 }

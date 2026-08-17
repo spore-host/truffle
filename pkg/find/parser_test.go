@@ -375,6 +375,63 @@ func TestParseQuery_InstructionSetToken(t *testing.T) {
 	}
 }
 
+// TestParseQuery_MIGToken confirms "mig" parses as a boolean capability
+// filter (RequireMIG), the same shape as the existing "efa" token — not a
+// named term with a Value like GPUs/instruction sets (#143).
+func TestParseQuery_MIGToken(t *testing.T) {
+	pq, err := ParseQuery("mig")
+	if err != nil {
+		t.Fatalf("ParseQuery(\"mig\") error = %v", err)
+	}
+	if !pq.RequireMIG {
+		t.Error("RequireMIG = false, want true")
+	}
+
+	pq2, err := ParseQuery("h100")
+	if err != nil {
+		t.Fatalf("ParseQuery(\"h100\") error = %v", err)
+	}
+	if pq2.RequireMIG {
+		t.Error("RequireMIG = true for a query that never mentioned mig, want false")
+	}
+}
+
+// TestParseQuery_MPSAlias confirms "mps" resolves as a GPU term (aliasing to
+// "nvidia") rather than as a MIG-style capability flag — MPS runs on any
+// NVIDIA GPU, so it's a synonym, not a filter (#143).
+func TestParseQuery_MPSAlias(t *testing.T) {
+	pq, err := ParseQuery("mps")
+	if err != nil {
+		t.Fatalf("ParseQuery(\"mps\") error = %v", err)
+	}
+	if len(pq.GPUs) != 1 || pq.GPUs[0] != "nvidia" {
+		t.Errorf("GPUs = %v, want [\"nvidia\"]", pq.GPUs)
+	}
+	if pq.RequireMIG {
+		t.Error("RequireMIG = true for \"mps\", want false (MPS is not a MIG-style capability filter)")
+	}
+}
+
+// TestResolveInstanceFamilies_MIG confirms "mig" resolves to real MIG-capable
+// families and excludes a known non-MIG-capable one (#143).
+func TestResolveInstanceFamilies_MIG(t *testing.T) {
+	pq, err := ParseQuery("mig")
+	if err != nil {
+		t.Fatalf("ParseQuery(\"mig\") error = %v", err)
+	}
+	families := pq.ResolveInstanceFamilies()
+	familySet := make(map[string]bool, len(families))
+	for _, f := range families {
+		familySet[f] = true
+	}
+	if !familySet["p5"] {
+		t.Errorf("ResolveInstanceFamilies() for \"mig\" missing p5 (H100, MIG-capable): %v", families)
+	}
+	if familySet["g6"] {
+		t.Errorf("ResolveInstanceFamilies() for \"mig\" should not include g6 (L4, not MIG-capable): %v", families)
+	}
+}
+
 func TestParsedQuery_DeriveArchitecture_InstructionSet(t *testing.T) {
 	tests := []struct {
 		name     string

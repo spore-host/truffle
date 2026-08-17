@@ -51,6 +51,7 @@ const (
 	TokenApp            // Application name from pkg/catalog (e.g. "paraview", "igv")
 	TokenQualitative    // Qualitative/subjective keyword (e.g. "cheap", "fastest")
 	TokenInstructionSet // CPU instruction-set extension (e.g. "avx2", "avx-512", "sve", "sve2")
+	TokenMIG            // NVIDIA Multi-Instance GPU capability (e.g. "mig")
 )
 
 // Token represents a single classified word from a natural language query.
@@ -75,6 +76,7 @@ type ParsedQuery struct {
 	Architecture    string   // "x86_64" or "arm64"; empty means both
 	MinNetworkGbps  int      // Minimum network bandwidth in Gbps; 0 means unconstrained
 	RequireEFA      bool     // If true, only match instance families with EFA support
+	RequireMIG      bool     // If true, only match GPU families supporting NVIDIA Multi-Instance GPU (#143)
 	RequireNestedV  bool     // If true, only match instance types supporting nested virtualization
 	ExactMatch      bool     // If true, match exact vCPU and memory values instead of minimum
 	RawTokens       []Token  // Parsed tokens in input order, useful for diagnostics
@@ -203,6 +205,8 @@ func ParseQuery(query string) (*ParsedQuery, error) {
 			}
 		case TokenEFA:
 			pq.RequireEFA = true
+		case TokenMIG:
+			pq.RequireMIG = true
 		case TokenNestedVirt:
 			pq.RequireNestedV = true
 		case TokenApp:
@@ -258,6 +262,8 @@ func classifyTokens(words []string) []Token {
 			tokens = append(tokens, Token{Type: TokenSize, Value: word, Raw: word})
 		} else if word == "efa" {
 			tokens = append(tokens, Token{Type: TokenEFA, Value: "efa", Raw: word})
+		} else if word == "mig" {
+			tokens = append(tokens, Token{Type: TokenMIG, Value: "mig", Raw: word})
 		} else if word == "nested-virt" || word == "nested-virtualization" || word == "nestedvirt" {
 			tokens = append(tokens, Token{Type: TokenNestedVirt, Value: "nested-virt", Raw: word})
 		} else if alias, ok := metadata.NetworkAliases[word]; ok {
@@ -492,6 +498,12 @@ func (pq *ParsedQuery) ResolveInstanceFamilies() []string {
 		}
 	}
 
+	if pq.RequireMIG {
+		for _, family := range metadata.GetMIGCapableFamilies() {
+			queryFamilies[family] = true
+		}
+	}
+
 	if pq.MinNetworkGbps > 0 {
 		networkFamilies := metadata.GetFamiliesByNetworkSpeed(pq.MinNetworkGbps)
 		for _, family := range networkFamilies {
@@ -541,7 +553,7 @@ func (pq *ParsedQuery) hasConflictingFamilyConstraints() bool {
 	if len(pq.Apps) == 0 {
 		return false
 	}
-	hasQueryFamilies := len(pq.Vendors) > 0 || len(pq.Processors) > 0 || len(pq.GPUs) > 0 || len(pq.InstructionSets) > 0 || pq.RequireEFA || pq.MinNetworkGbps > 0
+	hasQueryFamilies := len(pq.Vendors) > 0 || len(pq.Processors) > 0 || len(pq.GPUs) > 0 || len(pq.InstructionSets) > 0 || pq.RequireEFA || pq.RequireMIG || pq.MinNetworkGbps > 0
 	if !hasQueryFamilies {
 		return false
 	}
