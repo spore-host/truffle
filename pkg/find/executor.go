@@ -57,8 +57,15 @@ func (pq *ParsedQuery) BuildCriteria(includeAZs bool) (*SearchCriteria, error) {
 }
 
 func (pq *ParsedQuery) buildInstanceTypePattern() string {
-	// If we have GPU queries with exact instance types, use those
-	if len(pq.GPUs) > 0 {
+	// If GPUs is the only active dimension, use the exact-instance-type
+	// shortcut (tighter than the family-level pattern below). Once any other
+	// dimension (EFA, MIG, vendor, processor, instruction set, network speed)
+	// is also present, that shortcut must NOT be taken under AND — jumping
+	// straight to the GPU's exact instance types would silently discard the
+	// other constraints entirely (#144). Under OR, the shortcut is skipped
+	// too, since GPU should union at the family level with everything else,
+	// consistent with how every other dimension already combines.
+	if len(pq.GPUs) > 0 && pq.Operator == OperatorAnd && !pq.hasOtherActiveDimensions() {
 		instances := pq.ResolveGPUInstances()
 		if len(instances) > 0 {
 			// Exact match on instance types

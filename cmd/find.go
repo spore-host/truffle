@@ -58,6 +58,12 @@ Understands:
   - Architecture: x86_64, arm64
   - Network: efa, 10gbps, 25gbps, 50gbps, 100gbps, 200gbps, 400gbps
   - Sort hints: cheap/cheapest, fast/fastest, newest/latest
+  - Combining constraints: multiple constraint types (e.g. a GPU and "efa")
+    combine with AND by default — "h100 efa" means H100 instances that also
+    have EFA, not "either." Add the literal word "or" anywhere in the query
+    to switch the whole query to OR (union) instead; "and" is also accepted
+    explicitly. Within one constraint type, multiple values still always mean
+    OR — "a100 h100" always means A100-or-H100, since no instance is both.
 
 Examples:
   truffle find "m7i*"                         (glob pattern)
@@ -67,7 +73,8 @@ Examples:
   truffle find "8 physical cores 32gb"        (physical core count)
   truffle find "cheap graviton 8 cores"       (sorted by price)
   truffle find nvidia                         (all NVIDIA GPU instances)
-  truffle find "h100 efa"                     (GPU + network)
+  truffle find "h100 efa"                     (GPU AND network, by default)
+  truffle find "h100 or efa"                  (GPU OR network, explicit)
   truffle find avx-512                        (instruction-set search)
   truffle find "sve2 graviton"                (instruction set + vendor)
   truffle find mig                            (NVIDIA MIG-capable GPUs only)
@@ -381,6 +388,14 @@ func printParsedQuery(query *find.ParsedQuery) {
 		fmt.Fprintf(os.Stderr, "   Min Network: %d Gbps\n", query.MinNetworkGbps)
 	}
 
+	if activeDimensionCount(query) > 1 {
+		op := "AND (default)"
+		if query.Operator == find.OperatorOr {
+			op = "OR (explicit)"
+		}
+		fmt.Fprintf(os.Stderr, "   Combining constraints: %s\n", op)
+	}
+
 	// Show resolved families
 	families := query.ResolveInstanceFamilies()
 	if len(families) > 0 {
@@ -388,6 +403,36 @@ func printParsedQuery(query *find.ParsedQuery) {
 	}
 
 	fmt.Fprintln(os.Stderr)
+}
+
+// activeDimensionCount counts how many distinct query dimensions (vendor,
+// processor, GPU, instruction set, EFA, MIG, network speed) the user
+// specified — used to decide whether showing the AND/OR combination mode is
+// meaningful (it isn't when only one dimension is active).
+func activeDimensionCount(query *find.ParsedQuery) int {
+	count := 0
+	if len(query.Vendors) > 0 {
+		count++
+	}
+	if len(query.Processors) > 0 {
+		count++
+	}
+	if len(query.GPUs) > 0 {
+		count++
+	}
+	if len(query.InstructionSets) > 0 {
+		count++
+	}
+	if query.RequireEFA {
+		count++
+	}
+	if query.RequireMIG {
+		count++
+	}
+	if query.MinNetworkGbps > 0 {
+		count++
+	}
+	return count
 }
 
 func printSuggestions(query *find.ParsedQuery) {

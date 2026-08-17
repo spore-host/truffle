@@ -21,6 +21,12 @@ Understands:
   - Architecture: x86_64, arm64
   - Network: efa, 10gbps, 25gbps, 50gbps, 100gbps, 200gbps, 400gbps
   - Sort hints: cheap/cheapest, fast/fastest, newest/latest
+  - Combining constraints: multiple constraint types (e.g. a GPU and "efa")
+    combine with AND by default — "h100 efa" means H100 instances that also
+    have EFA, not "either." Add the literal word "or" anywhere in the query
+    to switch the whole query to OR (union) instead; "and" is also accepted
+    explicitly. Within one constraint type, multiple values still always mean
+    OR — "a100 h100" always means A100-or-H100, since no instance is both.
 
 Examples:
   truffle find "m7i*"                         (glob pattern)
@@ -30,7 +36,8 @@ Examples:
   truffle find "8 physical cores 32gb"        (physical core count)
   truffle find "cheap graviton 8 cores"       (sorted by price)
   truffle find nvidia                         (all NVIDIA GPU instances)
-  truffle find "h100 efa"                     (GPU + network)
+  truffle find "h100 efa"                     (GPU AND network, by default)
+  truffle find "h100 or efa"                  (GPU OR network, explicit)
   truffle find avx-512                        (instruction-set search)
   truffle find "sve2 graviton"                (instruction set + vendor)
   truffle find mig                            (NVIDIA MIG-capable GPUs only)
