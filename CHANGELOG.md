@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **`find`/`search` table output: region-name alignment and numeric-column
+  justification.** A spawn-supported region's `✓ ` marker shifted its region
+  name two characters right of an unsupported region's name in the same
+  column, reading as ragged rather than tabular — an unsupported row now gets
+  an equal-width blank pad instead. Numeric columns (vCPUs, Memory, GPUs,
+  VRAM, price, Train Quota) are now right-justified instead of left-aligned,
+  so values of differing digit width line up on their ones place.
+
 ## [0.52.1] - 2026-08-17
 
 ## [0.52.0] - 2026-08-17

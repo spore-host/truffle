@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/fatih/color"
 	"github.com/spore-host/truffle/pkg/aws"
@@ -535,6 +536,76 @@ func TestPrintTable_SpawnSupportedFooter(t *testing.T) {
 	}
 	if !strings.Contains(out, "✓ us-east-1") {
 		t.Errorf("expected spawn-support marker before region (#135):\n%s", out)
+	}
+}
+
+// TestPrintTable_RegionColumnAlignsAcrossSupportAndUnsupported guards against
+// a supported row's "✓ " marker shifting its region name two characters to
+// the right of an unsupported row's region name, which reads as ragged
+// rather than tabular. An unsupported row gets an equal-width blank pad
+// instead of nothing, so every region name starts in the same column.
+func TestPrintTable_RegionColumnAlignsAcrossSupportAndUnsupported(t *testing.T) {
+	results := []aws.InstanceTypeResult{
+		{InstanceType: "g6e.24xlarge", Region: "ap-northeast-1", VCPUs: 96, MemoryMiB: 768 * 1024, Architecture: "x86_64", SpawnSupported: true},
+		{InstanceType: "g6e.24xlarge", Region: "ap-northeast-2", VCPUs: 96, MemoryMiB: 768 * 1024, Architecture: "x86_64", SpawnSupported: false},
+	}
+	out := captureStdout(t, func() {
+		_ = NewPrinter(false).PrintTable(results, false, false)
+	})
+	lines := strings.Split(out, "\n")
+	var supportedLine, unsupportedLine string
+	for _, l := range lines {
+		if strings.Contains(l, "ap-northeast-1") {
+			supportedLine = l
+		}
+		if strings.Contains(l, "ap-northeast-2") {
+			unsupportedLine = l
+		}
+	}
+	if supportedLine == "" || unsupportedLine == "" {
+		t.Fatalf("expected both region rows in output:\n%s", out)
+	}
+	// Rune columns, not byte offsets — "✓" is a multi-byte UTF-8 character,
+	// so strings.Index's byte offset would differ from the visual column
+	// even when the rows are correctly aligned.
+	supportedCol := utf8.RuneCountInString(supportedLine[:strings.Index(supportedLine, "ap-northeast-1")])
+	unsupportedCol := utf8.RuneCountInString(unsupportedLine[:strings.Index(unsupportedLine, "ap-northeast-2")])
+	if supportedCol != unsupportedCol {
+		t.Errorf("region names not aligned: supported row starts region name at visual col %d (%q), unsupported at col %d (%q)",
+			supportedCol, supportedLine, unsupportedCol, unsupportedLine)
+	}
+}
+
+// TestPrintTable_NumericColumnsRightAligned guards the right-justification
+// of numeric columns (vCPUs, memory, GPUs, VRAM, price) — left-aligned
+// numbers of differing width read as ragged rather than tabular.
+func TestPrintTable_NumericColumnsRightAligned(t *testing.T) {
+	results := []aws.InstanceTypeResult{
+		{InstanceType: "g6e.2xlarge", Region: "us-east-1", VCPUs: 8, MemoryMiB: 64 * 1024, Architecture: "x86_64", GPUs: 1, GPUModel: "L40S", GPUManufacturer: "NVIDIA", GPUMemoryMiB: 45 * 1024, OnDemandPrice: 3.25},
+		{InstanceType: "g6e.24xlarge", Region: "us-east-1", VCPUs: 96, MemoryMiB: 768 * 1024, Architecture: "x86_64", GPUs: 4, GPUModel: "L40S", GPUManufacturer: "NVIDIA", GPUMemoryMiB: 179 * 1024, OnDemandPrice: 21.85},
+	}
+	out := captureStdout(t, func() {
+		_ = NewPrinter(false).PrintTableWithOptions(results, TableOptions{ShowPrice: true})
+	})
+	lines := strings.Split(out, "\n")
+	var shortRow, longRow string
+	for _, l := range lines {
+		if strings.Contains(l, "g6e.2xlarge ") {
+			shortRow = l
+		}
+		if strings.Contains(l, "g6e.24xlarge") {
+			longRow = l
+		}
+	}
+	if shortRow == "" || longRow == "" {
+		t.Fatalf("expected both instance rows in output:\n%s", out)
+	}
+	// "8" (1-digit vCPU) and "96" (2-digit vCPU) must end (be right-aligned)
+	// at the same column, not start at the same column.
+	shortEnd := strings.Index(shortRow, "8") + 1
+	longEnd := strings.Index(longRow, "96") + 2
+	if shortEnd != longEnd {
+		t.Errorf("vCPU column not right-aligned: %q vs %q", shortRow, longRow)
 	}
 }
 
