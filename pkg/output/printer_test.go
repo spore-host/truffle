@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/fatih/color"
 	"github.com/spore-host/truffle/pkg/aws"
@@ -535,6 +536,142 @@ func TestPrintTable_SpawnSupportedFooter(t *testing.T) {
 	}
 	if !strings.Contains(out, "✓ us-east-1") {
 		t.Errorf("expected spawn-support marker before region (#135):\n%s", out)
+	}
+}
+
+// TestPrintTable_RegionColumnAlignsAcrossSupportAndUnsupported guards against
+// a supported row's "✓ " marker shifting its region name two characters to
+// the right of an unsupported row's region name, which reads as ragged
+// rather than tabular. An unsupported row gets an equal-width blank pad
+// instead of nothing, so every region name starts in the same column.
+func TestPrintTable_RegionColumnAlignsAcrossSupportAndUnsupported(t *testing.T) {
+	results := []aws.InstanceTypeResult{
+		{InstanceType: "g6e.24xlarge", Region: "ap-northeast-1", VCPUs: 96, MemoryMiB: 768 * 1024, Architecture: "x86_64", SpawnSupported: true},
+		{InstanceType: "g6e.24xlarge", Region: "ap-northeast-2", VCPUs: 96, MemoryMiB: 768 * 1024, Architecture: "x86_64", SpawnSupported: false},
+	}
+	out := captureStdout(t, func() {
+		_ = NewPrinter(false).PrintTable(results, false, false)
+	})
+	lines := strings.Split(out, "\n")
+	var supportedLine, unsupportedLine string
+	for _, l := range lines {
+		if strings.Contains(l, "ap-northeast-1") {
+			supportedLine = l
+		}
+		if strings.Contains(l, "ap-northeast-2") {
+			unsupportedLine = l
+		}
+	}
+	if supportedLine == "" || unsupportedLine == "" {
+		t.Fatalf("expected both region rows in output:\n%s", out)
+	}
+	// Rune columns, not byte offsets — "✓" is a multi-byte UTF-8 character,
+	// so strings.Index's byte offset would differ from the visual column
+	// even when the rows are correctly aligned.
+	supportedCol := utf8.RuneCountInString(supportedLine[:strings.Index(supportedLine, "ap-northeast-1")])
+	unsupportedCol := utf8.RuneCountInString(unsupportedLine[:strings.Index(unsupportedLine, "ap-northeast-2")])
+	if supportedCol != unsupportedCol {
+		t.Errorf("region names not aligned: supported row starts region name at visual col %d (%q), unsupported at col %d (%q)",
+			supportedCol, supportedLine, unsupportedCol, unsupportedLine)
+	}
+}
+
+// TestPrintTable_NumericColumnsRightAligned guards the right-justification
+// of numeric columns (vCPUs, memory, GPUs, VRAM, price) — left-aligned
+// numbers of differing width read as ragged rather than tabular.
+func TestPrintTable_NumericColumnsRightAligned(t *testing.T) {
+	results := []aws.InstanceTypeResult{
+		{InstanceType: "g6e.2xlarge", Region: "us-east-1", VCPUs: 8, MemoryMiB: 64 * 1024, Architecture: "x86_64", GPUs: 1, GPUModel: "L40S", GPUManufacturer: "NVIDIA", GPUMemoryMiB: 45 * 1024, OnDemandPrice: 3.25},
+		{InstanceType: "g6e.24xlarge", Region: "us-east-1", VCPUs: 96, MemoryMiB: 768 * 1024, Architecture: "x86_64", GPUs: 4, GPUModel: "L40S", GPUManufacturer: "NVIDIA", GPUMemoryMiB: 179 * 1024, OnDemandPrice: 21.85},
+	}
+	out := captureStdout(t, func() {
+		_ = NewPrinter(false).PrintTableWithOptions(results, TableOptions{ShowPrice: true})
+	})
+	lines := strings.Split(out, "\n")
+	var shortRow, longRow string
+	for _, l := range lines {
+		if strings.Contains(l, "g6e.2xlarge ") {
+			shortRow = l
+		}
+		if strings.Contains(l, "g6e.24xlarge") {
+			longRow = l
+		}
+	}
+	if shortRow == "" || longRow == "" {
+		t.Fatalf("expected both instance rows in output:\n%s", out)
+	}
+	// "8" (1-digit vCPU) and "96" (2-digit vCPU) must end (be right-aligned)
+	// at the same column, not start at the same column.
+	shortEnd := strings.Index(shortRow, "8") + 1
+	longEnd := strings.Index(longRow, "96") + 2
+	if shortEnd != longEnd {
+		t.Errorf("vCPU column not right-aligned: %q vs %q", shortRow, longRow)
+	}
+}
+
+// TestPrintTable_InstanceTypeGroupsSortedLargestFirst guards against Go's
+// randomized map-iteration order: instance-type groups must render
+// largest-to-smallest vCPU (then Memory) rather than in whatever order
+// groupByInstanceType's map happens to yield.
+func TestPrintTable_InstanceTypeGroupsSortedLargestFirst(t *testing.T) {
+	results := []aws.InstanceTypeResult{
+		{InstanceType: "m7g.large", Region: "us-east-1", VCPUs: 2, MemoryMiB: 8 * 1024, Architecture: "arm64"},
+		{InstanceType: "m7g.4xlarge", Region: "us-east-1", VCPUs: 16, MemoryMiB: 64 * 1024, Architecture: "arm64"},
+		{InstanceType: "m7g.xlarge", Region: "us-east-1", VCPUs: 4, MemoryMiB: 16 * 1024, Architecture: "arm64"},
+		{InstanceType: "m7g.2xlarge", Region: "us-east-1", VCPUs: 8, MemoryMiB: 32 * 1024, Architecture: "arm64"},
+	}
+	out := captureStdout(t, func() {
+		_ = NewPrinter(false).PrintTable(results, false, false)
+	})
+	want := []string{"m7g.4xlarge", "m7g.2xlarge", "m7g.xlarge", "m7g.large"}
+	var gotOrder []string
+	for _, l := range strings.Split(out, "\n") {
+		for _, it := range want {
+			if strings.Contains(l, it) {
+				gotOrder = append(gotOrder, it)
+				break
+			}
+		}
+	}
+	if len(gotOrder) != len(want) {
+		t.Fatalf("expected %d instance-type rows, got %d:\n%s", len(want), len(gotOrder), out)
+	}
+	for i, it := range want {
+		if gotOrder[i] != it {
+			t.Errorf("row %d = %q, want %q (order: %v)", i, gotOrder[i], it, gotOrder)
+		}
+	}
+}
+
+// TestPrintTable_WithinGroupSortedByPriceDescending guards the within-group
+// ordering: once instance-type groups are sorted largest-first, the rows
+// inside a single group (one per region/AZ) must be highest-price first.
+func TestPrintTable_WithinGroupSortedByPriceDescending(t *testing.T) {
+	results := []aws.InstanceTypeResult{
+		{InstanceType: "c7g.large", Region: "us-west-2", VCPUs: 2, MemoryMiB: 4 * 1024, Architecture: "arm64", OnDemandPrice: 0.05},
+		{InstanceType: "c7g.large", Region: "us-east-1", VCPUs: 2, MemoryMiB: 4 * 1024, Architecture: "arm64", OnDemandPrice: 0.09},
+		{InstanceType: "c7g.large", Region: "eu-west-1", VCPUs: 2, MemoryMiB: 4 * 1024, Architecture: "arm64", OnDemandPrice: 0.07},
+	}
+	out := captureStdout(t, func() {
+		_ = NewPrinter(false).PrintTableWithOptions(results, TableOptions{ShowPrice: true})
+	})
+	want := []string{"us-east-1", "eu-west-1", "us-west-2"} // 0.09, 0.07, 0.05
+	var gotOrder []string
+	for _, l := range strings.Split(out, "\n") {
+		for _, region := range want {
+			if strings.Contains(l, region) {
+				gotOrder = append(gotOrder, region)
+				break
+			}
+		}
+	}
+	if len(gotOrder) != len(want) {
+		t.Fatalf("expected %d region rows, got %d:\n%s", len(want), len(gotOrder), out)
+	}
+	for i, region := range want {
+		if gotOrder[i] != region {
+			t.Errorf("row %d = %q, want %q (order: %v)", i, gotOrder[i], region, gotOrder)
+		}
 	}
 }
 

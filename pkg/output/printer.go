@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -30,9 +31,10 @@ func NewPrinter(useColor bool) *Printer {
 // We implement this directly because tablewriter v1.1.4 ignores
 // WithHeaderAutoFormat(tw.Off) and still applies CamelCase splitting to headers.
 type table struct {
-	headers  []string
-	rows     [][]string
-	useColor bool
+	headers    []string
+	rows       [][]string
+	useColor   bool
+	rightAlign []bool // per-column: true right-justifies (numeric columns)
 }
 
 func newTable(headers []string, useColor bool) *table {
@@ -41,6 +43,20 @@ func newTable(headers []string, useColor bool) *table {
 
 func (t *table) append(row []string) {
 	t.rows = append(t.rows, row)
+}
+
+// setRightAlign marks the given column indices as right-justified. Intended
+// for numeric columns (vCPUs, memory, GPU count, VRAM, price, quota) — left
+// alignment on those reads as ragged rather than tabular.
+func (t *table) setRightAlign(indices ...int) {
+	if t.rightAlign == nil {
+		t.rightAlign = make([]bool, len(t.headers))
+	}
+	for _, i := range indices {
+		if i >= 0 && i < len(t.rightAlign) {
+			t.rightAlign[i] = true
+		}
+	}
 }
 
 func (t *table) render() error {
@@ -92,8 +108,13 @@ func (t *table) render() error {
 				pad = 0
 			}
 			sb.WriteString(" ")
-			sb.WriteString(s)
-			sb.WriteString(strings.Repeat(" ", pad))
+			if i < len(t.rightAlign) && t.rightAlign[i] {
+				sb.WriteString(strings.Repeat(" ", pad))
+				sb.WriteString(s)
+			} else {
+				sb.WriteString(s)
+				sb.WriteString(strings.Repeat(" ", pad))
+			}
 			sb.WriteString(" │")
 		}
 		return sb.String()
@@ -196,8 +217,11 @@ func (p *Printer) printTable(results []aws.InstanceTypeResult, opts TableOptions
 		i18n.T("truffle.output.header.memory"),
 		i18n.T("truffle.output.header.architecture"),
 	}
+	// vCPUs and Memory are always present and always numeric.
+	rightAlignCols := []int{2, 3}
 	if hasGPU {
 		headers = append(headers, "GPUs", "GPU Model", "VRAM (GiB)")
+		rightAlignCols = append(rightAlignCols, len(headers)-3, len(headers)-1) // GPUs, VRAM — not GPU Model
 	}
 	if hasNestedV {
 		headers = append(headers, "Nested-Virt")
@@ -207,15 +231,18 @@ func (p *Printer) printTable(results []aws.InstanceTypeResult, opts TableOptions
 	}
 	if showPrice {
 		headers = append(headers, priceHeaderFor(opts.PriceUnit))
+		rightAlignCols = append(rightAlignCols, len(headers)-1)
 	}
 	if showQuota {
 		headers = append(headers, "Train Quota")
+		rightAlignCols = append(rightAlignCols, len(headers)-1)
 	}
 	if includeAZs {
 		headers = append(headers, i18n.T("truffle.output.header.availability_zones"))
 	}
 
 	table := newTable(headers, p.useColor)
+	table.setRightAlign(rightAlignCols...)
 
 	// Deduplicate: group by instanceType+region to collapse duplicate rows
 	type resultKey struct{ instanceType, region string }
@@ -231,13 +258,38 @@ func (p *Printer) printTable(results []aws.InstanceTypeResult, opts TableOptions
 
 	grouped := groupByInstanceType(deduped)
 
+	// Instance-type groups render largest-to-smallest by vCPU, then Memory
+	// (both descending), rather than Go's randomized map-iteration order.
+	// Within a group, rows sort by price descending — highest-priced
+	// region/AZ combination first.
+	instanceTypes := make([]string, 0, len(grouped))
+	for instanceType := range grouped {
+		instanceTypes = append(instanceTypes, instanceType)
+	}
+	sort.Slice(instanceTypes, func(i, j int) bool {
+		a, b := grouped[instanceTypes[i]][0], grouped[instanceTypes[j]][0]
+		if a.VCPUs != b.VCPUs {
+			return a.VCPUs > b.VCPUs
+		}
+		if a.MemoryMiB != b.MemoryMiB {
+			return a.MemoryMiB > b.MemoryMiB
+		}
+		return instanceTypes[i] < instanceTypes[j]
+	})
+	for _, regions := range grouped {
+		sort.SliceStable(regions, func(i, j int) bool {
+			return regions[i].OnDemandPrice > regions[j].OnDemandPrice
+		})
+	}
+
 	// Track whether any row actually renders the real-cores / mem-per-cpu
 	// detail (both are guarded by PhysicalCores>0 per-row), so the footer
 	// notes below don't claim a format that never appeared.
 	realCoresShown := false
 	memPerCPUShown := false
 
-	for instanceType, regions := range grouped {
+	for _, instanceType := range instanceTypes {
+		regions := grouped[instanceType]
 		for i, result := range regions {
 			memGiB := fmt.Sprintf("%.1f", float64(result.MemoryMiB)/1024.0)
 			memDisplay := memGiB
@@ -253,8 +305,12 @@ func (p *Printer) printTable(results []aws.InstanceTypeResult, opts TableOptions
 				realCoresShown = true
 			}
 
-			// Add spawn support indicator before the region name.
-			regionDisplay := result.Region
+			// Add spawn support indicator before the region name. A
+			// non-supported region gets a 2-space pad instead — matching the
+			// visual width of "✓ " — so region names line up in a column
+			// instead of the supported rows' names shifting two characters
+			// right of the unsupported ones.
+			var regionDisplay string
 			if result.SpawnSupported {
 				if p.useColor {
 					green := color.New(color.FgGreen)
@@ -262,6 +318,8 @@ func (p *Printer) printTable(results []aws.InstanceTypeResult, opts TableOptions
 				} else {
 					regionDisplay = "✓ " + result.Region
 				}
+			} else {
+				regionDisplay = "  " + result.Region
 			}
 
 			row := []string{
