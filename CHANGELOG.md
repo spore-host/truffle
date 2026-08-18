@@ -15,6 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   an equal-width blank pad instead. Numeric columns (vCPUs, Memory, GPUs,
   VRAM, price, Train Quota) are now right-justified instead of left-aligned,
   so values of differing digit width line up on their ones place.
+- **`find`/`search` table output: instance-type groups and within-group rows
+  had no defined order.** Groups (one per matched instance type) rendered in
+  Go's randomized map-iteration order — rerunning the identical query could
+  print the results in a different order each time. Groups now render
+  largest-to-smallest by vCPU, then Memory; within a group, rows (one per
+  region/AZ) now sort by price descending, highest first.
 
 ## [0.52.1] - 2026-08-17
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -257,13 +258,38 @@ func (p *Printer) printTable(results []aws.InstanceTypeResult, opts TableOptions
 
 	grouped := groupByInstanceType(deduped)
 
+	// Instance-type groups render largest-to-smallest by vCPU, then Memory
+	// (both descending), rather than Go's randomized map-iteration order.
+	// Within a group, rows sort by price descending — highest-priced
+	// region/AZ combination first.
+	instanceTypes := make([]string, 0, len(grouped))
+	for instanceType := range grouped {
+		instanceTypes = append(instanceTypes, instanceType)
+	}
+	sort.Slice(instanceTypes, func(i, j int) bool {
+		a, b := grouped[instanceTypes[i]][0], grouped[instanceTypes[j]][0]
+		if a.VCPUs != b.VCPUs {
+			return a.VCPUs > b.VCPUs
+		}
+		if a.MemoryMiB != b.MemoryMiB {
+			return a.MemoryMiB > b.MemoryMiB
+		}
+		return instanceTypes[i] < instanceTypes[j]
+	})
+	for _, regions := range grouped {
+		sort.SliceStable(regions, func(i, j int) bool {
+			return regions[i].OnDemandPrice > regions[j].OnDemandPrice
+		})
+	}
+
 	// Track whether any row actually renders the real-cores / mem-per-cpu
 	// detail (both are guarded by PhysicalCores>0 per-row), so the footer
 	// notes below don't claim a format that never appeared.
 	realCoresShown := false
 	memPerCPUShown := false
 
-	for instanceType, regions := range grouped {
+	for _, instanceType := range instanceTypes {
+		regions := grouped[instanceType]
 		for i, result := range regions {
 			memGiB := fmt.Sprintf("%.1f", float64(result.MemoryMiB)/1024.0)
 			memDisplay := memGiB

@@ -609,6 +609,72 @@ func TestPrintTable_NumericColumnsRightAligned(t *testing.T) {
 	}
 }
 
+// TestPrintTable_InstanceTypeGroupsSortedLargestFirst guards against Go's
+// randomized map-iteration order: instance-type groups must render
+// largest-to-smallest vCPU (then Memory) rather than in whatever order
+// groupByInstanceType's map happens to yield.
+func TestPrintTable_InstanceTypeGroupsSortedLargestFirst(t *testing.T) {
+	results := []aws.InstanceTypeResult{
+		{InstanceType: "m7g.large", Region: "us-east-1", VCPUs: 2, MemoryMiB: 8 * 1024, Architecture: "arm64"},
+		{InstanceType: "m7g.4xlarge", Region: "us-east-1", VCPUs: 16, MemoryMiB: 64 * 1024, Architecture: "arm64"},
+		{InstanceType: "m7g.xlarge", Region: "us-east-1", VCPUs: 4, MemoryMiB: 16 * 1024, Architecture: "arm64"},
+		{InstanceType: "m7g.2xlarge", Region: "us-east-1", VCPUs: 8, MemoryMiB: 32 * 1024, Architecture: "arm64"},
+	}
+	out := captureStdout(t, func() {
+		_ = NewPrinter(false).PrintTable(results, false, false)
+	})
+	want := []string{"m7g.4xlarge", "m7g.2xlarge", "m7g.xlarge", "m7g.large"}
+	var gotOrder []string
+	for _, l := range strings.Split(out, "\n") {
+		for _, it := range want {
+			if strings.Contains(l, it) {
+				gotOrder = append(gotOrder, it)
+				break
+			}
+		}
+	}
+	if len(gotOrder) != len(want) {
+		t.Fatalf("expected %d instance-type rows, got %d:\n%s", len(want), len(gotOrder), out)
+	}
+	for i, it := range want {
+		if gotOrder[i] != it {
+			t.Errorf("row %d = %q, want %q (order: %v)", i, gotOrder[i], it, gotOrder)
+		}
+	}
+}
+
+// TestPrintTable_WithinGroupSortedByPriceDescending guards the within-group
+// ordering: once instance-type groups are sorted largest-first, the rows
+// inside a single group (one per region/AZ) must be highest-price first.
+func TestPrintTable_WithinGroupSortedByPriceDescending(t *testing.T) {
+	results := []aws.InstanceTypeResult{
+		{InstanceType: "c7g.large", Region: "us-west-2", VCPUs: 2, MemoryMiB: 4 * 1024, Architecture: "arm64", OnDemandPrice: 0.05},
+		{InstanceType: "c7g.large", Region: "us-east-1", VCPUs: 2, MemoryMiB: 4 * 1024, Architecture: "arm64", OnDemandPrice: 0.09},
+		{InstanceType: "c7g.large", Region: "eu-west-1", VCPUs: 2, MemoryMiB: 4 * 1024, Architecture: "arm64", OnDemandPrice: 0.07},
+	}
+	out := captureStdout(t, func() {
+		_ = NewPrinter(false).PrintTableWithOptions(results, TableOptions{ShowPrice: true})
+	})
+	want := []string{"us-east-1", "eu-west-1", "us-west-2"} // 0.09, 0.07, 0.05
+	var gotOrder []string
+	for _, l := range strings.Split(out, "\n") {
+		for _, region := range want {
+			if strings.Contains(l, region) {
+				gotOrder = append(gotOrder, region)
+				break
+			}
+		}
+	}
+	if len(gotOrder) != len(want) {
+		t.Fatalf("expected %d region rows, got %d:\n%s", len(want), len(gotOrder), out)
+	}
+	for i, region := range want {
+		if gotOrder[i] != region {
+			t.Errorf("row %d = %q, want %q (order: %v)", i, gotOrder[i], region, gotOrder)
+		}
+	}
+}
+
 func TestPrintTable_SageMakerSpotEligibleAndFooter(t *testing.T) {
 	q := 4.0
 	results := []aws.InstanceTypeResult{
