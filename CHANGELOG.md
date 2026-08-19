@@ -38,8 +38,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   genuine query failure (AccessDenied, throttling) instead of collapsing both
   into the same opaque "all region queries failed" message. Callers can check
   for it with `errors.Is` (#110).
-
-### Fixed
 - **`GetCapacityBlockOfferings` dropped every per-region error**, printing
   them only under `--verbose` and always returning `(results, nil)` — the
   same bug class already fixed in #63/#109 for other discovery paths, but
@@ -53,6 +51,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   so a total failure across all regions read as "zero reservations"/"zero
   blocks" instead of surfacing the failure. Fixed to match the same contract
   (#110).
+- **`find`/`search`/`ResolveCard` didn't recognize hyphenated or `!`/`+`-suffixed
+  GPU spec strings** — Modal's documented GPU naming convention
+  (`RTX-PRO-6000`, `A100-80GB`, `H100!`, `B200+`) arrived as a single
+  whitespace-delimited token and matched no vocabulary entry, since the
+  tokenizer only split on spaces. `pkg/find.ParseQuery` now re-tokenizes a
+  word that fails every other classification by splitting on hyphens and
+  stripping a trailing `!`/`+` first, so e.g. `"rtx-pro-6000"` resolves
+  exactly like the already-working `"rtx pro 6000"`. A second, independent
+  bug in the CLI's pattern-vs-natural-language routing heuristic
+  (`looksLikePattern`) also needed fixing: `+` is a regex indicator so
+  `"B200+"` never reached the vocabulary check at all, and the check itself
+  compared against lowercase-keyed tables without lowercasing its input
+  first (silently masked for most terms by an accidental last-resort digit
+  regex, but not for a hyphenated query like `"A100-80GB"`). Both are fixed
+  via a new exported `find.IsRecognizedTerm`, checked case-insensitively
+  before any regex-indicator check (#130).
 - **`find`/`search` table output: region-name alignment and numeric-column
   justification.** A spawn-supported region's `✓ ` marker shifted its region
   name two characters right of an unsupported region's name in the same

@@ -326,12 +326,93 @@ func classifyTokens(words []string) []Token {
 			tokens = append(tokens, Token{Type: TokenMemory, Value: word, Raw: word})
 		} else if isQualitativeKeyword(word) {
 			tokens = append(tokens, Token{Type: TokenQualitative, Value: word, Raw: word})
+		} else if subwords, ok := normalizeHyphenatedToken(word); ok {
+			// Nothing above matched this word as a whole. Real GPU spec-strings
+			// (Modal's documented convention, e.g. "RTX-PRO-6000", "A100-80GB",
+			// "H100!", "B200+") hyphenate multi-word card names and append a
+			// trailing !/+ suffix — but the tokenizer only splits on whitespace,
+			// so these arrive as ONE token and no single- or multi-word lookup
+			// above ever sees "rtx", "pro", "6000" as separate words (#130).
+			// Re-run the classifier on the hyphen-split/suffix-stripped parts as
+			// if they'd been space-separated all along, so e.g. "rtx-pro-6000"
+			// resolves exactly like "rtx pro 6000" already does via matchPhrase's
+			// alias lookup, and "a100-80gb" resolves like "a100 80gb" (GPU +
+			// memory, two tokens) rather than needing a combined dictionary key.
+			// subwords is always shorter/different from []string{word} (see
+			// normalizeHyphenatedToken), so this cannot recurse forever.
+			tokens = append(tokens, classifyTokens(subwords)...)
 		} else {
 			tokens = append(tokens, Token{Type: TokenUnknown, Value: word, Raw: word})
 		}
 	}
 
 	return tokens
+}
+
+// IsRecognizedTerm reports whether a single space-free word is fully
+// classified by the tokenizer — i.e. resolves entirely to known token types,
+// with no leftover [TokenUnknown] part — after lowercasing and, if needed,
+// the same hyphen-split/suffix-strip normalization [ParseQuery] itself applies
+// (#130). It exists for callers upstream of ParseQuery that need to decide
+// whether a bare word is recognized vocabulary before choosing which pipeline
+// to hand it to — cmd's looksLikePattern uses it to avoid routing a real GPU
+// spec-string like "RTX-PRO-6000" or "a100-80gb" to the literal instance-type
+// pattern matcher just because it contains a hyphen or ends in a digit.
+func IsRecognizedTerm(word string) bool {
+	lower := strings.ToLower(strings.TrimSpace(word))
+	if lower == "" {
+		return false
+	}
+	toks := classifyTokens([]string{lower})
+	if len(toks) == 0 {
+		// A bare number with no unit lookahead (e.g. "8" with nothing after
+		// it) classifies to zero tokens rather than TokenUnknown — that is
+		// "nothing recognized," not "everything recognized."
+		return false
+	}
+	for _, t := range toks {
+		if t.Type == TokenUnknown {
+			return false
+		}
+	}
+	return true
+}
+
+// trailingSuffixRegex strips a Modal-documented card-spec suffix: "!" pins to
+// the named generation and opts out of auto-upgrade (e.g. "H100!"); "+" opts
+// in to a dual-generation match (e.g. "B200+"). Neither carries lexical
+// meaning for truffle's own vocabulary (no GPU/processor/instruction-set key
+// ends in one), so stripping it before classification is safe — it's dropped
+// rather than mapped to a token, since truffle has no generation-pinning
+// concept to route it to.
+var trailingSuffixRegex = regexp.MustCompile(`[!+]$`)
+
+// normalizeHyphenatedToken reports whether word — having already failed every
+// other single-word classification — is a hyphenated and/or suffixed spec
+// string that would classify successfully if split back into the
+// space-separated words it represents (#130). Returns the candidate subwords
+// and true only when that split could plausibly help: word must actually
+// contain a hyphen or a trailing !/+ (otherwise there's nothing to split, and
+// returning ok for an ordinary unknown word would recurse into itself forever
+// via classifyTokens).
+//
+// This intentionally does not check whether the subwords classify successfully
+// — it only decides whether re-tokenizing is worth attempting. A hyphenated
+// word that still doesn't resolve after splitting correctly falls through to
+// TokenUnknown for each part, same as typing those parts space-separated in
+// the first place.
+func normalizeHyphenatedToken(word string) ([]string, bool) {
+	stripped := trailingSuffixRegex.ReplaceAllString(word, "")
+	if !strings.Contains(stripped, "-") {
+		if stripped == word {
+			return nil, false // no hyphen, no suffix — nothing to normalize
+		}
+		// A bare suffix with no hyphen (e.g. "h100!"): one resulting subword,
+		// guaranteed different from the original (the suffix is gone), so no
+		// infinite recursion risk.
+		return []string{stripped}, true
+	}
+	return strings.Split(stripped, "-"), true
 }
 
 // parseMemory parses memory string (e.g., "32gb", "64gib") to GiB
