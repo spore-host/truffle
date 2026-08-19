@@ -1,0 +1,14 @@
+coverage:
+  status:
+    # cmd/ is CLI wiring over real AWS calls (aws.NewClient reads the
+    # ambient credential chain directly, not dependency-injected) — its
+    # integration tests (TestFindCommand_Integration-style) are gated behind
+    # `testing.Short()` and skipped by CI's `go test -short`, so they never
+    # contribute to the coverage report CI runs against. cmd/'s own
+    # aggregate sits at ~46% on main today; a patch target near the
+    # project-wide default (auto, ~70-80%) fails routine CLI-touching PRs
+    # for a pre-existing structural gap, not a regression they introduced.
+    patch:
+      default:
+        target: 50%
+        threshold: 5%
