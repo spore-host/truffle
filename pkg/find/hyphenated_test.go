@@ -145,8 +145,8 @@ func TestIsRecognizedTerm(t *testing.T) {
 		{"RTX-PRO-6000", true},
 		{"B200+", true},
 		{"h100!", true},
-		{"m7i", false},        // a real instance family, but not GPU/processor/instruction-set vocabulary
-		{"foo-bar", false},    // hyphenated but neither part resolves
+		{"m7i", false},     // a real instance family, but not GPU/processor/instruction-set vocabulary
+		{"foo-bar", false}, // hyphenated but neither part resolves
 		{"unknownword", false},
 		{"", false},
 		{"   ", false},
