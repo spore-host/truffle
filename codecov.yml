@@ -12,3 +12,4 @@ coverage:
       default:
         target: 50%
         threshold: 5%
+
