@@ -161,6 +161,7 @@ type TableOptions struct {
 	ShowQuota     bool
 	ShowRealCores bool      // vCPU column also shows "/physicalCores" (truffle#136)
 	ShowMemPerCPU bool      // Memory column appends a per-physical-core figure (truffle#137)
+	ShowGPURatios bool      // Adds vCPU/GPU and RAM/GPU columns for GPU rows (truffle#51)
 	PriceUnit     PriceUnit // hour (default), minute, or second (truffle#138)
 }
 
@@ -222,6 +223,10 @@ func (p *Printer) printTable(results []aws.InstanceTypeResult, opts TableOptions
 	if hasGPU {
 		headers = append(headers, "GPUs", "GPU Model", "VRAM (GiB)")
 		rightAlignCols = append(rightAlignCols, len(headers)-3, len(headers)-1) // GPUs, VRAM — not GPU Model
+		if opts.ShowGPURatios {
+			headers = append(headers, "vCPU/GPU", "RAM/GPU (GiB)")
+			rightAlignCols = append(rightAlignCols, len(headers)-2, len(headers)-1)
+		}
 	}
 	if hasNestedV {
 		headers = append(headers, "Nested-Virt")
@@ -349,8 +354,14 @@ func (p *Printer) printTable(results []aws.InstanceTypeResult, opts TableOptions
 						gpuCountDisplay = fmt.Sprintf("%.3g", result.GPUPartitionSize)
 					}
 					row = append(row, gpuCountDisplay, gpuModel, vramDisplay)
+					if opts.ShowGPURatios {
+						row = append(row, gpuRatioDisplay(result)...)
+					}
 				} else {
 					row = append(row, "-", "-", "-")
+					if opts.ShowGPURatios {
+						row = append(row, "-", "-")
+					}
 				}
 			}
 			if hasNestedV {
@@ -480,6 +491,34 @@ func printFooterNote(useColor bool, note string) {
 	} else {
 		fmt.Println(note)
 	}
+}
+
+// gpuRatioDisplay renders the vCPU/GPU and RAM/GPU columns for one GPU row
+// (truffle#51). The ratio decides whether a bigger box actually feeds its
+// accelerators better, which "vCPUs" and "GPUs" as separate columns force a
+// caller to compute by hand — e.g. g5.4xlarge (16 vCPU / 1 GPU = 16) vs
+// g5.12xlarge (48 vCPU / 4 GPUs = 12): the naive "4 GPUs → faster" reading is
+// backwards for a CPU/IO-bound workload, since the bigger instance actually
+// starves each GPU MORE.
+//
+// A fractional GPU (GPUs==0, GPUPartitionSize>0, e.g. g6f.large) has no whole
+// accelerator to divide by — "vCPU per GPU" is meaningless when the row IS a
+// slice of one GPU shared with other tenants, not a caller-controlled
+// resource-feeding ratio — so both columns render "-" rather than dividing by
+// a fractional count that would produce a number nobody asked for.
+func gpuRatioDisplay(result aws.InstanceTypeResult) []string {
+	if result.GPUs <= 0 {
+		return []string{"-", "-"}
+	}
+	vcpuPerGPU := float64(result.VCPUs) / float64(result.GPUs)
+	vcpuDisplay := fmt.Sprintf("%.1f", vcpuPerGPU)
+
+	ramDisplay := "-"
+	if result.MemoryMiB > 0 {
+		ramPerGPUGiB := float64(result.MemoryMiB) / 1024.0 / float64(result.GPUs)
+		ramDisplay = fmt.Sprintf("%.1f", ramPerGPUGiB)
+	}
+	return []string{vcpuDisplay, ramDisplay}
 }
 
 // priceHeaderFor returns the table header for a price column in the given unit.

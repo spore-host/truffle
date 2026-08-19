@@ -67,6 +67,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   regex, but not for a hyphenated query like `"A100-80GB"`). Both are fixed
   via a new exported `find.IsRecognizedTerm`, checked case-insensitively
   before any regex-indicator check (#130).
+
+### Added
+- **`find`/`search --show-gpu-ratios`** — adds `vCPU/GPU` and `RAM/GPU`
+  columns for GPU instance types, computed from the same specs already in
+  the table (`vcpus / gpus`, `memory / gpus`). For CPU/IO-bound ML workloads
+  (data prep or I/O-heavy inference, where the GPU sits idle waiting on
+  input) this ratio decides whether a bigger, more-GPU instance actually
+  helps — e.g. `g5.4xlarge` (16 vCPU / 1 GPU = 16.0) vs `g5.12xlarge` (48
+  vCPU / 4 GPUs = 12.0): the naive "4 GPUs → 4x throughput" reading is
+  backwards here, since the bigger box feeds each GPU worse, not better.
+  A fractional GPU (e.g. `g6f.large`, a time-sliced L4 partition) shows `-`
+  for both columns rather than a number computed against a shared,
+  caller-uncontrolled slice (#51).
+
+### Fixed
 - **`find`/`search` table output: region-name alignment and numeric-column
   justification.** A spawn-supported region's `✓ ` marker shifted its region
   name two characters right of an unsupported region's name in the same

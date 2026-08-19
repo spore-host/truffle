@@ -410,6 +410,143 @@ func TestPrintTable_PerGPUVRAM_FractionalGPU(t *testing.T) {
 	}
 }
 
+// TestPrintTable_ShowGPURatios_MotivatingExample reproduces #51's own
+// motivating comparison: g5.4xlarge (16 vCPU / 1 GPU = 16.0) vs g5.12xlarge
+// (48 vCPU / 4 GPUs = 12.0). The naive "4 GPUs → 4x faster" reading of the
+// separate columns is backwards for a CPU/IO-bound workload — the bigger box
+// actually starves each GPU MORE — which is exactly why the ratio needs its
+// own column instead of requiring the reader to compute it by hand.
+func TestPrintTable_ShowGPURatios_MotivatingExample(t *testing.T) {
+	results := []aws.InstanceTypeResult{
+		{InstanceType: "g5.4xlarge", Region: "us-east-1", VCPUs: 16, MemoryMiB: 65536, Architecture: "x86_64", GPUs: 1, GPUModel: "A10G", GPUManufacturer: "nvidia", GPUMemoryMiB: 22888},
+		{InstanceType: "g5.12xlarge", Region: "us-east-1", VCPUs: 48, MemoryMiB: 196608, Architecture: "x86_64", GPUs: 4, GPUModel: "A10G", GPUManufacturer: "nvidia", GPUMemoryMiB: 91552},
+	}
+	out := captureStdout(t, func() {
+		_ = NewPrinter(false).PrintTableWithOptions(results, TableOptions{ShowGPURatios: true})
+	})
+	for _, want := range []string{"vCPU/GPU", "RAM/GPU", "16.0", "12.0"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected %q in GPU-ratio table:\n%s", want, out)
+		}
+	}
+}
+
+// TestPrintTable_ShowGPURatios_RAMPerGPU checks the RAM/GPU figure
+// independently of vCPU/GPU: 196608 MiB (192 GiB) / 4 GPUs = 48.0 GiB/GPU.
+func TestPrintTable_ShowGPURatios_RAMPerGPU(t *testing.T) {
+	results := []aws.InstanceTypeResult{
+		{InstanceType: "g5.12xlarge", Region: "us-east-1", VCPUs: 48, MemoryMiB: 196608, Architecture: "x86_64", GPUs: 4, GPUModel: "A10G", GPUManufacturer: "nvidia", GPUMemoryMiB: 91552},
+	}
+	out := captureStdout(t, func() {
+		_ = NewPrinter(false).PrintTableWithOptions(results, TableOptions{ShowGPURatios: true})
+	})
+	if !strings.Contains(out, "48.0") {
+		t.Errorf("expected RAM/GPU = 48.0 (196608 MiB / 1024 / 4 GPUs):\n%s", out)
+	}
+}
+
+// TestPrintTable_ShowGPURatios_FractionalGPUShowsDash is the guard against a
+// meaningless ratio: a fractional GPU (GPUs==0, GPUPartitionSize>0, e.g.
+// g6f.large) is a slice of one GPU shared with other tenants, not a
+// caller-controlled resource-feeding ratio — dividing vCPUs by a fractional
+// count would produce a number that looks precise but answers no real
+// question, so both columns must render "-" instead.
+func TestPrintTable_ShowGPURatios_FractionalGPUShowsDash(t *testing.T) {
+	results := []aws.InstanceTypeResult{
+		{InstanceType: "g6f.large", Region: "us-east-1", VCPUs: 2, MemoryMiB: 8192, Architecture: "x86_64", GPUs: 0, GPUModel: "L4", GPUManufacturer: "nvidia", GPUMemoryMiB: 2861, GPUMemoryPerMiB: 2861, GPUPartitionSize: 0.125},
+	}
+	out := captureStdout(t, func() {
+		_ = NewPrinter(false).PrintTableWithOptions(results, TableOptions{ShowGPURatios: true})
+	})
+	if !strings.Contains(out, "vCPU/GPU") {
+		t.Fatalf("expected the vCPU/GPU header even for a fractional-GPU-only result set:\n%s", out)
+	}
+	// The row's own ratio cells must both be dashes: gpuRatioDisplay is
+	// exercised directly for this in TestGPURatioDisplay, so here just confirm
+	// the row renders at all with the ratio columns present and doesn't crash
+	// on a fractional GPU count (result.GPUs == 0).
+	lines := strings.Split(out, "\n")
+	found := false
+	for _, line := range lines {
+		if strings.Contains(line, "g6f.large") {
+			found = true
+			if strings.Count(line, "-") < 2 {
+				t.Errorf("expected the g6f.large row to show dash placeholders for both ratio columns, got:\n%s", line)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("g6f.large row missing from output:\n%s", out)
+	}
+}
+
+// TestPrintTable_ShowGPURatios_NonGPURowShowsDash confirms a non-GPU row in a
+// mixed result set gets dash placeholders for the ratio columns too, matching
+// the existing GPUs/GPU-Model/VRAM dash convention rather than omitting the
+// cells (which would misalign the table).
+func TestPrintTable_ShowGPURatios_NonGPURowShowsDash(t *testing.T) {
+	results := []aws.InstanceTypeResult{
+		{InstanceType: "g5.xlarge", Region: "us-east-1", VCPUs: 4, MemoryMiB: 16384, Architecture: "x86_64", GPUs: 1, GPUModel: "A10G", GPUManufacturer: "nvidia", GPUMemoryMiB: 24576},
+		{InstanceType: "c6a.xlarge", Region: "us-east-1", VCPUs: 4, MemoryMiB: 8192, Architecture: "x86_64"},
+	}
+	out := captureStdout(t, func() {
+		_ = NewPrinter(false).PrintTableWithOptions(results, TableOptions{ShowGPURatios: true})
+	})
+	if !strings.Contains(out, "vCPU/GPU") {
+		t.Fatalf("expected vCPU/GPU header in mixed GPU/non-GPU result set:\n%s", out)
+	}
+	lines := strings.Split(out, "\n")
+	for _, line := range lines {
+		if strings.Contains(line, "c6a.xlarge") && strings.Count(line, "-") < 4 {
+			// c6a.xlarge has no GPU: GPUs, GPU Model, VRAM, vCPU/GPU, RAM/GPU
+			// all render as dashes — at least 4 dash cells expected (GPU Model
+			// itself is "-" too).
+			t.Errorf("expected non-GPU row to show dash placeholders for GPU + ratio columns:\n%s", line)
+		}
+	}
+}
+
+// TestGPURatioDisplay exercises the pure helper directly for the boundary
+// cases the table-level tests above can't cleanly isolate: zero memory (would
+// otherwise divide into a bogus 0.0 instead of "-"), and a negative/absent GPU
+// count.
+func TestGPURatioDisplay(t *testing.T) {
+	tests := []struct {
+		name   string
+		result aws.InstanceTypeResult
+		want   []string
+	}{
+		{"whole GPU", aws.InstanceTypeResult{VCPUs: 16, MemoryMiB: 65536, GPUs: 1}, []string{"16.0", "64.0"}},
+		{"multi-GPU", aws.InstanceTypeResult{VCPUs: 48, MemoryMiB: 196608, GPUs: 4}, []string{"12.0", "48.0"}},
+		{"zero GPUs, no partition", aws.InstanceTypeResult{VCPUs: 4, MemoryMiB: 8192, GPUs: 0}, []string{"-", "-"}},
+		{"zero memory", aws.InstanceTypeResult{VCPUs: 8, MemoryMiB: 0, GPUs: 1}, []string{"8.0", "-"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := gpuRatioDisplay(tt.result)
+			if len(got) != 2 || got[0] != tt.want[0] || got[1] != tt.want[1] {
+				t.Errorf("gpuRatioDisplay(%+v) = %v, want %v", tt.result, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestPrintTable_ShowGPURatios_Default confirms the ratio columns are opt-in:
+// with ShowGPURatios unset (the zero value), the headers must NOT appear even
+// for a GPU-only result set, so existing table output/column count is
+// unaffected for callers that don't pass the new flag.
+func TestPrintTable_ShowGPURatios_Default(t *testing.T) {
+	results := []aws.InstanceTypeResult{
+		{InstanceType: "g5.xlarge", Region: "us-east-1", VCPUs: 4, MemoryMiB: 16384, Architecture: "x86_64", GPUs: 1, GPUModel: "A10G", GPUManufacturer: "nvidia", GPUMemoryMiB: 24576},
+	}
+	out := captureStdout(t, func() {
+		_ = NewPrinter(false).PrintTable(results, false, false)
+	})
+	if strings.Contains(out, "vCPU/GPU") || strings.Contains(out, "RAM/GPU") {
+		t.Errorf("ratio columns must not appear without --show-gpu-ratios:\n%s", out)
+	}
+}
+
 // TestPrintTable_ShowRealCores_Hyperthreaded covers a 2-threads-per-core type
 // (most x86), where vCPUs != physical cores.
 func TestPrintTable_ShowRealCores_Hyperthreaded(t *testing.T) {

@@ -30,6 +30,7 @@ var (
 	searchShowRealCores bool   // --show-real-cores flag: vCPU column also shows "/physicalCores" (#136)
 	searchShowMemPerCPU bool   // --show-mem-per-cpu flag: Memory column appends a per-physical-core figure (#137)
 	searchPriceUnit     string // --price-unit flag: hour (default), minute, or second (#138)
+	searchShowGPURatios bool   // --show-gpu-ratios flag: adds vCPU/GPU and RAM/GPU columns (#51)
 	timeout             time.Duration
 )
 
@@ -85,6 +86,7 @@ func init() {
 	searchCmd.Flags().BoolVar(&searchShowRealCores, "show-real-cores", false, "Show physical CPU core count alongside vCPUs (format: vCPU/CPU, e.g. 96/48)")
 	searchCmd.Flags().BoolVar(&searchShowMemPerCPU, "show-mem-per-cpu", false, "Show memory per physical core alongside total memory")
 	searchCmd.Flags().StringVar(&searchPriceUnit, "price-unit", "hour", "Price display unit for --show-price: hour, minute, or second")
+	searchCmd.Flags().BoolVar(&searchShowGPURatios, "show-gpu-ratios", false, "Add vCPU/GPU and RAM/GPU columns for GPU instance types (decisive for CPU/IO-bound ML workloads)")
 	searchCmd.Flags().DurationVar(&timeout, "timeout", 5*time.Minute, "Timeout for AWS API calls")
 
 	// Register completion for instance type argument
@@ -245,6 +247,7 @@ func runSearch(cmd *cobra.Command, args []string) error {
 			ShowQuota:     searchShowQuota && service == "sagemaker",
 			ShowRealCores: searchShowRealCores,
 			ShowMemPerCPU: searchShowMemPerCPU,
+			ShowGPURatios: searchShowGPURatios,
 			PriceUnit:     priceUnit,
 		}
 		return printer.PrintTableWithOptions(results, opts)
