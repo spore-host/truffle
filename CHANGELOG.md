@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **`truffle version` reported a hardcoded `0.1.0` on any build made from
+  source**, regardless of how many releases had shipped, because the
+  fallback default was a hand-maintained constant nothing updated (#121).
+  It also meant every source build's on-demand update check compared against
+  that stale number and claimed an upgrade was always available. `cmd.Version`
+  now defaults to empty and falls back through a new `pkg/buildinfo` package
+  (ported from spawn's `pkg/buildinfo`, spore-host/spawn#483) to the Go
+  toolchain's own build-stamp metadata, landing on an explicit `dev` sentinel
+  only when neither is available — never a plausible-looking number. A new
+  `scripts/check-release-version.sh` (wired into the release workflow and
+  runnable via `make check-release-version TAG=vX.Y.Z`) builds with the real
+  release ldflag and asserts the binary reports the tag, since `-X` targeting
+  a renamed/missing symbol fails silently at link time.
 - **`find`/`search` table output: region-name alignment and numeric-column
   justification.** A spawn-supported region's `✓ ` marker shifted its region
   name two characters right of an unsupported region's name in the same
