@@ -31,6 +31,7 @@ var (
 	findShowRealCores bool   // --show-real-cores flag: vCPU column also shows "/physicalCores" (#136)
 	findShowMemPerCPU bool   // --show-mem-per-cpu flag: Memory column appends a per-physical-core figure (#137)
 	findPriceUnit     string // --price-unit flag: hour (default), minute, or second (#138)
+	findShowGPURatios bool   // --show-gpu-ratios flag: adds vCPU/GPU and RAM/GPU columns (#51)
 )
 
 var findCmd = &cobra.Command{
@@ -99,6 +100,7 @@ func init() {
 	findCmd.Flags().BoolVar(&findShowRealCores, "show-real-cores", false, "Show physical CPU core count alongside vCPUs (format: vCPU/CPU, e.g. 96/48)")
 	findCmd.Flags().BoolVar(&findShowMemPerCPU, "show-mem-per-cpu", false, "Show memory per physical core alongside total memory")
 	findCmd.Flags().StringVar(&findPriceUnit, "price-unit", "hour", "Price display unit for --show-price: hour, minute, or second")
+	findCmd.Flags().BoolVar(&findShowGPURatios, "show-gpu-ratios", false, "Add vCPU/GPU and RAM/GPU columns for GPU instance types (decisive for CPU/IO-bound ML workloads)")
 }
 
 func runFind(cmd *cobra.Command, args []string) error {
@@ -509,6 +511,7 @@ func printFindTable(results []find.FindResult, printer *output.Printer) error {
 		ShowQuota:     findShowQuota && strings.EqualFold(findService, "sagemaker"),
 		ShowRealCores: findShowRealCores,
 		ShowMemPerCPU: findShowMemPerCPU,
+		ShowGPURatios: findShowGPURatios,
 		PriceUnit:     priceUnit,
 	}
 	return printer.PrintTableWithOptions(baseResults, opts)
@@ -687,6 +690,7 @@ func runSearchWithPattern(pattern, service string) error {
 			ShowQuota:     findShowQuota && service == "sagemaker",
 			ShowRealCores: findShowRealCores,
 			ShowMemPerCPU: findShowMemPerCPU,
+			ShowGPURatios: findShowGPURatios,
 			PriceUnit:     priceUnit,
 		}
 		return printer.PrintTableWithOptions(results, opts)

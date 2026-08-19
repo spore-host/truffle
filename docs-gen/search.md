@@ -22,6 +22,7 @@ truffle search [instance-type-pattern] [flags]
 | `--pick-first` |  | bool |  | Output only the top result's instance type (useful for piping to spawn) |
 | `--price-unit` |  | string | `hour` | Price display unit for --show-price: hour, minute, or second |
 | `--service` |  | string | `ec2` | Instance namespace to search: ec2 or sagemaker (ml.* types) |
+| `--show-gpu-ratios` |  | bool |  | Add vCPU/GPU and RAM/GPU columns for GPU instance types (decisive for CPU/IO-bound ML workloads) |
 | `--show-mem-per-cpu` |  | bool |  | Show memory per physical core alongside total memory |
 | `--show-price` |  | bool |  | Show on-demand pricing (uses static pricing data) |
 | `--show-quota` |  | bool |  | Show the per-type training-job quota (SageMaker only) |
