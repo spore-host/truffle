@@ -263,6 +263,21 @@ func (c *Client) GetInstanceTypes(ctx context.Context, region string) ([]string,
 	return instanceTypes, nil
 }
 
+// RegionResult reports the outcome of one region's contribution to a
+// multi-region query — see [Client.SearchInstanceTypesByRegion]. It exists so
+// an in-process (library) caller can attribute a partial failure to a specific
+// region instead of only seeing it printed to stderr (#117): a region whose
+// query errored and a region that genuinely has zero matches both look
+// identical in a flat []InstanceTypeResult, and for GPU discovery in
+// particular that ambiguity is expensive — a real regional gap and a masked
+// AccessDenied/throttle read the same way, in the direction that steers a
+// caller toward a worse, pricier region.
+type RegionResult struct {
+	Region string // AWS region this result covers
+	Err    error  // non-nil if the query for this region failed; nil on success
+	Count  int    // number of instance types returned for this region (0 on error)
+}
+
 // SearchInstanceTypes searches for instance types matching the pattern across regions.
 //
 // A nil matcher is valid and means "no instance-type constraint": every type
@@ -271,20 +286,61 @@ func (c *Client) GetInstanceTypes(ctx context.Context, region string) ([]string,
 // dereference here could not be recovered by the caller (recover only works in
 // the panicking goroutine) and would take down an in-process embedder's whole
 // process (#106).
+//
+// This is a thin wrapper around [Client.SearchInstanceTypesByRegion] that keeps
+// the original signature and CLI-oriented stderr warning; a caller that needs
+// to attribute a partial failure to a specific region (rather than just
+// noticing results might be incomplete) should call that method directly.
 func (c *Client) SearchInstanceTypes(ctx context.Context, regions []string, matcher *regexp.Regexp, opts FilterOptions) ([]InstanceTypeResult, error) {
+	results, regionResults, err := c.SearchInstanceTypesByRegion(ctx, regions, matcher, opts)
+	if err != nil {
+		return results, err
+	}
+
+	// Partial failure: some regions succeeded. Always warn (not just in Verbose)
+	// so a silently-degraded result is visible to a CLI caller. An in-process
+	// caller has regionResults for the same information without parsing stderr.
+	var failed []RegionResult
+	for _, rr := range regionResults {
+		if rr.Err != nil {
+			failed = append(failed, rr)
+		}
+	}
+	if len(failed) > 0 {
+		fmt.Fprintf(os.Stderr, "⚠️  Warning: %d of %d region queries failed; results may be incomplete:\n", len(failed), len(regionResults))
+		for _, rr := range failed {
+			fmt.Fprintf(os.Stderr, "    region %s: %v\n", rr.Region, rr.Err)
+		}
+	}
+
+	return results, nil
+}
+
+// SearchInstanceTypesByRegion is the library-oriented sibling of
+// [Client.SearchInstanceTypes]: alongside the combined result slice, it
+// returns one [RegionResult] per queried region so an in-process caller can
+// see exactly which regions succeeded, which failed, and how many types each
+// contributed — without capturing and parsing the CLI-oriented stderr warning
+// (#117).
+//
+// The returned error is non-nil only when every region failed (the #63
+// contract SearchInstanceTypes also honors); a partial failure is reported
+// solely through the per-region Err fields, alongside whatever results the
+// regions that did succeed returned.
+func (c *Client) SearchInstanceTypesByRegion(ctx context.Context, regions []string, matcher *regexp.Regexp, opts FilterOptions) ([]InstanceTypeResult, []RegionResult, error) {
 	var (
-		results []InstanceTypeResult
-		mu      sync.Mutex
-		wg      sync.WaitGroup
-		errCh   = make(chan error, len(regions))
+		results       []InstanceTypeResult
+		regionResults = make([]RegionResult, len(regions))
+		mu            sync.Mutex
+		wg            sync.WaitGroup
 	)
 
 	// Limit concurrent region queries
 	semaphore := make(chan struct{}, 10)
 
-	for _, region := range regions {
+	for i, region := range regions {
 		wg.Add(1)
-		go func(r string) {
+		go func(idx int, r string) {
 			defer wg.Done()
 			semaphore <- struct{}{}        // Acquire
 			defer func() { <-semaphore }() // Release
@@ -293,22 +349,22 @@ func (c *Client) SearchInstanceTypes(ctx context.Context, regions []string, matc
 				fmt.Fprintf(os.Stderr, "  Checking region: %s\n", r)
 			}
 
-			regionResults, err := c.searchInRegion(ctx, r, matcher, opts)
+			regionOut, err := c.searchInRegion(ctx, r, matcher, opts)
 			if err != nil {
-				errCh <- fmt.Errorf("region %s: %w", r, err)
+				regionResults[idx] = RegionResult{Region: r, Err: fmt.Errorf("region %s: %w", r, err)}
 				return
 			}
 
-			if len(regionResults) > 0 {
+			regionResults[idx] = RegionResult{Region: r, Count: len(regionOut)}
+			if len(regionOut) > 0 {
 				mu.Lock()
-				results = append(results, regionResults...)
+				results = append(results, regionOut...)
 				mu.Unlock()
 			}
-		}(region)
+		}(i, region)
 	}
 
 	wg.Wait()
-	close(errCh)
 
 	// Collect any per-region errors. A total failure (expired creds, throttling,
 	// an SCP denying the API) must not masquerade as a legitimate empty result —
@@ -316,25 +372,18 @@ func (c *Client) SearchInstanceTypes(ctx context.Context, regions []string, matc
 	// failure makes callers conclude a type/region is unavailable when the query
 	// never actually ran (#63).
 	var regionErrs []error
-	for err := range errCh {
-		regionErrs = append(regionErrs, err)
+	for _, rr := range regionResults {
+		if rr.Err != nil {
+			regionErrs = append(regionErrs, rr.Err)
+		}
 	}
 
 	if len(regions) > 0 && len(regionErrs) == len(regions) {
 		// Every region failed — surface it rather than returning empty success.
-		return results, fmt.Errorf("all %d region queries failed: %w", len(regions), errors.Join(regionErrs...))
+		return results, regionResults, fmt.Errorf("all %d region queries failed: %w", len(regions), errors.Join(regionErrs...))
 	}
 
-	// Partial failure: some regions succeeded. Always warn (not just in Verbose)
-	// so a silently-degraded result is visible.
-	if len(regionErrs) > 0 {
-		fmt.Fprintf(os.Stderr, "⚠️  Warning: %d of %d region queries failed; results may be incomplete:\n", len(regionErrs), len(regions))
-		for _, err := range regionErrs {
-			fmt.Fprintf(os.Stderr, "    %v\n", err)
-		}
-	}
-
-	return results, nil
+	return results, regionResults, nil
 }
 
 func (c *Client) searchInRegion(ctx context.Context, region string, matcher *regexp.Regexp, opts FilterOptions) ([]InstanceTypeResult, error) {

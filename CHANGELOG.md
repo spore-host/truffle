@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`Client.SearchInstanceTypesByRegion`**, a library-oriented sibling of
+  `SearchInstanceTypes` that returns a `[]RegionResult` (region, error, count)
+  alongside the combined results (#117). `SearchInstanceTypes` previously
+  signaled a partial region failure only via an unconditional stderr warning —
+  unobservable to an in-process (library) caller, which had no way to tell
+  "this region has no matches" from "this region's query failed" without
+  intercepting a process-global fd and parsing an emoji-prefixed string.
+  `SearchInstanceTypes` itself is now a thin wrapper over the new method and
+  keeps its original signature and CLI warning, so existing callers are
+  unaffected.
+
 ### Fixed
 - **`find`/`search` table output: region-name alignment and numeric-column
   justification.** A spawn-supported region's `✓ ` marker shifted its region
