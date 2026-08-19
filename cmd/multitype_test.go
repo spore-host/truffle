@@ -101,3 +101,36 @@ func TestSpotCmd_AcceptsMultipleArgs(t *testing.T) {
 		t.Error("spotCmd.Args accepted zero args, want an error (at least one pattern required)")
 	}
 }
+
+// TestFindCommand_MultiTypeComparison is the live-AWS integration sibling of
+// TestAllLookLikePatterns/TestCombinePatternsToRegex: it exercises runFind's
+// actual routing decision and runSearchWithPatterns end-to-end (#52), the
+// same way TestSpotCommand_Integration already covers spot's single-pattern
+// path. Skipped in -short mode, same as the rest of this file's real-AWS
+// tests.
+func TestFindCommand_MultiTypeComparison(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	resetCmdState()
+	rootCmd.SetArgs([]string{"find", "g5.2xlarge", "g5.4xlarge", "--regions", "us-east-1", "--skip-azs"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("find with multiple explicit types failed: %v", err)
+	}
+}
+
+// TestSpotCommand_MultiTypeComparison is the live-AWS integration sibling
+// of TestSpotCmd_AcceptsMultipleArgs: exercises runSpot's actual
+// combinePatternsToRegex + display-label path with more than one pattern
+// (#52), the same way TestSpotCommand_Integration covers the pre-existing
+// single-pattern case.
+func TestSpotCommand_MultiTypeComparison(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	resetCmdState()
+	rootCmd.SetArgs([]string{"spot", "m7i.large", "c7i.large", "--regions", "us-east-1"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("spot with multiple explicit types failed: %v", err)
+	}
+}
