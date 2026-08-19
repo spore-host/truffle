@@ -804,6 +804,20 @@ func (c *Client) GetCapacityBlockOfferings(ctx context.Context, regions []string
 
 			regionResults, err := c.getRegionCapacityBlockOfferings(ctx, r, opts)
 			if err != nil {
+				if isCapacityBlockIneligible(err) {
+					// Not a failed query — AWS answered definitively that this
+					// instance type isn't a Capacity Block type in this region
+					// (#110). Wrapping with the sentinel lets the aggregation step
+					// below tell "every region said not-eligible" apart from
+					// "every region's query actually failed" (AccessDenied,
+					// throttling, an SCP block) — those two currently collapse
+					// into the same opaque "all N region queries failed" message,
+					// which is a materially different answer for a caller
+					// deciding whether to wait for inventory versus pick a
+					// different type entirely.
+					errCh <- fmt.Errorf("region %s: %w: %w", r, ErrCapacityBlockIneligible, err)
+					return
+				}
 				errCh <- fmt.Errorf("region %s: %w", r, err)
 				return
 			}
@@ -831,6 +845,16 @@ func (c *Client) GetCapacityBlockOfferings(ctx context.Context, regions []string
 	}
 
 	if len(regions) > 0 && len(regionErrs) == len(regions) {
+		if allIneligible(regionErrs) {
+			// A clearer answer than the generic join below: AWS explicitly said
+			// this instance type isn't a Capacity Block type in any of the
+			// regions asked, which is a different situation for the caller than
+			// "the query itself failed everywhere" — the type will never have
+			// offerings here no matter how long they wait, versus a transient or
+			// permissions problem that a retry or an IAM fix resolves.
+			return results, fmt.Errorf("%w in all %d queried region(s): %w",
+				ErrCapacityBlockIneligible, len(regions), errors.Join(regionErrs...))
+		}
 		return results, fmt.Errorf("all %d region queries failed: %w", len(regions), errors.Join(regionErrs...))
 	}
 
@@ -844,6 +868,49 @@ func (c *Client) GetCapacityBlockOfferings(ctx context.Context, regions []string
 	}
 
 	return results, nil
+}
+
+// ErrCapacityBlockIneligible is wrapped into the error returned by
+// [Client.GetCapacityBlockOfferings] when AWS reports that the requested
+// instance type is not a Capacity Block type at all — a distinct outcome from
+// "the query failed" (AccessDenied, throttling) and from "no offerings right
+// now" (an empty, error-free result). Callers can check for it with
+// errors.Is. See #110.
+var ErrCapacityBlockIneligible = errors.New("truffle: instance type not eligible for Capacity Blocks")
+
+// isCapacityBlockIneligible reports whether an error from
+// DescribeCapacityBlockOfferings means the requested instance type is simply
+// not offered as a Capacity Block at all (e.g. general-purpose types like
+// c7i.4xlarge, or accelerators AWS hasn't enabled for it) — AWS returns
+// InvalidParameterValue with a message naming the type as unsupported. That is
+// a definitive, permanent answer for this type/region, not a failed query, and
+// it must not be conflated with an AccessDenied or throttled call (#110):
+// "ineligible" and "the query didn't run" call for different next steps.
+func isCapacityBlockIneligible(err error) bool {
+	var apiErr smithy.APIError
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	if apiErr.ErrorCode() != "InvalidParameterValue" {
+		return false
+	}
+	return strings.Contains(apiErr.ErrorMessage(), "not supported for Capacity Blocks")
+}
+
+// allIneligible reports whether every error in errs is (or wraps)
+// ErrCapacityBlockIneligible — used to give an all-regions-failed response a
+// more specific message than the generic error-join when every region's
+// answer was actually "not eligible", not a real query failure.
+func allIneligible(errs []error) bool {
+	if len(errs) == 0 {
+		return false
+	}
+	for _, err := range errs {
+		if !errors.Is(err, ErrCapacityBlockIneligible) {
+			return false
+		}
+	}
+	return true
 }
 
 func (c *Client) getRegionCapacityBlockOfferings(ctx context.Context, region string, opts CapacityBlockOfferingOptions) ([]CapacityBlockOfferingResult, error) {
@@ -1131,12 +1198,21 @@ func parsePrice(priceStr string) float64 {
 	return price
 }
 
-// GetCapacityReservations retrieves On-Demand Capacity Reservations (ODCRs)
+// GetCapacityReservations retrieves On-Demand Capacity Reservations (ODCRs).
+//
+// Applies the same #63/#110 contract as SearchInstanceTypes and
+// GetCapacityBlockOfferings: a total failure across all queried regions
+// returns an error rather than an empty success, since "no reservations"
+// (a normal, common answer for this call) would otherwise be indistinguishable
+// from "the query never ran" (expired credentials, throttling, an SCP denying
+// the API). A partial failure warns on stderr unconditionally rather than only
+// under --verbose, so a silently-degraded result stays visible.
 func (c *Client) GetCapacityReservations(ctx context.Context, regions []string, opts CapacityReservationOptions) ([]CapacityReservationResult, error) {
 	var (
 		results []CapacityReservationResult
 		mu      sync.Mutex
 		wg      sync.WaitGroup
+		errCh   = make(chan error, len(regions))
 	)
 
 	// Limit concurrent region queries
@@ -1155,9 +1231,7 @@ func (c *Client) GetCapacityReservations(ctx context.Context, regions []string, 
 
 			regionResults, err := c.getRegionCapacityReservations(ctx, r, opts)
 			if err != nil {
-				if opts.Verbose {
-					fmt.Fprintf(os.Stderr, "  Warning: failed to get capacity reservations for %s: %v\n", r, err)
-				}
+				errCh <- fmt.Errorf("region %s: %w", r, err)
 				return
 			}
 
@@ -1170,6 +1244,24 @@ func (c *Client) GetCapacityReservations(ctx context.Context, regions []string, 
 	}
 
 	wg.Wait()
+	close(errCh)
+
+	var regionErrs []error
+	for err := range errCh {
+		regionErrs = append(regionErrs, err)
+	}
+
+	if len(regions) > 0 && len(regionErrs) == len(regions) {
+		return results, fmt.Errorf("all %d region queries failed: %w", len(regions), errors.Join(regionErrs...))
+	}
+
+	if len(regionErrs) > 0 {
+		fmt.Fprintf(os.Stderr, "⚠️  Warning: %d of %d region queries failed; results may be incomplete:\n", len(regionErrs), len(regions))
+		for _, err := range regionErrs {
+			fmt.Fprintf(os.Stderr, "    %v\n", err)
+		}
+	}
+
 	return results, nil
 }
 
@@ -1257,12 +1349,20 @@ func (c *Client) getRegionCapacityReservations(ctx context.Context, region strin
 	return results, nil
 }
 
-// GetCapacityBlocks retrieves Capacity Blocks for ML
+// GetCapacityBlocks retrieves Capacity Blocks for ML you already own.
+//
+// Applies the same #63/#110 contract as GetCapacityReservations and
+// GetCapacityBlockOfferings: a total failure across all queried regions
+// returns an error rather than an empty success — "no blocks" is a plausible
+// and common answer for this call, which is exactly why a failed query must
+// not be allowed to produce it indistinguishably. A partial failure warns on
+// stderr unconditionally rather than only under --verbose.
 func (c *Client) GetCapacityBlocks(ctx context.Context, regions []string, opts CapacityBlockOptions) ([]CapacityBlockResult, error) {
 	var (
 		results []CapacityBlockResult
 		mu      sync.Mutex
 		wg      sync.WaitGroup
+		errCh   = make(chan error, len(regions))
 	)
 
 	// Limit concurrent region queries
@@ -1281,9 +1381,7 @@ func (c *Client) GetCapacityBlocks(ctx context.Context, regions []string, opts C
 
 			regionResults, err := c.getRegionCapacityBlocks(ctx, r, opts)
 			if err != nil {
-				if opts.Verbose {
-					fmt.Fprintf(os.Stderr, "  Warning: failed to get Capacity Blocks for %s: %v\n", r, err)
-				}
+				errCh <- fmt.Errorf("region %s: %w", r, err)
 				return
 			}
 
@@ -1296,6 +1394,24 @@ func (c *Client) GetCapacityBlocks(ctx context.Context, regions []string, opts C
 	}
 
 	wg.Wait()
+	close(errCh)
+
+	var regionErrs []error
+	for err := range errCh {
+		regionErrs = append(regionErrs, err)
+	}
+
+	if len(regions) > 0 && len(regionErrs) == len(regions) {
+		return results, fmt.Errorf("all %d region queries failed: %w", len(regions), errors.Join(regionErrs...))
+	}
+
+	if len(regionErrs) > 0 {
+		fmt.Fprintf(os.Stderr, "⚠️  Warning: %d of %d region queries failed; results may be incomplete:\n", len(regionErrs), len(regions))
+		for _, err := range regionErrs {
+			fmt.Fprintf(os.Stderr, "    %v\n", err)
+		}
+	}
+
 	return results, nil
 }
 

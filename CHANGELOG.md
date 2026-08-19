@@ -33,6 +33,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   runnable via `make check-release-version TAG=vX.Y.Z`) builds with the real
   release ldflag and asserts the binary reports the tag, since `-X` targeting
   a renamed/missing symbol fails silently at link time.
+- **`aws.ErrCapacityBlockIneligible`** — `GetCapacityBlockOfferings` now
+  distinguishes "this instance type is not a Capacity Block type here" from a
+  genuine query failure (AccessDenied, throttling) instead of collapsing both
+  into the same opaque "all region queries failed" message. Callers can check
+  for it with `errors.Is` (#110).
+
+### Fixed
+- **`GetCapacityBlockOfferings` dropped every per-region error**, printing
+  them only under `--verbose` and always returning `(results, nil)` — the
+  same bug class already fixed in #63/#109 for other discovery paths, but
+  reintroduced here. Since "no Capacity Block offerings" is a common,
+  legitimate answer for this query, a failed query (expired credentials, an
+  SCP denial, a throttle) was indistinguishable from genuinely sold-out
+  inventory. Now returns an error when every queried region fails, matching
+  `SearchInstanceTypes`/`GetSpotPricing` (#110).
+- **`GetCapacityReservations` and `GetCapacityBlocks` had the same bug** —
+  both discarded every per-region error and always returned `(results, nil)`,
+  so a total failure across all regions read as "zero reservations"/"zero
+  blocks" instead of surfacing the failure. Fixed to match the same contract
+  (#110).
 - **`find`/`search` table output: region-name alignment and numeric-column
   justification.** A spawn-supported region's `✓ ` marker shifted its region
   name two characters right of an unsupported region's name in the same

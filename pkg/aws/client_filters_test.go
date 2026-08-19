@@ -99,9 +99,20 @@ func TestValueOrZero(t *testing.T) {
 	}
 }
 
-// --- capacity reservation / block paths (substrate returns empty, no error) ---
+// --- capacity reservation / block paths ---
+//
+// Substrate does not implement DescribeCapacityReservations (it answers
+// InvalidAction), so every region query against it fails. Before #110,
+// GetCapacityReservations and GetCapacityBlocks discarded that failure and
+// returned (empty, nil) — these tests used to assert exactly that as "empty
+// substrate, no error", which only held because the error was being thrown
+// away. They now assert the #63 contract instead: a total failure surfaces as
+// an error, matching SearchInstanceTypes/GetCapacityBlockOfferings. See
+// TestGetCapacityBlockOfferings_AllRegionsFailed for the same fix applied
+// earlier to the offerings path (#109), and client_ineligible_test.go for the
+// newUnreachableClient-backed versions of this same contract.
 
-func TestGetCapacityReservations_Empty(t *testing.T) {
+func TestGetCapacityReservations_AllRegionsFailed(t *testing.T) {
 	env := testutil.SubstrateServer(t)
 	c := NewClientFromConfig(env.AWSConfig)
 
@@ -110,15 +121,15 @@ func TestGetCapacityReservations_Empty(t *testing.T) {
 		OnlyAvailable: true,
 		MinCapacity:   1,
 	})
-	if err != nil {
-		t.Fatalf("GetCapacityReservations error = %v", err)
+	if err == nil {
+		t.Fatal("all-regions failure returned nil error — an unanswered query must not read as 'zero reservations'")
 	}
 	if len(res) != 0 {
-		t.Errorf("expected 0 reservations from empty substrate, got %d", len(res))
+		t.Errorf("expected 0 reservations alongside the error, got %d", len(res))
 	}
 }
 
-func TestGetCapacityReservations_MultiRegion(t *testing.T) {
+func TestGetCapacityReservations_MultiRegionAllFailed(t *testing.T) {
 	env := testutil.SubstrateServer(t)
 	c := NewClientFromConfig(env.AWSConfig)
 
@@ -126,15 +137,15 @@ func TestGetCapacityReservations_MultiRegion(t *testing.T) {
 	res, err := c.GetCapacityReservations(context.Background(),
 		[]string{"us-east-1", "us-west-2"},
 		CapacityReservationOptions{InstanceTypes: []string{"p4d.24xlarge"}})
-	if err != nil {
-		t.Fatalf("GetCapacityReservations error = %v", err)
+	if err == nil {
+		t.Fatal("all-regions failure returned nil error, want the #63 contract to surface it")
 	}
 	if len(res) != 0 {
-		t.Errorf("expected 0 reservations, got %d", len(res))
+		t.Errorf("expected 0 reservations alongside the error, got %d", len(res))
 	}
 }
 
-func TestGetCapacityBlocks_Empty(t *testing.T) {
+func TestGetCapacityBlocks_AllRegionsFailed(t *testing.T) {
 	env := testutil.SubstrateServer(t)
 	c := NewClientFromConfig(env.AWSConfig)
 
@@ -144,11 +155,11 @@ func TestGetCapacityBlocks_Empty(t *testing.T) {
 		MinDuration:   24,
 		MaxDuration:   168,
 	})
-	if err != nil {
-		t.Fatalf("GetCapacityBlocks error = %v", err)
+	if err == nil {
+		t.Fatal("all-regions failure returned nil error — an unanswered query must not read as 'zero blocks'")
 	}
 	if len(res) != 0 {
-		t.Errorf("expected 0 blocks from empty substrate, got %d", len(res))
+		t.Errorf("expected 0 blocks alongside the error, got %d", len(res))
 	}
 }
 
