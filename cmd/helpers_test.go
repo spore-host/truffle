@@ -42,6 +42,48 @@ func TestLooksLikePattern_AcceleratorFamilies(t *testing.T) {
 	}
 }
 
+// TestLooksLikePattern_HyphenatedGPUSpecStrings is the regression test for
+// #130: Modal's documented GPU spec-string convention hyphenates multi-word
+// card names and appends a trailing "!"/"+" suffix
+// (gpu="RTX-PRO-6000", gpu="A100-80GB", gpu="H100!", gpu="B200+"). Two
+// independent bugs combined to break these at the CLI layer even after
+// pkg/find.ParseQuery itself was fixed to understand hyphenated/suffixed
+// tokens:
+//
+//  1. "+" is one of looksLikeRegex's indicator characters, so "B200+"/"b200+"
+//     matched the regex-pattern branch and never reached the vocabulary
+//     check at all.
+//  2. The vocabulary check (now find.IsRecognizedTerm) needs a lowercased
+//     comparison against the lowercase-keyed metadata tables — an uppercase
+//     query like "AVX2" or "H100" only avoided misrouting by the accident of
+//     also failing the digit-suffix regex; "A100-80GB" wasn't so lucky
+//     because its hyphen made it fail EVERY branch that could have routed it
+//     correctly.
+func TestLooksLikePattern_HyphenatedGPUSpecStrings(t *testing.T) {
+	wantNaturalLanguage := []string{
+		"RTX-PRO-6000", "rtx-pro-6000", "RTX-PRO-4500",
+		"A100-80GB", "a100-80gb",
+		"H100!", "h100!",
+		"B200+", "b200+",
+		"AVX2", // uppercase vocabulary: also broken pre-fix, same root cause
+	}
+	for _, q := range wantNaturalLanguage {
+		if looksLikePattern(q) {
+			t.Errorf("looksLikePattern(%q) = true, want false — this is a recognized GPU/instruction-set "+
+				"spec-string and must reach find.ParseQuery, not the literal instance-type pattern matcher (#130)", q)
+		}
+	}
+
+	// Real patterns containing a hyphen (an actual instance family suffix)
+	// must still route as patterns — the fix must not swallow every hyphen.
+	wantPattern := []string{"m7i-flex.large", "m7i-flex"}
+	for _, q := range wantPattern {
+		if !looksLikePattern(q) {
+			t.Errorf("looksLikePattern(%q) = false, want true (a real hyphenated instance family, not vocabulary)", q)
+		}
+	}
+}
+
 func TestWildcardToRegex(t *testing.T) {
 	tests := []struct {
 		pattern string

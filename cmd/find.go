@@ -14,7 +14,6 @@ import (
 	"github.com/spore-host/libs/i18n"
 	"github.com/spore-host/truffle/pkg/aws"
 	"github.com/spore-host/truffle/pkg/find"
-	"github.com/spore-host/truffle/pkg/metadata"
 	"github.com/spore-host/truffle/pkg/output"
 	"github.com/spore-host/truffle/pkg/progress"
 )
@@ -47,6 +46,8 @@ Understands:
   - CPU vendors: intel, amd, graviton, nvidia
   - Processors: emerald rapids, sapphire rapids, ice lake, genoa, turin, milan
   - GPUs: h200, h100, a100, b200, b300, l40s, l4, a10g, t4, rtx, inferentia, trainium
+    (hyphenated/suffixed spec strings also work, e.g. "RTX-PRO-6000",
+    "A100-80GB", "H100!", "B200+" — Modal's documented GPU naming convention)
   - Instruction sets: avx2, avx-512, sve, sve2
   - NVIDIA MIG: mig (matches only GPUs supporting Multi-Instance GPU
     partitioning — A100, H100, H200, B200, RTX PRO 6000/4500; NOT
@@ -539,6 +540,20 @@ func instanceGeneration(instanceType string) int {
 // looksLikePattern returns true if the query looks like an instance type pattern
 // (glob or regex) rather than a natural language query.
 func looksLikePattern(query string) bool {
+	// A single word that fully resolves as known vocabulary — a GPU,
+	// processor, or instruction-set term, including a hyphenated/suffixed
+	// spec-string spelling like "RTX-PRO-6000", "A100-80GB", "H100!", "B200+"
+	// (#130) — always takes the natural-language path, checked BEFORE the
+	// wildcard/regex-indicator checks below. This has to come first: "+" is
+	// one of the indicators looksLikeRegex treats as "this must be a regex",
+	// so without this ordering "B200+"/"b200+" (a real, documented Modal
+	// spec-string) matched looksLikeRegex and never reached the vocabulary
+	// check that would have recognized it. No real GPU/processor/
+	// instruction-set key contains '*' or '?' either, so checking vocabulary
+	// first cannot misroute an actual glob/regex query.
+	if !strings.Contains(query, " ") && find.IsRecognizedTerm(query) {
+		return false
+	}
 	if strings.ContainsAny(query, "*?") {
 		return true
 	}
@@ -553,43 +568,10 @@ func looksLikePattern(query string) bool {
 	// parser, which emitted a ".*" match-everything pattern and hung/returned the
 	// whole catalog (#69-class bug). Match one-or-more leading letters + a
 	// generation digit instead.
-	//
-	// EXCEPTION: a handful of real vocabulary terms also match this shape
-	// (avx2, sve2, and any future "sveN"/"avxN"-style instruction set) — check
-	// GPU/instruction-set/processor tables first so a recognized keyword is
-	// never misrouted to the literal pattern matcher (which would 0-match it,
-	// since no instance family is literally named "avx2" or "sve2").
 	if !strings.Contains(query, " ") {
-		if isKnownVocabularyTerm(query) {
-			return false
-		}
-		if matched, _ := regexp.MatchString(`^[a-z]+\d`, query); matched {
+		if matched, _ := regexp.MatchString(`(?i)^[a-z]+\d`, query); matched {
 			return true
 		}
-	}
-	return false
-}
-
-// isKnownVocabularyTerm reports whether word is a recognized single-word
-// GPU, processor, or instruction-set term (including aliases) — the same
-// tables pkg/find's tokenizer itself checks. Used by looksLikePattern to
-// avoid misrouting a real vocabulary word that happens to end in a digit
-// (e.g. "avx2", "sve2") to the literal instance-type pattern matcher.
-func isKnownVocabularyTerm(word string) bool {
-	if _, ok := metadata.InstructionSetDatabase[word]; ok {
-		return true
-	}
-	if _, ok := metadata.InstructionSetAliases[word]; ok {
-		return true
-	}
-	if _, ok := metadata.GPUDatabase[word]; ok {
-		return true
-	}
-	if _, ok := metadata.GPUAliases[word]; ok {
-		return true
-	}
-	if _, ok := metadata.ProcessorDatabase[word]; ok {
-		return true
 	}
 	return false
 }

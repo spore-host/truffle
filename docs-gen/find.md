@@ -10,6 +10,8 @@ Understands:
   - CPU vendors: intel, amd, graviton, nvidia
   - Processors: emerald rapids, sapphire rapids, ice lake, genoa, turin, milan
   - GPUs: h200, h100, a100, b200, b300, l40s, l4, a10g, t4, rtx, inferentia, trainium
+    (hyphenated/suffixed spec strings also work, e.g. "RTX-PRO-6000",
+    "A100-80GB", "H100!", "B200+" — Modal's documented GPU naming convention)
   - Instruction sets: avx2, avx-512, sve, sve2
   - NVIDIA MIG: mig (matches only GPUs supporting Multi-Instance GPU
     partitioning — A100, H100, H200, B200, RTX PRO 6000/4500; NOT
