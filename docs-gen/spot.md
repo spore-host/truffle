@@ -15,7 +15,7 @@ Examples:
   truffle spot "c7.*" --sort-by-price
 
 ```
-truffle spot [instance-type-pattern] [flags]
+truffle spot <instance-type-pattern>... [flags]
 ```
 
 **Flags:**

@@ -42,6 +42,8 @@ var findCmd = &cobra.Command{
 Auto-detects query type:
   - Patterns: m7i*, c[6-8]i.large, g5.* → pattern matching
   - Natural language: "graviton 8 cores 32gb" → spec-based search
+  - Multiple explicit types as separate args compare side-by-side in one
+    table: truffle find g5.2xlarge g5.4xlarge g5.12xlarge
 
 Understands:
   - CPU vendors: intel, amd, graviton, nvidia
@@ -68,6 +70,7 @@ Understands:
     OR — "a100 h100" always means A100-or-H100, since no instance is both.
 
 Examples:
+  truffle find g5.2xlarge g5.4xlarge g5.12xlarge (multi-type comparison)
   truffle find "m7i*"                         (glob pattern)
   truffle find "c[6-8]i.large"                (regex pattern)
   truffle find graviton                       (vendor search)
@@ -104,6 +107,27 @@ func init() {
 }
 
 func runFind(cmd *cobra.Command, args []string) error {
+	service, err := validateServiceFlag(findService)
+	if err != nil {
+		return err
+	}
+
+	if _, err := validatePriceUnitFlag(findPriceUnit); err != nil {
+		return err
+	}
+
+	// Multiple explicit instance types/patterns as separate args (e.g.
+	// `truffle find g5.2xlarge g5.4xlarge g5.12xlarge`) — a first-class
+	// side-by-side comparison, distinct from a multi-word natural-language
+	// query (e.g. `truffle find 8 cores 32gb`), which must keep joining into
+	// one query string below (#52). Only take this path when EVERY arg
+	// individually looks like a pattern; if even one doesn't, args are a
+	// single NL query whose words happen to be split across argv (the
+	// pre-existing, unambiguous case) and get joined as before.
+	if len(args) > 1 && findApp == "" && allLookLikePatterns(args) {
+		return runSearchWithPatterns(args, service)
+	}
+
 	// Join args to handle multi-word queries
 	queryStr := strings.Join(args, " ")
 
@@ -119,15 +143,6 @@ func runFind(cmd *cobra.Command, args []string) error {
 
 	if queryStr == "" {
 		return fmt.Errorf("query or --app required")
-	}
-
-	service, err := validateServiceFlag(findService)
-	if err != nil {
-		return err
-	}
-
-	if _, err := validatePriceUnitFlag(findPriceUnit); err != nil {
-		return err
 	}
 
 	// Auto-detect: if query looks like a pattern (glob or regex), route to
@@ -579,9 +594,62 @@ func looksLikePattern(query string) bool {
 	return false
 }
 
+// allLookLikePatterns reports whether every arg individually looks like an
+// instance-type pattern (glob, regex, or exact type) rather than a
+// natural-language term. Used to decide whether multiple args are a
+// side-by-side multi-type comparison (`truffle find g5.2xlarge g5.4xlarge`,
+// #52) versus a multi-word NL query whose words simply arrived as separate
+// argv entries (`truffle find 8 cores 32gb`) — the latter must still be
+// joined into one query string, since e.g. "8" and "cores" individually
+// aren't patterns but "8 cores" together IS meaningful to ParseQuery.
+func allLookLikePatterns(args []string) bool {
+	for _, a := range args {
+		if !looksLikePattern(a) {
+			return false
+		}
+	}
+	return true
+}
+
+// combinePatternsToRegex ORs multiple instance-type patterns into one regexp
+// via alternation, so a multi-type comparison query still runs as a single
+// SearchInstanceTypes call instead of N separate ones (#52). Each pattern is
+// converted and anchored independently first (patternToRegex already wraps
+// each in ^...$), then the anchors are stripped before joining so the
+// alternation applies to the whole combined pattern, not to a suffix of it.
+func combinePatternsToRegex(patterns []string) string {
+	parts := make([]string, 0, len(patterns))
+	for _, p := range patterns {
+		re := patternToRegex(p)
+		re = strings.TrimPrefix(re, "^")
+		re = strings.TrimSuffix(re, "$")
+		parts = append(parts, "(?:"+re+")")
+	}
+	return "^(?:" + strings.Join(parts, "|") + ")$"
+}
+
+// runSearchWithPatterns is the multi-type sibling of runSearchWithPattern
+// (#52): it combines every pattern into one alternated regex and runs a
+// single search, so `truffle find g5.2xlarge g5.4xlarge g5.12xlarge` renders
+// all three as rows in one comparison table instead of requiring one
+// invocation per type. Shares the same downstream rendering path as the
+// single-pattern case — only pattern compilation and the display label for
+// the search-progress spinner differ.
+func runSearchWithPatterns(patterns []string, service string) error {
+	return runSearchWithPatternDisplay(combinePatternsToRegex(patterns), strings.Join(patterns, ", "), service)
+}
+
 // runSearchWithPattern runs a pattern-based search (the same logic as the search command).
 func runSearchWithPattern(pattern, service string) error {
-	regexPattern := patternToRegex(pattern)
+	return runSearchWithPatternDisplay(patternToRegex(pattern), pattern, service)
+}
+
+// runSearchWithPatternDisplay is the shared implementation behind
+// runSearchWithPattern and runSearchWithPatterns: regexPattern is the
+// already-built, already-anchored regex to search with; display is what the
+// progress spinner shows (a single pattern, or "type1, type2, type3" for a
+// multi-type comparison).
+func runSearchWithPatternDisplay(regexPattern, display, service string) error {
 	matcher, err := regexp.Compile(regexPattern)
 	if err != nil {
 		return i18n.Te("truffle.search.error.invalid_pattern", err)
@@ -610,7 +678,7 @@ func runSearchWithPattern(pattern, service string) error {
 
 	var spinner *progress.Spinner
 	if !verbose && outputFormat == "table" {
-		msg := fmt.Sprintf("Searching '%s' across %d %s...", pattern, len(searchRegions), pluralize(len(searchRegions), "region", "regions"))
+		msg := fmt.Sprintf("Searching '%s' across %d %s...", display, len(searchRegions), pluralize(len(searchRegions), "region", "regions"))
 		spinner = progress.NewSpinner(os.Stderr, msg)
 		spinner.Start()
 	}

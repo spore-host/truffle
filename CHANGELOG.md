@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **`find` and `spot` accept multiple explicit instance types/patterns as
+  separate arguments and render them as rows in one comparison table**
+  instead of requiring one invocation per type — `truffle find g5.2xlarge
+  g5.4xlarge g5.12xlarge` or `truffle spot g5.2xlarge g5.4xlarge` now runs a
+  single search instead of erroring (`spot` previously rejected anything
+  beyond one argument outright) or misinterpreting the extra types as a
+  natural-language query. Multi-word NL queries whose words simply arrived
+  as separate argv entries (`truffle find 8 cores 32gb`) are unaffected —
+  the multi-type path only activates when EVERY argument individually
+  resolves as an instance-type pattern (#52).
+
 ### Added
 - **`Client.SearchInstanceTypesByRegion`**, a library-oriented sibling of
   `SearchInstanceTypes` that returns a `[]RegionResult` (region, error, count)
