@@ -9,6 +9,7 @@ import (
 	"github.com/spore-host/libs/i18n"
 	"github.com/spore-host/libs/update"
 	"github.com/spore-host/truffle/pkg/awscfg"
+	"github.com/spore-host/truffle/pkg/buildinfo"
 )
 
 var (
@@ -60,7 +61,7 @@ func Execute() {
 	ensureI18nInitialized()
 
 	// Start async update check (non-blocking, respects SPORE_NO_UPDATE_CHECK)
-	updateCh := update.CheckAsync("truffle", Version)
+	updateCh := startUpdateCheck(version())
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -76,6 +77,23 @@ func Execute() {
 	default:
 		// Check didn't finish in time — skip silently
 	}
+}
+
+// startUpdateCheck kicks off the background release check for the resolved
+// version, or returns an already-closed channel for a dev build.
+//
+// Skipping dev builds is not cosmetic: libs' semver parser reads "dev" as 0.0.0,
+// so a source build would compare 0.0.0 against the newest release and nag on
+// every single command — including when the build is actually AHEAD of the last
+// release, which is the normal state while developing. The old hardcoded 0.1.0
+// default had the same effect for a less visible reason (#121).
+func startUpdateCheck(current string) <-chan *update.Result {
+	if buildinfo.IsDev(current) {
+		ch := make(chan *update.Result)
+		close(ch) // a receive returns nil immediately; HasUpdate() is nil-safe
+		return ch
+	}
+	return update.CheckAsync("truffle", current)
 }
 
 func init() {

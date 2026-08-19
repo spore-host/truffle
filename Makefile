@@ -1,4 +1,4 @@
-.PHONY: build clean install test lint fmt check-fmt run help vuln gen-docs check-docs
+.PHONY: build clean install test lint fmt check-fmt run help vuln gen-docs check-docs check-release-version
 
 # Variables
 BINARY_NAME=truffle
@@ -27,6 +27,12 @@ gen-docs:
 ## check-docs: Drift gate — regenerate and fail if the committed reference is stale.
 check-docs: gen-docs
 	git diff --exit-code docs-gen/ || { echo "::error::docs-gen/ is stale — run 'make gen-docs' and commit"; exit 1; }
+
+## check-release-version: Release guard — build with the real release ldflag and
+## assert the binary reports the tag (#121). Run before tagging:
+##   make check-release-version TAG=v0.53.0
+check-release-version:
+	@scripts/check-release-version.sh $(TAG)
 
 ## build: Build the binary
 build:
