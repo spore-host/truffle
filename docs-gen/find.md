@@ -5,6 +5,8 @@ Find EC2 instance types using natural language, glob patterns, or regex.
 Auto-detects query type:
   - Patterns: m7i*, c[6-8]i.large, g5.* → pattern matching
   - Natural language: "graviton 8 cores 32gb" → spec-based search
+  - Multiple explicit types as separate args compare side-by-side in one
+    table: truffle find g5.2xlarge g5.4xlarge g5.12xlarge
 
 Understands:
   - CPU vendors: intel, amd, graviton, nvidia
@@ -31,6 +33,7 @@ Understands:
     OR — "a100 h100" always means A100-or-H100, since no instance is both.
 
 Examples:
+  truffle find g5.2xlarge g5.4xlarge g5.12xlarge (multi-type comparison)
   truffle find "m7i*"                         (glob pattern)
   truffle find "c[6-8]i.large"                (regex pattern)
   truffle find graviton                       (vendor search)

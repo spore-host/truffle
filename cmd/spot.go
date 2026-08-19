@@ -6,6 +6,7 @@ import (
 	"os"
 	"regexp"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -25,8 +26,8 @@ var (
 )
 
 var spotCmd = &cobra.Command{
-	Use:  "spot [instance-type-pattern]",
-	Args: cobra.ExactArgs(1),
+	Use:  "spot <instance-type-pattern>...",
+	Args: cobra.MinimumNArgs(1), // multiple explicit types compare side-by-side in one table (#52)
 	RunE: runSpot,
 	// Short and Long will be set after i18n initialization
 }
@@ -48,18 +49,22 @@ func init() {
 }
 
 func runSpot(cmd *cobra.Command, args []string) error {
-	pattern := args[0]
-
-	// Convert pattern to regex (supports both glob wildcards and full regex)
-	regexPattern := patternToRegex(pattern)
+	// Multiple explicit types (e.g. `truffle spot g5.2xlarge g5.4xlarge
+	// g5.12xlarge`) combine into one alternated regex so they render as rows
+	// in a single comparison table (#52), instead of cobra's previous
+	// ExactArgs(1) rejecting anything beyond the first pattern outright.
+	// combinePatternsToRegex handles both the single- and multi-pattern case
+	// identically — args[0] alone just produces a one-armed alternation.
+	regexPattern := combinePatternsToRegex(args)
 	matcher, err := regexp.Compile(regexPattern)
 	if err != nil {
 		return i18n.Te("truffle.spot.error.invalid_pattern", err)
 	}
+	display := strings.Join(args, ", ")
 
 	if verbose {
 		fmt.Fprintf(os.Stderr, "%s %s\n", i18n.Emoji("money_bag"), i18n.Tf("truffle.spot.searching", map[string]interface{}{
-			"Pattern": pattern,
+			"Pattern": display,
 		}))
 		if spotMaxPrice > 0 {
 			fmt.Fprintf(os.Stderr, "%s %s\n", i18n.Emoji("dollar"), i18n.Tf("truffle.spot.max_price_filter", map[string]interface{}{
