@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.53.1] - 2026-08-29
+
+### Security
+- Routine minor/patch dependency updates via Dependabot: AWS SDK Go v2 core,
+  `config`, `credentials`, and the `ec2`, `pricing`, `servicequotas` service
+  clients (all patch bumps), `smithy-go` (patch bump), and
+  `github.com/scttfrdmn/substrate` (0.97.0 to 0.102.0) (#156).
+
 ## [0.53.0] - 2026-08-19
 
 ### Changed
@@ -760,7 +768,8 @@ Initial tagged release from the standalone `spore-host/truffle` repository.
 Older releases are summarized in the
 [GitHub Releases](https://github.com/spore-host/truffle/releases) for this repo.
 
-[Unreleased]: https://github.com/spore-host/truffle/compare/v0.53.0...HEAD
+[Unreleased]: https://github.com/spore-host/truffle/compare/v0.53.1...HEAD
+[0.53.1]: https://github.com/spore-host/truffle/compare/v0.53.0...v0.53.1
 [0.53.0]: https://github.com/spore-host/truffle/compare/v0.52.1...v0.53.0
 [0.52.1]: https://github.com/spore-host/truffle/compare/v0.52.0...v0.52.1
 [0.52.0]: https://github.com/spore-host/truffle/compare/v0.51.0...v0.52.0
