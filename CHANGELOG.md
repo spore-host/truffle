@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.53.2] - 2026-09-03
+
+### Security
+- Routine minor/patch dependency updates via Dependabot: AWS SDK Go v2 core,
+  `config`, `credentials`, and the `ec2`, `pricing`, `servicequotas` service
+  clients (all patch bumps), `smithy-go` (patch bump), and
+  `github.com/scttfrdmn/substrate` (0.97.0 to 0.109.0) (#157). Also bumps
+  `google.golang.org/grpc` (an indirect dependency pulled in via
+  `pkg/testutil` → substrate's test emulator → OpenTelemetry's OTLP/gRPC
+  exporter) from v1.83.0 to v1.83.2 to pick up the fix for CVE-2026-84304
+  (HIGH), which the post-merge Trivy scan flagged.
+
 ## [0.53.1] - 2026-08-29
 
 ### Security
@@ -768,7 +780,8 @@ Initial tagged release from the standalone `spore-host/truffle` repository.
 Older releases are summarized in the
 [GitHub Releases](https://github.com/spore-host/truffle/releases) for this repo.
 
-[Unreleased]: https://github.com/spore-host/truffle/compare/v0.53.1...HEAD
+[Unreleased]: https://github.com/spore-host/truffle/compare/v0.53.2...HEAD
+[0.53.2]: https://github.com/spore-host/truffle/compare/v0.53.1...v0.53.2
 [0.53.1]: https://github.com/spore-host/truffle/compare/v0.53.0...v0.53.1
 [0.53.0]: https://github.com/spore-host/truffle/compare/v0.52.1...v0.53.0
 [0.52.1]: https://github.com/spore-host/truffle/compare/v0.52.0...v0.52.1
