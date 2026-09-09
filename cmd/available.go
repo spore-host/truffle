@@ -79,6 +79,17 @@ func runAvailable(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// On-demand price is a separate question from obtainability, but it's the
+	// number most people also want at discovery time (#159). Resolve it here
+	// rather than inside Obtainability so the pkg-level gathering stays
+	// price-free. A failure is reported honestly as "unavailable" downstream
+	// (obt.OnDemandPrice stays nil) rather than omitted or faked — truffle's
+	// pricer errors rather than guessing (#114/#115).
+	if price, src, perr := awsClient.OnDemandPriceWithSource(ctx, instanceType, region); perr == nil && price > 0 {
+		obt.OnDemandPrice = &price
+		obt.OnDemandPriceSource = src
+	}
+
 	switch outputFormat {
 	case "json":
 		enc := json.NewEncoder(os.Stdout)
@@ -175,6 +186,24 @@ func printObtainability(w io.Writer, o *aws.Obtainability) error {
 		rowf("  Capacity blocks\t%s%s\n", pluralOfferings(*o.CapacityBlockOfferings), window)
 	} else {
 		rowf("  Capacity blocks\t—\t(unavailable)\n")
+	}
+
+	// On-demand price. A separate concern from the obtainability signals above (a
+	// type can be cheap and unobtainable), shown because it's the number most
+	// people also want at discovery time (#159). The source is stated so a stale
+	// fallback rate isn't read as the live one; an unresolved price is reported as
+	// "unavailable" rather than a fabricated number.
+	if o.OnDemandPrice != nil {
+		label := "on-demand"
+		switch o.OnDemandPriceSource {
+		case aws.PriceSourceLive:
+			label = "on-demand (live)"
+		case aws.PriceSourceStatic:
+			label = "on-demand (static fallback)"
+		}
+		rowf("  On-demand price\t$%.4f/hr %s\n", *o.OnDemandPrice, label)
+	} else {
+		rowf("  On-demand price\t—\t(unavailable)\n")
 	}
 
 	_ = tw.Flush()

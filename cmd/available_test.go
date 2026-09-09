@@ -20,6 +20,67 @@ func render(t *testing.T, o *aws.Obtainability) string {
 
 func intPtr(n int) *int { return &n }
 
+func floatPtr(f float64) *float64 { return &f }
+
+// TestPrintObtainability_ShowsOnDemandPrice verifies the report carries the
+// on-demand rate at discovery time (#159), labeled with its source so a live
+// Price List rate and a possibly-stale fallback rate are distinguishable.
+func TestPrintObtainability_ShowsOnDemandPrice(t *testing.T) {
+	tests := []struct {
+		name   string
+		price  *float64
+		source aws.PriceSource
+		want   []string
+		absent []string
+	}{
+		{
+			name:   "live rate",
+			price:  floatPtr(0.7838),
+			source: aws.PriceSourceLive,
+			want:   []string{"On-demand price", "$0.7838/hr", "on-demand (live)"},
+		},
+		{
+			name:   "static fallback rate",
+			price:  floatPtr(0.7838),
+			source: aws.PriceSourceStatic,
+			want:   []string{"On-demand price", "$0.7838/hr", "static fallback"},
+			absent: []string{"(live)"},
+		},
+		{
+			name:   "unavailable price is honest, not fabricated",
+			price:  nil,
+			source: aws.PriceSourceUnknown,
+			want:   []string{"On-demand price", "unavailable"},
+			absent: []string{"$0.0000/hr", "$0.00/hr"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			out := render(t, &aws.Obtainability{
+				InstanceType:          "c8gd.4xlarge",
+				Region:                "us-east-1",
+				OfferedAZs:            []string{"us-east-1a", "us-east-1b"},
+				TotalAZs:              6,
+				OnDemandQuotaHeadroom: intPtr(2040),
+				VCPUsPerInstance:      16,
+				OnDemandPrice:         tc.price,
+				OnDemandPriceSource:   tc.source,
+			})
+			for _, want := range tc.want {
+				if !strings.Contains(out, want) {
+					t.Errorf("output missing %q:\n%s", want, out)
+				}
+			}
+			for _, absent := range tc.absent {
+				if strings.Contains(out, absent) {
+					t.Errorf("output should not contain %q:\n%s", absent, out)
+				}
+			}
+		})
+	}
+}
+
 // TestPrintObtainability_LowObtainability covers the case the command exists for
 // (#108): a scarce accelerator type where every signal is bad. Each number must
 // arrive with the context that makes it actionable — the AZ denominator, the quota

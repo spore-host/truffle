@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`truffle available` now reports the on-demand price** for the instance
+  type alongside its obtainability signals, labeled with its source
+  (`$0.7838/hr on-demand (live)` from the live AWS Price List vs
+  `(static fallback)` from truffle's embedded table), so the rate `spawn`'s
+  dry-run resolves is also visible at discovery time. When the price can't be
+  resolved it reads `unavailable` rather than showing a fabricated number, and
+  the JSON/YAML output carries `on_demand_price`/`on_demand_price_source` too
+  (#159). (`truffle find` already surfaces on-demand price via `--show-price`,
+  and by default for natural-language queries.)
+
 ## [0.53.3] - 2026-09-04
 
 ## [0.53.2] - 2026-09-03

@@ -73,6 +73,20 @@ type Obtainability struct {
 	// so the number has a stated scope rather than reading as "ever".
 	CapacityBlockWindowHours int `json:"capacity_block_window_hours,omitempty" yaml:"capacity_block_window_hours,omitempty"`
 
+	// OnDemandPrice is the On-Demand $/hr for this type in this region, when a
+	// caller resolved it. Price is a separate question from obtainability (a type
+	// can be cheap and unobtainable — see the type doc), so the [Client.Obtainability]
+	// method leaves this nil; the `available` command populates it so the report
+	// and its JSON/YAML form carry the rate alongside the obtainability signals
+	// (#159). Nil when the price could not be resolved — reported honestly rather
+	// than as a fabricated number.
+	OnDemandPrice *float64 `json:"on_demand_price,omitempty" yaml:"on_demand_price,omitempty"`
+
+	// OnDemandPriceSource records where OnDemandPrice came from (the live Price
+	// List vs truffle's embedded fallback table), so a stale fallback rate isn't
+	// mistaken for the current one. Empty when OnDemandPrice is nil.
+	OnDemandPriceSource PriceSource `json:"on_demand_price_source,omitempty" yaml:"on_demand_price_source,omitempty"`
+
 	// Warnings records signals that could not be collected (a denied API, missing
 	// credentials). A partial answer is reported rather than a hard failure —
 	// GetSpotPlacementScores in particular is commonly denied by SCP — but the gap
