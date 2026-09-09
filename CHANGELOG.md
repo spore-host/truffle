@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.54.0] - 2026-09-09
+
 ### Added
 - **`truffle available` now reports the on-demand price** for the instance
   type alongside its obtainability signals, labeled with its source
@@ -793,7 +795,8 @@ Initial tagged release from the standalone `spore-host/truffle` repository.
 Older releases are summarized in the
 [GitHub Releases](https://github.com/spore-host/truffle/releases) for this repo.
 
-[Unreleased]: https://github.com/spore-host/truffle/compare/v0.53.3...HEAD
+[Unreleased]: https://github.com/spore-host/truffle/compare/v0.54.0...HEAD
+[0.54.0]: https://github.com/spore-host/truffle/compare/v0.53.3...v0.54.0
 [0.53.3]: https://github.com/spore-host/truffle/compare/v0.53.2...v0.53.3
 [0.53.2]: https://github.com/spore-host/truffle/compare/v0.53.1...v0.53.2
 [0.53.1]: https://github.com/spore-host/truffle/compare/v0.53.0...v0.53.1
