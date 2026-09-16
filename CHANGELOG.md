@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Real Local Zone awareness** built on `DescribeAvailabilityZones` (#164).
+  truffle now reads each zone's authoritative `ZoneType`
+  (availability-zone / local-zone / wavelength-zone) along with its opt-in
+  status, parent zone, and network-border group, cached per region. `find`,
+  `search`, and `az` now label Local Zone and Wavelength Zone entries in the
+  availability-zone column with a `†` marker plus a footer legend, so an edge
+  location is no longer indistinguishable from a standard in-region AZ. The
+  classification is also exported for library consumers (`Client.ZoneInfos`,
+  `Client.LookupZone`, `Client.IsLocalZone`, and the `ZoneInfo` type), and is
+  queried with `AllAvailabilityZones=true` so Local/Wavelength zones the
+  account hasn't opted into are visible too.
+
+### Fixed
+- **`truffle spot` now classifies Local Zones by their real `ZoneType`**
+  instead of a brittle zone-name-length heuristic (#163). A zone is excluded
+  from spot results (unless `--local-zones` is set) if and only if
+  `DescribeAvailabilityZones` reports its `ZoneType` as `local-zone` or
+  `wavelength-zone` — not because its name happened to be longer than the
+  region name plus one letter. The `--local-zones` flag and its default-off
+  behavior are unchanged; only the classification mechanism is now accurate.
+  Zone lookups degrade safely: if the API call fails, the zone is treated as a
+  standard AZ (kept), matching the previous offline behavior.
+
 ## [0.54.0] - 2026-09-09
 
 ### Added

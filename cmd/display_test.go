@@ -127,7 +127,7 @@ func TestPrintFindResults_AllFormats(t *testing.T) {
 	for _, format := range []string{"json", "yaml", "csv", "table"} {
 		outputFormat = format
 		out := captureOutput(t, func() {
-			if err := printFindResults(results); err != nil {
+			if err := printFindResults(results, nil); err != nil {
 				t.Errorf("printFindResults(%s) error: %v", format, err)
 			}
 		})
@@ -139,7 +139,7 @@ func TestPrintFindResults_AllFormats(t *testing.T) {
 	// Unsupported format returns an error.
 	outputFormat = "xml"
 	_ = captureOutput(t, func() {
-		if err := printFindResults(results); err == nil {
+		if err := printFindResults(results, nil); err == nil {
 			t.Error("expected error for unsupported format 'xml'")
 		}
 	})
