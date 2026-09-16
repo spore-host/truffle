@@ -163,7 +163,17 @@ type TableOptions struct {
 	ShowMemPerCPU bool      // Memory column appends a per-physical-core figure (truffle#137)
 	ShowGPURatios bool      // Adds vCPU/GPU and RAM/GPU columns for GPU rows (truffle#51)
 	PriceUnit     PriceUnit // hour (default), minute, or second (truffle#138)
+
+	// LocalZoneAZs is the set of AZ names to annotate in the availability-zone
+	// column as Local Zones / Wavelength Zones, classified by their authoritative
+	// DescribeAvailabilityZones ZoneType (truffle#164). Names in this set render
+	// with a "†" marker and trigger a footer legend. Nil/empty leaves every AZ
+	// unlabeled — the historical behavior.
+	LocalZoneAZs map[string]bool
 }
+
+// localZoneMarker flags an AZ name in the table as a Local/Wavelength zone.
+const localZoneMarker = "†"
 
 // PrintTable outputs results as a formatted table using default options
 // (see [TableOptions]) plus the two legacy toggles existing callers already pass.
@@ -292,6 +302,9 @@ func (p *Printer) printTable(results []aws.InstanceTypeResult, opts TableOptions
 	// notes below don't claim a format that never appeared.
 	realCoresShown := false
 	memPerCPUShown := false
+	// Track whether any AZ actually got the Local/Wavelength marker, so the
+	// footer legend below only prints when a "†" appears in the table (#164).
+	localZoneShown := false
 
 	for _, instanceType := range instanceTypes {
 		regions := grouped[instanceType]
@@ -393,7 +406,10 @@ func (p *Printer) printTable(results []aws.InstanceTypeResult, opts TableOptions
 				}
 			}
 			if includeAZs {
-				azs := strings.Join(result.AvailableAZs, ", ")
+				azs, labeled := formatAZCell(result.AvailableAZs, opts.LocalZoneAZs)
+				if labeled {
+					localZoneShown = true
+				}
 				if azs == "" {
 					azs = "N/A"
 				}
@@ -450,6 +466,9 @@ func (p *Printer) printTable(results []aws.InstanceTypeResult, opts TableOptions
 	if memPerCPUShown {
 		printFooterNote(p.useColor, "  Memory shown as total (per-physical-core) — the per-core figure divides by physical cores, not vCPUs")
 	}
+	if localZoneShown {
+		printFooterNote(p.useColor, "  "+localZoneMarker+" = Local Zone / Wavelength Zone (edge location, not a standard in-region AZ)")
+	}
 
 	// Note SageMaker (ml.*) results: they run on the underlying EC2 hardware but
 	// are billed under the AmazonSageMaker offer (a management premium over the
@@ -480,6 +499,28 @@ func (p *Printer) printTable(results []aws.InstanceTypeResult, opts TableOptions
 	}
 
 	return nil
+}
+
+// formatAZCell renders the availability-zone column for one row, appending the
+// Local/Wavelength marker to any AZ name present in localSet (#164). The second
+// return reports whether at least one AZ was marked, so the caller can decide
+// whether the footer legend is warranted. A nil/empty localSet leaves every AZ
+// name untouched, reproducing the historical unlabeled output.
+func formatAZCell(azs []string, localSet map[string]bool) (string, bool) {
+	if len(azs) == 0 {
+		return "", false
+	}
+	labeled := false
+	parts := make([]string, len(azs))
+	for i, az := range azs {
+		if localSet[az] {
+			parts[i] = az + localZoneMarker
+			labeled = true
+		} else {
+			parts[i] = az
+		}
+	}
+	return strings.Join(parts, ", "), labeled
 }
 
 // printFooterNote prints a single-line note below the table, following the

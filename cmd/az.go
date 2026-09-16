@@ -162,7 +162,12 @@ func runAZSearch(cmd *cobra.Command, args []string) error {
 	case "csv":
 		return printer.PrintCSV(results)
 	case "table":
-		return printer.PrintTable(results, true, false) // Always show AZs
+		// Always show AZs; label any Local/Wavelength zones by their real
+		// ZoneType (#164).
+		return printer.PrintTableWithOptions(results, output.TableOptions{
+			IncludeAZs:   true,
+			LocalZoneAZs: classifyLocalZoneAZs(ctx, awsClient, results),
+		})
 	default:
 		return fmt.Errorf("unsupported output format: %s", outputFormat)
 	}

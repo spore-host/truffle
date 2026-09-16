@@ -40,6 +40,12 @@ type Client struct {
 
 	smPricerOnce sync.Once
 	smPricer     SageMakerPricer // ml.* on-demand price source; lazily initialized, override with SetSageMakerPricer
+
+	// zoneCache memoizes DescribeAvailabilityZones per region (region -> zoneName
+	// -> classification), so Local Zone awareness costs one API call per region
+	// for the client's lifetime. See zones.go.
+	zoneCacheMu sync.Mutex
+	zoneCache   map[string]map[string]ZoneInfo
 }
 
 // InstanceTypeResult represents an instance type's availability and specifications

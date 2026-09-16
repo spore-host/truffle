@@ -344,6 +344,10 @@ func runFind(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	// Classify Local/Wavelength zones so the AZ column can label them (#164).
+	// Skipped implicitly when --skip-azs left results without AZ data.
+	localZones := classifyLocalZoneAZs(ctx, client, results)
+
 	// Add match explanations
 	enrichedResults := make([]find.FindResult, 0, len(results))
 	for _, r := range results {
@@ -354,7 +358,7 @@ func runFind(cmd *cobra.Command, args []string) error {
 	}
 
 	// Print results
-	return printFindResults(enrichedResults)
+	return printFindResults(enrichedResults, localZones)
 }
 
 func printParsedQuery(query *find.ParsedQuery) {
@@ -485,7 +489,7 @@ func printSuggestions(query *find.ParsedQuery) {
 	}
 }
 
-func printFindResults(results []find.FindResult) error {
+func printFindResults(results []find.FindResult, localZones map[string]bool) error {
 	printer := output.NewPrinter(!noColor)
 
 	switch outputFormat {
@@ -496,13 +500,13 @@ func printFindResults(results []find.FindResult) error {
 	case "csv":
 		return printer.PrintCSV(convertToInstanceTypeResults(results))
 	case "table":
-		return printFindTable(results, printer)
+		return printFindTable(results, printer, localZones)
 	default:
 		return fmt.Errorf("unsupported output format: %s", outputFormat)
 	}
 }
 
-func printFindTable(results []find.FindResult, printer *output.Printer) error {
+func printFindTable(results []find.FindResult, printer *output.Printer, localZones map[string]bool) error {
 	// For now, print standard table with match reasons in summary
 	baseResults := convertToInstanceTypeResults(results)
 
@@ -528,6 +532,7 @@ func printFindTable(results []find.FindResult, printer *output.Printer) error {
 		ShowMemPerCPU: findShowMemPerCPU,
 		ShowGPURatios: findShowGPURatios,
 		PriceUnit:     priceUnit,
+		LocalZoneAZs:  localZones,
 	}
 	return printer.PrintTableWithOptions(baseResults, opts)
 }
@@ -760,6 +765,9 @@ func runSearchWithPatternDisplay(regexPattern, display, service string) error {
 			ShowMemPerCPU: findShowMemPerCPU,
 			ShowGPURatios: findShowGPURatios,
 			PriceUnit:     priceUnit,
+		}
+		if !findSkipAZs {
+			opts.LocalZoneAZs = classifyLocalZoneAZs(ctx, awsClient, results)
 		}
 		return printer.PrintTableWithOptions(results, opts)
 	default:

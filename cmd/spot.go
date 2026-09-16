@@ -139,13 +139,35 @@ func runSpot(cmd *cobra.Command, args []string) error {
 		return i18n.Te("truffle.spot.error.get_pricing_failed", err)
 	}
 
-	// Filter out local zones unless --local-zones is set
+	// Filter out local zones unless --local-zones is set. Classification is by
+	// the authoritative DescribeAvailabilityZones ZoneType (a zone is "local"
+	// iff its ZoneType is local-zone or wavelength-zone), not the old
+	// name-length heuristic (#163). Zones are classified once per region (the
+	// result is memoized on the client), and a region whose lookup fails is
+	// warned about once and its zones kept — treated as standard AZs, exactly as
+	// an offline run behaved before.
 	if !spotLocalZones {
+		classified := make(map[string]struct{}) // regions already looked up
+		localSet := make(map[string]bool)       // AZ name -> is local/wavelength
 		filtered := spotResults[:0]
 		for _, r := range spotResults {
-			// Local zones have names like us-east-1-bos-1a (region + city code + letter)
-			// Regular zones are just region + letter, e.g., us-east-1a
-			if len(r.AvailabilityZone) <= len(r.Region)+1 {
+			if _, done := classified[r.Region]; !done {
+				classified[r.Region] = struct{}{}
+				zones, err := awsClient.ZoneInfos(ctx, r.Region)
+				if err != nil {
+					if verbose {
+						fmt.Fprintf(os.Stderr, "%s could not classify zones in %s (%v); treating them as standard AZs\n",
+							i18n.Symbol("warning"), r.Region, err)
+					}
+				} else {
+					for name, info := range zones {
+						if info.IsExtended() {
+							localSet[name] = true
+						}
+					}
+				}
+			}
+			if !localSet[r.AvailabilityZone] {
 				filtered = append(filtered, r)
 			}
 		}

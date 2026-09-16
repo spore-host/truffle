@@ -250,6 +250,9 @@ func runSearch(cmd *cobra.Command, args []string) error {
 			ShowGPURatios: searchShowGPURatios,
 			PriceUnit:     priceUnit,
 		}
+		if !skipAZs {
+			opts.LocalZoneAZs = classifyLocalZoneAZs(ctx, awsClient, results)
+		}
 		return printer.PrintTableWithOptions(results, opts)
 	default:
 		return i18n.Te("truffle.search.error.unsupported_format", nil, map[string]interface{}{

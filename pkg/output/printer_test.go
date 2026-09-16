@@ -334,6 +334,75 @@ func TestPrintTable_WithAZsAndPrice(t *testing.T) {
 	}
 }
 
+func TestPrintTable_LabelsLocalZones(t *testing.T) {
+	results := []aws.InstanceTypeResult{
+		{
+			InstanceType: "c6a.xlarge", Region: "us-east-1", VCPUs: 4, MemoryMiB: 8192,
+			Architecture: "x86_64",
+			AvailableAZs: []string{"us-east-1a", "us-east-1-bos-1a"},
+		},
+	}
+	out := captureStdout(t, func() {
+		_ = NewPrinter(false).PrintTableWithOptions(results, TableOptions{
+			IncludeAZs:   true,
+			LocalZoneAZs: map[string]bool{"us-east-1-bos-1a": true},
+		})
+	})
+	if !strings.Contains(out, "us-east-1-bos-1a"+localZoneMarker) {
+		t.Errorf("local zone AZ not marked with %q:\n%s", localZoneMarker, out)
+	}
+	// The standard AZ must NOT get the marker.
+	if strings.Contains(out, "us-east-1a"+localZoneMarker) {
+		t.Errorf("standard AZ was incorrectly marked:\n%s", out)
+	}
+	// Footer legend must appear when a zone is marked.
+	if !strings.Contains(out, "Local Zone / Wavelength Zone") {
+		t.Errorf("local zone footer legend missing:\n%s", out)
+	}
+}
+
+func TestPrintTable_NoLocalZoneLegendWhenNoneMarked(t *testing.T) {
+	results := []aws.InstanceTypeResult{
+		{
+			InstanceType: "c6a.xlarge", Region: "us-east-1", VCPUs: 4, MemoryMiB: 8192,
+			Architecture: "x86_64",
+			AvailableAZs: []string{"us-east-1a", "us-east-1b"},
+		},
+	}
+	out := captureStdout(t, func() {
+		_ = NewPrinter(false).PrintTableWithOptions(results, TableOptions{IncludeAZs: true})
+	})
+	if strings.Contains(out, localZoneMarker) {
+		t.Errorf("no AZ should be marked when LocalZoneAZs is empty:\n%s", out)
+	}
+	if strings.Contains(out, "Local Zone / Wavelength Zone") {
+		t.Errorf("footer legend should not appear when nothing is marked:\n%s", out)
+	}
+}
+
+func TestFormatAZCell(t *testing.T) {
+	local := map[string]bool{"us-east-1-bos-1a": true}
+	got, labeled := formatAZCell([]string{"us-east-1a", "us-east-1-bos-1a"}, local)
+	want := "us-east-1a, us-east-1-bos-1a" + localZoneMarker
+	if got != want {
+		t.Errorf("formatAZCell() = %q, want %q", got, want)
+	}
+	if !labeled {
+		t.Error("formatAZCell() labeled = false, want true")
+	}
+
+	// No local zones → no marker, labeled=false.
+	got, labeled = formatAZCell([]string{"us-east-1a"}, nil)
+	if got != "us-east-1a" || labeled {
+		t.Errorf("formatAZCell(no local) = (%q, %v), want (%q, false)", got, labeled, "us-east-1a")
+	}
+
+	// Empty AZ list.
+	if got, labeled = formatAZCell(nil, local); got != "" || labeled {
+		t.Errorf("formatAZCell(nil) = (%q, %v), want (\"\", false)", got, labeled)
+	}
+}
+
 func TestPrintTable_PriceNA(t *testing.T) {
 	results := []aws.InstanceTypeResult{
 		{InstanceType: "c6a.xlarge", Region: "us-east-1", VCPUs: 4, MemoryMiB: 8192, Architecture: "x86_64"},
