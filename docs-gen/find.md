@@ -58,6 +58,7 @@ truffle find <query> [flags]
 |------|-------|------|---------|-------------|
 | `--app` |  | string |  | Application name from catalog (e.g. paraview, igv) |
 | `--exact` |  | bool |  | Match exact vCPU and memory values instead of minimum |
+| `--local-zones` |  | bool |  | Restrict results to Local Zones and Wavelength Zones (edge locations); mutually exclusive with --skip-azs |
 | `--pick-first` |  | bool |  | Output only the top result's instance type (useful for piping to spawn) |
 | `--price-unit` |  | string | `hour` | Price display unit for --show-price: hour, minute, or second |
 | `--service` |  | string | `ec2` | Instance namespace to search: ec2 or sagemaker (ml.* types) |

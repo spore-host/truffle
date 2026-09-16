@@ -20,6 +20,7 @@ import (
 
 var (
 	findSkipAZs       bool
+	findLocalZones    bool // --local-zones flag: restrict results to Local/Wavelength AZs (#164)
 	findShowQuery     bool
 	findTimeout       time.Duration
 	findApp           string // --app flag: application name from catalog
@@ -92,6 +93,7 @@ func init() {
 	rootCmd.AddCommand(findCmd)
 
 	findCmd.Flags().BoolVar(&findSkipAZs, "skip-azs", false, "Skip availability zone lookup (faster)")
+	findCmd.Flags().BoolVar(&findLocalZones, "local-zones", false, "Restrict results to Local Zones and Wavelength Zones (edge locations); mutually exclusive with --skip-azs")
 	findCmd.Flags().BoolVar(&findShowQuery, "show-query", false, "Show parsed query details")
 	findCmd.Flags().DurationVar(&findTimeout, "timeout", 5*time.Minute, "Timeout for AWS API calls")
 	findCmd.Flags().StringVar(&findApp, "app", "", "Application name from catalog (e.g. paraview, igv)")
@@ -107,6 +109,13 @@ func init() {
 }
 
 func runFind(cmd *cobra.Command, args []string) error {
+	// --local-zones filters on AZ data, so it can't coexist with --skip-azs
+	// (which suppresses that data). Reject the contradiction with a clear error
+	// rather than silently overriding either flag (#164).
+	if findLocalZones && findSkipAZs {
+		return fmt.Errorf("--local-zones cannot be combined with --skip-azs: filtering to Local/Wavelength zones needs availability-zone data")
+	}
+
 	service, err := validateServiceFlag(findService)
 	if err != nil {
 		return err
@@ -338,15 +347,26 @@ func runFind(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	// Classify Local/Wavelength zones so the AZ column can label them (#164).
+	// Skipped implicitly when --skip-azs left results without AZ data.
+	localZones := classifyLocalZoneAZs(ctx, client, results)
+
+	// --local-zones: restrict results to Local/Wavelength AZs, dropping any type
+	// with no edge-zone availability (#164). Applied before --pick-first so the
+	// top result reflects the filter.
+	if findLocalZones {
+		results = filterToLocalZones(results, localZones)
+		if len(results) == 0 {
+			fmt.Fprintln(os.Stderr, "No instances match your query in any Local or Wavelength zone")
+			return nil
+		}
+	}
+
 	// --pick-first: output just the instance type of the top result and exit
 	if findPickFirst {
 		fmt.Println(results[0].InstanceType)
 		return nil
 	}
-
-	// Classify Local/Wavelength zones so the AZ column can label them (#164).
-	// Skipped implicitly when --skip-azs left results without AZ data.
-	localZones := classifyLocalZoneAZs(ctx, client, results)
 
 	// Add match explanations
 	enrichedResults := make([]find.FindResult, 0, len(results))
@@ -724,6 +744,20 @@ func runSearchWithPatternDisplay(regexPattern, display, service string) error {
 		return nil
 	}
 
+	// Classify Local/Wavelength zones once — used to label the AZ column and,
+	// with --local-zones, to filter results down to edge zones (#164).
+	var localZones map[string]bool
+	if !findSkipAZs || findLocalZones {
+		localZones = classifyLocalZoneAZs(ctx, awsClient, results)
+	}
+	if findLocalZones {
+		results = filterToLocalZones(results, localZones)
+		if len(results) == 0 {
+			fmt.Println(i18n.T("truffle.search.no_results"))
+			return nil
+		}
+	}
+
 	// Show the $/hr column when the user asks (--show-price), and always for
 	// SageMaker ml.* types — those are priced under a distinct offer
 	// (AmazonSageMaker) with a management premium, so the pattern path shows that
@@ -765,9 +799,7 @@ func runSearchWithPatternDisplay(regexPattern, display, service string) error {
 			ShowMemPerCPU: findShowMemPerCPU,
 			ShowGPURatios: findShowGPURatios,
 			PriceUnit:     priceUnit,
-		}
-		if !findSkipAZs {
-			opts.LocalZoneAZs = classifyLocalZoneAZs(ctx, awsClient, results)
+			LocalZoneAZs:  localZones,
 		}
 		return printer.PrintTableWithOptions(results, opts)
 	default:

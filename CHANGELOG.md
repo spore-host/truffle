@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`--local-zones` targeting filter on `find` and `az`** (#164). When set, the
+  flag restricts availability-zone results to Local Zones and Wavelength Zones —
+  "show me what's available at the edge" — keeping only the AZs whose authoritative
+  `ZoneType` is `local-zone` or `wavelength-zone` and dropping any instance type
+  with no edge-zone availability. It reuses the existing zone classifier, so no
+  extra `DescribeAvailabilityZones` calls are added. The flag is opt-in and
+  non-breaking: without it, both commands behave exactly as before (all AZs, with
+  Local/Wavelength entries labeled by the `†` marker). On `find`, `--local-zones`
+  is mutually exclusive with `--skip-azs` — filtering to edge zones needs AZ data,
+  so combining the two is rejected with a clear error. This is the inverse of the
+  existing `truffle spot --local-zones`, which by default *excludes* edge zones.
+
 ## [0.55.0] - 2026-09-15
 
 ### Added
