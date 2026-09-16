@@ -26,6 +26,7 @@ truffle az [instance-type-pattern] [flags]
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
 | `--az` |  | stringSlice |  | Filter by specific availability zones (e.g., us-east-1a,us-west-2b) |
+| `--local-zones` |  | bool |  | Restrict results to Local Zones and Wavelength Zones (edge locations) |
 | `--min-az-count` |  | int |  | Minimum number of AZs required per region |
 | `--regions-only` |  | bool |  | Show only regions that meet AZ count requirement |
 | `--timeout` |  | duration | `5m0s` | Timeout for AWS API calls |

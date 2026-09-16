@@ -45,3 +45,28 @@ func classifyLocalZoneAZs(ctx context.Context, client *aws.Client, results []aws
 	}
 	return local
 }
+
+// filterToLocalZones restricts each result's AvailableAZs to only the zones in
+// localZones (the Local/Wavelength set built by classifyLocalZoneAZs), and drops
+// any result that then has no matching AZ. It backs the opt-in `--local-zones`
+// targeting filter on find/az (#164) — "show me what's available at the edge" —
+// the inverse of spot's default-off exclusion. Results are copied, not mutated
+// in place, so the caller's slice is untouched. A nil/empty localZones set means
+// nothing was classified as an edge zone, so every result is dropped.
+func filterToLocalZones(results []aws.InstanceTypeResult, localZones map[string]bool) []aws.InstanceTypeResult {
+	filtered := make([]aws.InstanceTypeResult, 0, len(results))
+	for _, r := range results {
+		kept := make([]string, 0, len(r.AvailableAZs))
+		for _, az := range r.AvailableAZs {
+			if localZones[az] {
+				kept = append(kept, az)
+			}
+		}
+		if len(kept) == 0 {
+			continue
+		}
+		r.AvailableAZs = kept
+		filtered = append(filtered, r)
+	}
+	return filtered
+}

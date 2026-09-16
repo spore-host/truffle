@@ -19,6 +19,7 @@ var (
 	azFilter       []string
 	minAZCount     int
 	showRegionOnly bool
+	azLocalZones   bool // --local-zones flag: restrict results to Local/Wavelength AZs (#164)
 )
 
 var azCmd = &cobra.Command{
@@ -50,6 +51,7 @@ func init() {
 	azCmd.Flags().StringSliceVar(&azFilter, "az", []string{}, "Filter by specific availability zones (e.g., us-east-1a,us-west-2b)")
 	azCmd.Flags().IntVar(&minAZCount, "min-az-count", 0, "Minimum number of AZs required per region")
 	azCmd.Flags().BoolVar(&showRegionOnly, "regions-only", false, "Show only regions that meet AZ count requirement")
+	azCmd.Flags().BoolVar(&azLocalZones, "local-zones", false, "Restrict results to Local Zones and Wavelength Zones (edge locations)")
 	azCmd.Flags().DurationVar(&timeout, "timeout", 5*time.Minute, "Timeout for AWS API calls")
 
 	// Register completion for instance type argument
@@ -129,6 +131,16 @@ func runAZSearch(cmd *cobra.Command, args []string) error {
 		results = filterByMinAZCount(results, minAZCount)
 	}
 
+	// Classify Local/Wavelength zones once — used to label the AZ column and,
+	// with --local-zones, to filter results down to edge zones (#164).
+	localZones := classifyLocalZoneAZs(ctx, awsClient, results)
+
+	// --local-zones: restrict results to Local/Wavelength AZs, dropping any type
+	// with no edge-zone availability (#164).
+	if azLocalZones {
+		results = filterToLocalZones(results, localZones)
+	}
+
 	// Sort by AZ count (most AZs first), then by instance type
 	sort.Slice(results, func(i, j int) bool {
 		countI := len(results[i].AvailableAZs)
@@ -166,7 +178,7 @@ func runAZSearch(cmd *cobra.Command, args []string) error {
 		// ZoneType (#164).
 		return printer.PrintTableWithOptions(results, output.TableOptions{
 			IncludeAZs:   true,
-			LocalZoneAZs: classifyLocalZoneAZs(ctx, awsClient, results),
+			LocalZoneAZs: localZones,
 		})
 	default:
 		return fmt.Errorf("unsupported output format: %s", outputFormat)
