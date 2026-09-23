@@ -67,6 +67,68 @@ const (
 	QuotaCodeSpotDL       = "L-85EED4F7" // All DL Spot Instance Requests
 )
 
+// onDemandQuotaCodes and spotQuotaCodes are the SINGLE SOURCE OF TRUTH for the
+// (family, lifecycle) → Service Quotas code mapping. [Client.GetQuotas] fetches
+// from them and [QuotaIncreaseCommand] emits from them, so "the quota we read"
+// and "the quota we tell you to raise" can no longer drift.
+//
+// They exist because they did drift (#167): QuotaIncreaseCommand carried its own
+// partial switch that defaulted to the Standard On-Demand code L-1216C47A, so an
+// X/DL/F on-demand user — or ANY non-G/P spot user — was handed a copy-pasteable
+// command that raised an unrelated limit (and, on the spot path, the wrong
+// lifecycle entirely), waited for approval, and was still blocked. Any new
+// QuotaFamily must be added here, and an unmapped family is reported as unmapped
+// rather than silently answered with another family's code.
+var (
+	onDemandQuotaCodes = map[QuotaFamily]string{
+		FamilyStandard: QuotaCodeStandard,
+		FamilyF:        QuotaCodeF,
+		FamilyG:        QuotaCodeG,
+		FamilyP:        QuotaCodeP,
+		FamilyX:        QuotaCodeX,
+		FamilyInf:      QuotaCodeInf,
+		FamilyTrn:      QuotaCodeTrn,
+		FamilyDL:       QuotaCodeDL,
+	}
+
+	spotQuotaCodes = map[QuotaFamily]string{
+		FamilyStandard: QuotaCodeSpotStandard,
+		FamilyF:        QuotaCodeSpotF,
+		FamilyG:        QuotaCodeSpotG,
+		FamilyP:        QuotaCodeSpotP,
+		FamilyX:        QuotaCodeSpotX,
+		FamilyInf:      QuotaCodeSpotInf,
+		FamilyTrn:      QuotaCodeSpotTrn,
+		FamilyDL:       QuotaCodeSpotDL,
+	}
+)
+
+// QuotaCodeFor returns the AWS Service Quotas code for a family and lifecycle
+// (spot=true for the Spot request quota, false for the On-Demand running-instance
+// quota).
+//
+// ok is false when this package has no code for the pair. Callers MUST NOT
+// substitute another family's code in that case — handing the user the Standard
+// On-Demand code for an X-family or Trn-spot shortfall is exactly the bug #167
+// fixed. Fall back to the Service Quotas console instead, the way
+// [QuotaIncreaseCommand] does.
+func QuotaCodeFor(family QuotaFamily, spot bool) (string, bool) {
+	if spot {
+		code, ok := spotQuotaCodes[family]
+		return code, ok
+	}
+	code, ok := onDemandQuotaCodes[family]
+	return code, ok
+}
+
+// lifecycleLabel renders a quota's lifecycle the way AWS names it.
+func lifecycleLabel(spot bool) string {
+	if spot {
+		return "Spot"
+	}
+	return "On-Demand"
+}
+
 // QuotaInfo holds quota limits and current usage for a single region,
 // as returned by [Client.GetQuotas].
 type QuotaInfo struct {
@@ -91,10 +153,61 @@ type QuotaInfo struct {
 	// Spot ceiling got a false "fits" with no signal the quota was saturated.
 	SpotUsage map[QuotaFamily]int32
 
+	// OnDemandErrors and SpotErrors record per-family quota-READ failures, keyed
+	// by the family whose lookup failed (#167). A family present here is absent
+	// from OnDemand/Spot: its limit is unknown, NOT zero.
+	//
+	// Without this, the two states were indistinguishable — a one-value map read
+	// returns 0 both for "the account genuinely has zero vCPUs of this family"
+	// and for "we could not ask", where "could not ask" covers a missing
+	// servicequotas:GetServiceQuota permission, throttling, and a region that
+	// does not expose the code. Callers that want to say "your quota is 0" should
+	// confirm the key is present (two-value read) and that no error is recorded
+	// here; [QuotaInfo.LookupError] and [QuotaInfo.MissingFamilies] wrap that.
+	//
+	// Both maps are non-nil after a successful [Client.GetQuotas] and empty when
+	// every lookup succeeded. They may be nil on a hand-built QuotaInfo.
+	OnDemandErrors map[QuotaFamily]error
+	SpotErrors     map[QuotaFamily]error
+
 	RunningInstances     int32     // Current count of running+pending instances in this region
 	RunningInstancesMax  int32     // Per-region instance count limit (typically 20 for new accounts)
 	LastUpdated          time.Time // When this snapshot was fetched
 	CredentialsAvailable bool      // False when quotas were estimated due to missing credentials
+}
+
+// LookupError returns the error recorded for a family's quota lookup, or nil if
+// the lookup succeeded (or was never attempted). See [QuotaInfo.OnDemandErrors].
+func (q *QuotaInfo) LookupError(family QuotaFamily, spot bool) error {
+	if q == nil {
+		return nil
+	}
+	if spot {
+		return q.SpotErrors[family]
+	}
+	return q.OnDemandErrors[family]
+}
+
+// MissingFamilies returns the families whose quota could not be read for the
+// given lifecycle, sorted for stable output. Use it to tell the user "I could not
+// determine these quotas" instead of reporting them as zero (#167).
+func (q *QuotaInfo) MissingFamilies(spot bool) []QuotaFamily {
+	if q == nil {
+		return nil
+	}
+	errs := q.OnDemandErrors
+	if spot {
+		errs = q.SpotErrors
+	}
+	if len(errs) == 0 {
+		return nil
+	}
+	out := make([]QuotaFamily, 0, len(errs))
+	for family := range errs {
+		out = append(out, family)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out
 }
 
 // Client handles quota operations
@@ -105,6 +218,36 @@ type Client struct {
 	cache     map[string]*QuotaInfo
 	cacheMu   sync.RWMutex
 	cacheTTL  time.Duration
+
+	// Test seams. Each is nil in production and falls back to the real method of
+	// the same name; a unit test sets them to exercise GetQuotas' bookkeeping
+	// (notably the per-family error recording added for #167) without any AWS
+	// call. Narrow function fields rather than a wide interface, since only
+	// GetQuotas' three reads need substituting.
+	quotaValueFn   func(ctx context.Context, region, quotaCode string) (int32, error)
+	usageFn        func(ctx context.Context, region string) (onDemand, spot map[QuotaFamily]int32, err error)
+	runningCountFn func(ctx context.Context, region string) (int32, error)
+}
+
+func (c *Client) quotaValue(ctx context.Context, region, quotaCode string) (int32, error) {
+	if c.quotaValueFn != nil {
+		return c.quotaValueFn(ctx, region, quotaCode)
+	}
+	return c.getQuotaValue(ctx, region, quotaCode)
+}
+
+func (c *Client) currentUsage(ctx context.Context, region string) (onDemand, spot map[QuotaFamily]int32, err error) {
+	if c.usageFn != nil {
+		return c.usageFn(ctx, region)
+	}
+	return c.getCurrentUsage(ctx, region)
+}
+
+func (c *Client) runningInstanceCount(ctx context.Context, region string) (int32, error) {
+	if c.runningCountFn != nil {
+		return c.runningCountFn(ctx, region)
+	}
+	return c.getRunningInstanceCount(ctx, region)
 }
 
 // NewClient creates a quota client using the default credential chain.
@@ -149,53 +292,21 @@ func (c *Client) GetQuotas(ctx context.Context, region string) (*QuotaInfo, erro
 		OnDemand:             make(map[QuotaFamily]int32),
 		Spot:                 make(map[QuotaFamily]int32),
 		Usage:                make(map[QuotaFamily]int32),
+		OnDemandErrors:       make(map[QuotaFamily]error),
+		SpotErrors:           make(map[QuotaFamily]error),
 		LastUpdated:          time.Now(),
 		CredentialsAvailable: true,
 	}
 
-	// Get On-Demand quotas
-	quotas := map[QuotaFamily]string{
-		FamilyStandard: QuotaCodeStandard,
-		FamilyF:        QuotaCodeF,
-		FamilyG:        QuotaCodeG,
-		FamilyP:        QuotaCodeP,
-		FamilyX:        QuotaCodeX,
-		FamilyInf:      QuotaCodeInf,
-		FamilyTrn:      QuotaCodeTrn,
-		FamilyDL:       QuotaCodeDL,
-	}
-
-	for family, code := range quotas {
-		value, err := c.getQuotaValue(ctx, region, code)
-		if err != nil {
-			// Log but don't fail - some quotas might not exist
-			continue
-		}
-		info.OnDemand[family] = value
-	}
-
-	// Get Spot quotas
-	spotQuotas := map[QuotaFamily]string{
-		FamilyStandard: QuotaCodeSpotStandard,
-		FamilyF:        QuotaCodeSpotF,
-		FamilyG:        QuotaCodeSpotG,
-		FamilyP:        QuotaCodeSpotP,
-		FamilyX:        QuotaCodeSpotX,
-		FamilyInf:      QuotaCodeSpotInf,
-		FamilyTrn:      QuotaCodeSpotTrn,
-		FamilyDL:       QuotaCodeSpotDL,
-	}
-
-	for family, code := range spotQuotas {
-		value, err := c.getQuotaValue(ctx, region, code)
-		if err != nil {
-			continue
-		}
-		info.Spot[family] = value
-	}
+	// Per-quota failures don't fail the whole snapshot (a region may not offer a
+	// code at all), but they are RECORDED and logged rather than dropped — on
+	// failure the family key stays absent from OnDemand/Spot, and the recorded
+	// error is what lets a caller say "couldn't read" instead of "is zero" (#167).
+	c.fetchFamilyQuotas(ctx, region, onDemandQuotaCodes, false, info.OnDemand, info.OnDemandErrors)
+	c.fetchFamilyQuotas(ctx, region, spotQuotaCodes, true, info.Spot, info.SpotErrors)
 
 	// Get current usage, split by lifecycle (#132).
-	onDemandUsage, spotUsage, err := c.getCurrentUsage(ctx, region)
+	onDemandUsage, spotUsage, err := c.currentUsage(ctx, region)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get current usage: %w", err)
 	}
@@ -203,7 +314,7 @@ func (c *Client) GetQuotas(ctx context.Context, region string) (*QuotaInfo, erro
 	info.SpotUsage = spotUsage
 
 	// Get running instance count
-	runningCount, err := c.getRunningInstanceCount(ctx, region)
+	runningCount, err := c.runningInstanceCount(ctx, region)
 	if err == nil {
 		info.RunningInstances = runningCount
 	}
@@ -217,6 +328,34 @@ func (c *Client) GetQuotas(ctx context.Context, region string) (*QuotaInfo, erro
 	c.cacheMu.Unlock()
 
 	return info, nil
+}
+
+// fetchFamilyQuotas reads one quota per family into values, recording any
+// per-family failure in errs (and logging it) instead of discarding it. A family
+// whose lookup fails is deliberately left ABSENT from values so that a two-value
+// map read still distinguishes "unknown" from a genuine zero limit (#167).
+func (c *Client) fetchFamilyQuotas(
+	ctx context.Context,
+	region string,
+	codes map[QuotaFamily]string,
+	spot bool,
+	values map[QuotaFamily]int32,
+	errs map[QuotaFamily]error,
+) {
+	for family, code := range codes {
+		value, err := c.quotaValue(ctx, region, code)
+		if err != nil {
+			// Don't fail the snapshot: a region may not expose this code, and the
+			// other families are still useful. But do record and log — the old
+			// bare `continue` claimed to log and didn't, which left a permission
+			// error looking exactly like a zero quota.
+			errs[family] = err
+			log.Printf("quotas: could not read %s %s quota (%s) in %s: %v — limit unknown, not zero",
+				lifecycleLabel(spot), family, code, region, err)
+			continue
+		}
+		values[family] = value
+	}
 }
 
 // getQuotaValue retrieves a specific quota value
@@ -319,45 +458,49 @@ func (c *Client) getRunningInstanceCount(ctx context.Context, region string) (in
 	return count, nil
 }
 
-// CanLaunch checks if an instance can be launched given quotas
+// CanLaunch reports whether vCPUs more of instanceType fit under the account's
+// remaining quota for that family, plus a human explanation when they don't.
+//
+// A family whose quota could not be READ (key absent from the snapshot, see
+// [QuotaInfo.OnDemandErrors]) is reported as undetermined rather than as zero
+// — ok is false either way, but the advice differs: "request a quota increase"
+// is wrong and actively misleading when the real problem is a missing
+// servicequotas:GetServiceQuota permission or a throttled lookup (#167).
 func (c *Client) CanLaunch(instanceType string, vCPUs int32, quotas *QuotaInfo, spot bool) (bool, string) {
 	family := GetQuotaFamily(instanceType)
+	quotaType := lifecycleLabel(spot)
 
 	var quota, usage int32
-	var quotaType string
+	var known bool
 
 	if spot {
-		quota = quotas.Spot[family]
+		quota, known = quotas.Spot[family]
 		// SpotUsage is only populated once a caller has fetched quotas via a
 		// path that calls getCurrentUsage (GetQuotas). A QuotaInfo built by
 		// hand with no SpotUsage map is nil, and a nil map reads as 0 for every
 		// key — the same "usage unknown, treat as 0" fallback the on-demand
 		// path has always had implicitly (#132).
 		usage = quotas.SpotUsage[family]
-		quotaType = "Spot"
-
-		available := quota - usage
-
-		if quota == 0 {
-			return false, fmt.Sprintf("Spot quota for %s instances is 0 (request quota increase)", family)
-		}
-		if vCPUs > available {
-			return false, fmt.Sprintf("Need %d vCPUs, only %d available (%s %s: quota=%d, usage=%d)",
-				vCPUs, available, quotaType, family, quota, usage)
-		}
-		return true, ""
+	} else {
+		quota, known = quotas.OnDemand[family]
+		usage = quotas.Usage[family]
 	}
 
-	quota = quotas.OnDemand[family]
-	usage = quotas.Usage[family]
-	quotaType = "On-Demand"
-
-	available := quota - usage
+	if !known {
+		msg := fmt.Sprintf("could not determine the %s vCPU quota for %s instances (limit unknown, not zero — check servicequotas:GetServiceQuota access or the Service Quotas console)",
+			quotaType, family)
+		if err := quotas.LookupError(family, spot); err != nil {
+			msg = fmt.Sprintf("could not determine the %s vCPU quota for %s instances: %v (limit unknown, not zero)",
+				quotaType, family, err)
+		}
+		return false, msg
+	}
 
 	if quota == 0 {
 		return false, fmt.Sprintf("%s quota for %s instances is 0 (request quota increase)", quotaType, family)
 	}
 
+	available := quota - usage
 	if vCPUs > available {
 		return false, fmt.Sprintf("Need %d vCPUs, only %d available (%s %s: quota=%d, usage=%d)",
 			vCPUs, available, quotaType, family, quota, usage)
@@ -414,78 +557,88 @@ func letterPrefix(instanceType string) string {
 	return instanceType
 }
 
-// getVCPUCount estimates vCPU count from an instance type's size suffix.
-// This is a heuristic (the authoritative source is DescribeInstanceTypes); it
-// covers the fixed sub-large sizes and the general NxLarge = N*4 pattern. A size
-// it can't map is logged and estimated at the current-usage-summing call site
-// (#64) rather than silently treated as a fixed small value.
-func getVCPUCount(instanceType string) int32 {
-	// Parse size suffix (nano, micro, small, medium, large, xlarge, 2xlarge, etc.)
-	parts := strings.Split(instanceType, ".")
-	if len(parts) < 2 {
-		log.Printf("quotas: cannot parse size from instance type %q; estimating 2 vCPU (usage may be understated)", instanceType)
-		return 2
+// sizeVCPUs maps the fixed instance-size suffixes to their vCPU count. Sizes not
+// listed here fall to the general NxLarge = N*4 pattern in [VCPUsForType].
+var sizeVCPUs = map[string]int32{
+	"nano":      1,
+	"micro":     1,
+	"small":     1,
+	"medium":    1,
+	"large":     2,
+	"xlarge":    4,
+	"2xlarge":   8,
+	"3xlarge":   12,
+	"4xlarge":   16,
+	"6xlarge":   24,
+	"8xlarge":   32,
+	"9xlarge":   36,
+	"10xlarge":  40,
+	"12xlarge":  48,
+	"16xlarge":  64,
+	"18xlarge":  72,
+	"24xlarge":  96,
+	"32xlarge":  128,
+	"48xlarge":  192,
+	"56xlarge":  224,
+	"112xlarge": 448,
+}
+
+// VCPUsForType returns the vCPU count implied by a LITERAL instance type's size
+// suffix, e.g. "p5.48xlarge" → 192. It is the helper for turning a per-family
+// vCPU quota (which is how EC2 expresses limits) into an instance count.
+//
+// This is a HEURISTIC on the size suffix, not a lookup: the authoritative source
+// is EC2 DescribeInstanceTypes (see truffle's pkg/aws capability queries), and a
+// type whose size AWS prices differently than its name suggests will be wrong
+// here. It covers the fixed sub-large sizes and the general NxLarge = N*4 pattern.
+//
+// ok is false — with a 0 count that callers must NOT read as "zero vCPUs" —
+// whenever the type isn't an exact, countable type: a wildcard or regex
+// ("g6e.*"), a family-only pattern ("g6e"), an empty string, or a size suffix
+// this heuristic doesn't recognize. Handling ok=false explicitly is what keeps
+// the heuristic's limits visible at the call site.
+func VCPUsForType(instanceType string) (int32, bool) {
+	// Patterns aren't types: a caller holding a watch/search pattern must learn
+	// that no exact count exists rather than get a number for "g6e.*".
+	if strings.ContainsAny(instanceType, "*?[]^$|") {
+		return 0, false
 	}
 
+	parts := strings.Split(instanceType, ".")
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return 0, false
+	}
 	size := parts[1]
 
-	switch size {
-	case "nano":
-		return 1
-	case "micro":
-		return 1
-	case "small":
-		return 1
-	case "medium":
-		return 1
-	case "large":
-		return 2
-	case "xlarge":
-		return 4
-	case "2xlarge":
-		return 8
-	case "3xlarge":
-		return 12
-	case "4xlarge":
-		return 16
-	case "6xlarge":
-		return 24
-	case "8xlarge":
-		return 32
-	case "9xlarge":
-		return 36
-	case "10xlarge":
-		return 40
-	case "12xlarge":
-		return 48
-	case "16xlarge":
-		return 64
-	case "18xlarge":
-		return 72
-	case "24xlarge":
-		return 96
-	case "32xlarge":
-		return 128
-	case "48xlarge":
-		return 192
-	case "56xlarge":
-		return 224
-	case "112xlarge":
-		return 448
+	if v, ok := sizeVCPUs[size]; ok {
+		return v, true
 	}
 
 	// General pattern: NxLarge has N*4 vCPUs (e.g. "20xlarge" → 80).
-	if strings.HasSuffix(size, "xlarge") {
-		numStr := strings.TrimSuffix(size, "xlarge")
-		if num := parseInt(numStr); num > 0 {
-			return num * 4
+	if rest := strings.TrimSuffix(size, "xlarge"); rest != size && rest != "" {
+		if num := parseInt(rest); num > 0 {
+			return num * 4, true
 		}
 	}
 
-	// Truly unknown size — log it (a new size AWS added that we don't map) and
-	// fall back to a conservative estimate. Surfaced so it doesn't silently skew
-	// the usage total the way a quiet default would.
-	log.Printf("quotas: unknown instance size %q in %q; estimating 2 vCPU (usage may be understated — update getVCPUCount)", size, instanceType)
+	return 0, false
+}
+
+// getVCPUCount estimates vCPU count from an instance type's size suffix for
+// internal usage summing. It wraps [VCPUsForType] and, for a size it can't map,
+// logs and falls back to a conservative 2 vCPU (#64) rather than silently
+// contributing nothing to the total — the usage sum needs a number, so it can
+// only be understated, never silently dropped. Callers that need to KNOW whether
+// the type was countable should use [VCPUsForType] directly.
+func getVCPUCount(instanceType string) int32 {
+	if v, ok := VCPUsForType(instanceType); ok {
+		return v
+	}
+	if parts := strings.Split(instanceType, "."); len(parts) < 2 {
+		log.Printf("quotas: cannot parse size from instance type %q; estimating 2 vCPU (usage may be understated)", instanceType)
+		return 2
+	}
+	log.Printf("quotas: unknown instance size in %q; estimating 2 vCPU (usage may be understated — update sizeVCPUs/VCPUsForType)", instanceType)
 	return 2
 }
 
@@ -495,42 +648,31 @@ func parseInt(s string) int32 {
 	return result
 }
 
-// QuotaIncreaseCommand generates AWS CLI command to request quota increase
+// QuotaIncreaseCommand returns a copy-pasteable AWS CLI block requesting an
+// increase to desiredValue vCPUs for the given family and lifecycle, resolving
+// the quota code through [QuotaCodeFor].
+//
+// For a family this package has no code for, it returns a Service Quotas CONSOLE
+// pointer instead of a command. That fallback is the point: the previous version
+// defaulted an unmapped family to the Standard On-Demand code (L-1216C47A), so a
+// user with an X/DL/F on-demand shortfall — or any non-G/P spot shortfall — was
+// told to raise an unrelated limit, and on the spot path the wrong lifecycle
+// entirely, while the output looked authoritative. Waiting out an approval for the
+// wrong quota leaves you exactly as blocked as before (#167).
+//
+// Use [QuotaCodeFor] if you need to know programmatically whether a command (as
+// opposed to a console pointer) is available for a pair.
 func QuotaIncreaseCommand(region string, family QuotaFamily, desiredValue int32, spot bool) string {
-	quotaCode := QuotaCodeStandard
-	quotaName := "Standard On-Demand"
-
-	if spot {
-		switch family {
-		case FamilyStandard:
-			quotaCode = QuotaCodeSpotStandard
-			quotaName = "Standard Spot"
-		case FamilyG:
-			quotaCode = QuotaCodeSpotG
-			quotaName = "G Spot"
-		case FamilyP:
-			quotaCode = QuotaCodeSpotP
-			quotaName = "P Spot"
-		}
-	} else {
-		switch family {
-		case FamilyStandard:
-			quotaCode = QuotaCodeStandard
-			quotaName = "Standard On-Demand"
-		case FamilyG:
-			quotaCode = QuotaCodeG
-			quotaName = "G On-Demand"
-		case FamilyP:
-			quotaCode = QuotaCodeP
-			quotaName = "P On-Demand"
-		case FamilyInf:
-			quotaCode = QuotaCodeInf
-			quotaName = "Inf On-Demand"
-		case FamilyTrn:
-			quotaCode = QuotaCodeTrn
-			quotaName = "Trn On-Demand"
-		}
+	quotaCode, ok := QuotaCodeFor(family, spot)
+	if !ok {
+		// No invented codes: point at the console rather than name a quota we
+		// can't vouch for.
+		return fmt.Sprintf(`# No Service Quotas code is known for the %s %s vCPU quota.
+# Raise it to at least %d vCPUs in the console (do not reuse another family's quota code):
+# https://%s.console.aws.amazon.com/servicequotas/home/services/ec2/quotas`,
+			family, lifecycleLabel(spot), desiredValue, region)
 	}
+	quotaName := fmt.Sprintf("%s %s", family, lifecycleLabel(spot))
 
 	return fmt.Sprintf(`# Request %s quota increase to %d vCPUs
 aws service-quotas request-service-quota-increase \

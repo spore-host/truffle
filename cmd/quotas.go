@@ -360,12 +360,19 @@ func generateIncreaseRequests(quotaInfos map[string]*quotas.QuotaInfo, filterFam
 	for _, region := range regions {
 		info := quotaInfos[region]
 
+		// All eight families, matching the display path above. This list used to
+		// stop at Trn, so an X/DL/F fleet got no suggestion at all — and the
+		// suggestion it would have got was built from the wrong quota code until
+		// #167.
 		families := []quotas.QuotaFamily{
 			quotas.FamilyStandard,
 			quotas.FamilyG,
 			quotas.FamilyP,
 			quotas.FamilyInf,
 			quotas.FamilyTrn,
+			quotas.FamilyDL,
+			quotas.FamilyF,
+			quotas.FamilyX,
 		}
 
 		for _, family := range families {
@@ -374,7 +381,12 @@ func generateIncreaseRequests(quotaInfos map[string]*quotas.QuotaInfo, filterFam
 				continue
 			}
 
-			quota := info.OnDemand[family]
+			// Two-value read: a family whose quota lookup FAILED is absent, and
+			// "I couldn't read it" is not a reason to suggest raising it (#167).
+			quota, known := info.OnDemand[family]
+			if !known {
+				continue
+			}
 			usage := info.Usage[family]
 
 			// Only generate requests for quotas that are zero or nearly full
