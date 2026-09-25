@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.57.1] - 2026-09-25
+
 ### Fixed
 - **`truffle quotas --request` now generates a command for a quota that is zero**
   (#171) — previously the most common reason to need an increase produced no
@@ -904,7 +906,8 @@ Initial tagged release from the standalone `spore-host/truffle` repository.
 Older releases are summarized in the
 [GitHub Releases](https://github.com/spore-host/truffle/releases) for this repo.
 
-[Unreleased]: https://github.com/spore-host/truffle/compare/v0.57.0...HEAD
+[Unreleased]: https://github.com/spore-host/truffle/compare/v0.57.1...HEAD
+[0.57.1]: https://github.com/spore-host/truffle/compare/v0.57.0...v0.57.1
 [0.57.0]: https://github.com/spore-host/truffle/compare/v0.56.0...v0.57.0
 [0.56.0]: https://github.com/spore-host/truffle/compare/v0.55.0...v0.56.0
 [0.55.0]: https://github.com/spore-host/truffle/compare/v0.54.0...v0.55.0
