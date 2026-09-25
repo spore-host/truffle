@@ -7,6 +7,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Quota-increase commands no longer tell you to raise the wrong quota** (#167).
+  `truffle quotas`' copy-pasteable
+  `aws service-quotas request-service-quota-increase` block only knew the codes
+  for a handful of instance families and silently fell back to the **Standard
+  On-Demand** code (`L-1216C47A`) for the rest — so an X, DL or F on-demand
+  shortfall, and **every** Spot shortfall outside G and P, produced a command that
+  raised an unrelated limit while looking authoritative. Worse, a Spot problem was
+  answered with an On-Demand quota labelled "Standard On-Demand". You would submit
+  the request, wait a day or two for approval, and still be blocked by the quota
+  you actually needed. All eight families are now mapped for both On-Demand and
+  Spot, the family/lifecycle label matches the code, and the mapping is shared
+  with the code that *reads* your quotas so the two can't drift apart again. A
+  family the tool has no code for now prints a Service Quotas console pointer
+  instead of a confidently wrong command.
+- **`truffle quotas --request` now covers all eight families** (#167). Its
+  suggestion loop stopped at Trn, so an X, DL or F shortfall produced no
+  quota-increase command at all; it now walks the same eight families the quota
+  table displays. It also skips families whose quota could not be read, instead of
+  reading the missing value as 0.
+- **A quota truffle couldn't read is no longer reported as "your quota is 0"**
+  (#167). Per-family quota lookups that failed — most often a missing
+  `servicequotas:GetServiceQuota` permission, but also throttling or a region that
+  doesn't offer the quota — were discarded without even a log line, leaving
+  "limit unknown" indistinguishable from a genuine zero limit. `CanLaunch` would
+  then advise "quota for G instances is 0 (request quota increase)" when the real
+  fix was an IAM grant. Failed lookups are now logged and reported as
+  *undetermined*, naming the underlying error; a genuine zero still gets the
+  quota-increase advice. **User-visible message change:** the explanation string
+  for a family whose quota could not be read is now "could not determine the …
+  vCPU quota … (limit unknown, not zero)" rather than "… is 0 (request quota
+  increase)". The launch/no-launch verdict itself is unchanged.
+
+### Added
+- **Per-family quota-lookup errors on `QuotaInfo`** (#167, library API):
+  `OnDemandErrors` / `SpotErrors` record which families' quota reads failed and
+  why, with `QuotaInfo.LookupError(family, spot)` and
+  `QuotaInfo.MissingFamilies(spot)` helpers. A failed family's key is still absent
+  from `OnDemand` / `Spot`, so a two-value map read keeps distinguishing "unknown"
+  from a real zero — these fields add the *reason*. Existing fields and behavior
+  are unchanged.
+- **`quotas.VCPUsForType(instanceType) (int32, bool)`** (#167, library API): the
+  exported form of the internal size-suffix → vCPU heuristic, for converting a
+  per-family vCPU quota into an instance count. `ok=false` (with a 0 count that
+  must not be read as "zero vCPUs") marks input the heuristic can't count — a
+  wildcard like `g6e.*`, a family-only pattern, an empty string, or an
+  unrecognized size — which keeps the heuristic's limits visible at the call site.
+  As the doc comment notes, `DescribeInstanceTypes` remains authoritative.
+- **`quotas.QuotaCodeFor(family, spot) (string, bool)`** (#167, library API): the
+  single source of truth for the (family, lifecycle) → Service Quotas code
+  mapping, with `ok=false` for an unmapped pair so callers can point at the
+  console instead of substituting another family's code.
+
 ## [0.56.0] - 2026-09-16
 
 ### Added
