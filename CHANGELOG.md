@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **`truffle quotas --request` now generates a command for a quota that is zero**
+  (#171) — previously the most common reason to need an increase produced no
+  output at all. A new account typically defaults the GPU families (P/G/DL/Trn)
+  to **0**, so the person asking "why can't I launch any p5?" was exactly the
+  person who got nothing: `quota == 0` sat in the *skip* condition even though the
+  comment above it said it generated requests "for quotas that are zero or nearly
+  full". The per-family starting values that were meant to handle this (192 vCPUs
+  for P — one p5.48xlarge — 128 for G, 32 otherwise) were unreachable dead code
+  and now apply. Each suggestion also says why it's there: either
+  `quota is 0 — no P instance can launch until this is raised`, or how much of the
+  quota is currently in use.
+
 ## [0.57.0] - 2026-09-25
 
 ### Fixed

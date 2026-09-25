@@ -389,30 +389,19 @@ func generateIncreaseRequests(quotaInfos map[string]*quotas.QuotaInfo, filterFam
 			}
 			usage := info.Usage[family]
 
-			// Only generate requests for quotas that are zero or nearly full
-			available := quota - usage
-			if quota == 0 || (available > 0 && float64(available)/float64(quota) > 0.25) {
+			desiredValue, needed := increaseRequestFor(family, quota, usage)
+			if !needed {
 				continue
 			}
 
-			// Suggest doubling the quota (or 32 minimum)
-			desiredValue := quota * 2
-			if desiredValue < 32 {
-				desiredValue = 32
-			}
 			if quota == 0 {
-				// Common starting values
-				switch family {
-				case quotas.FamilyP:
-					desiredValue = 192 // Enough for one p5.48xlarge
-				case quotas.FamilyG:
-					desiredValue = 128
-				default:
-					desiredValue = 32
-				}
+				// Name the reason: a zero quota means nothing of this family can
+				// launch at all, which reads very differently from "nearly full".
+				fmt.Printf("# %s - %s Family (quota is 0 — no %s instance can launch until this is raised)\n",
+					region, family, family)
+			} else {
+				fmt.Printf("# %s - %s Family (%d of %d vCPUs in use)\n", region, family, usage, quota)
 			}
-
-			fmt.Printf("# %s - %s Family\n", region, family)
 			fmt.Println(quotas.QuotaIncreaseCommand(region, family, desiredValue, false))
 			fmt.Println()
 		}
@@ -425,6 +414,52 @@ func generateIncreaseRequests(quotaInfos map[string]*quotas.QuotaInfo, filterFam
 	fmt.Println("   • Include your use case in the request for faster approval")
 	fmt.Println("   • You can track request status in AWS Console → Service Quotas")
 	fmt.Println()
+}
+
+// increaseRequestFor decides whether a family needs a quota-increase suggestion
+// and what value to ask for. Pure, so the decision is unit-testable without
+// touching stdout or AWS.
+//
+// Two cases warrant a request:
+//
+//   - quota == 0 — the family is entirely unavailable. This is the LOUDEST case
+//     and the single most common reason someone runs `truffle quotas --request`:
+//     new accounts routinely default the GPU families (P/G/DL/Trn) to zero, so
+//     "I can't launch any p5 at all" is exactly the person asking. It used to be
+//     SKIPPED (truffle#171): `quota == 0` sat in the skip condition even though
+//     the comment above it said "zero or nearly full", which also made the
+//     zero-quota starting-value block below it dead code.
+//   - less than 25% headroom left — nearly full, so the next launch may not fit.
+//
+// The quota > 0 guard on the ratio is load-bearing: it both expresses "only
+// compare headroom when there IS a quota" and avoids dividing by zero.
+func increaseRequestFor(family quotas.QuotaFamily, quota, usage int32) (desired int32, needed bool) {
+	if quota == 0 {
+		// Sensible starting values rather than a meaningless "0 doubled". These are
+		// per-family because the useful floor differs: one p5.48xlarge alone is 192
+		// vCPUs, so asking for 32 would be pointless.
+		switch family {
+		case quotas.FamilyP:
+			return 192, true // enough for one p5.48xlarge
+		case quotas.FamilyG:
+			return 128, true
+		default:
+			return 32, true
+		}
+	}
+
+	available := quota - usage
+	if available > 0 && float64(available)/float64(quota) > 0.25 {
+		return 0, false // plenty of headroom
+	}
+
+	// Suggest doubling the current quota, with a floor so a tiny quota doesn't
+	// produce a uselessly small request.
+	desired = quota * 2
+	if desired < 32 {
+		desired = 32
+	}
+	return desired, true
 }
 
 // ── SageMaker quota support ───────────────────────────────────────────────────
