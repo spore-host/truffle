@@ -101,20 +101,24 @@ func TestValueOrZero(t *testing.T) {
 
 // --- capacity reservation / block paths ---
 //
-// Substrate does not implement DescribeCapacityReservations (it answers
-// InvalidAction), so every region query against it fails. Before #110,
-// GetCapacityReservations and GetCapacityBlocks discarded that failure and
-// returned (empty, nil) — these tests used to assert exactly that as "empty
-// substrate, no error", which only held because the error was being thrown
-// away. They now assert the #63 contract instead: a total failure surfaces as
-// an error, matching SearchInstanceTypes/GetCapacityBlockOfferings. See
-// TestGetCapacityBlockOfferings_AllRegionsFailed for the same fix applied
-// earlier to the offerings path (#109), and client_ineligible_test.go for the
-// newUnreachableClient-backed versions of this same contract.
+// These assert the #63 contract: when every region query fails, the call returns
+// an error rather than (empty, nil), because an unanswered query must not read as
+// a legitimate "zero results". Before #110 the failure was discarded and these
+// tests asserted the opposite as "empty substrate, no error".
+//
+// The failure is forced with newUnreachableClient rather than borrowed from a
+// gap in the emulator. They previously relied on substrate answering
+// InvalidAction for DescribeCapacityReservations — true when they were written,
+// and false from **substrate v0.120.0**, which implements it. That made the
+// tests pass for an incidental reason and then fail on a routine dependency
+// bump (truffle#174) with nothing wrong in truffle at all.
+//
+// A contract about "what happens when the call fails" should not depend on which
+// calls an emulator has gotten around to implementing. A closed port fails
+// deterministically and keeps failing.
 
 func TestGetCapacityReservations_AllRegionsFailed(t *testing.T) {
-	env := testutil.SubstrateServer(t)
-	c := NewClientFromConfig(env.AWSConfig)
+	c := newUnreachableClient(t)
 
 	res, err := c.GetCapacityReservations(context.Background(), []string{"us-east-1"}, CapacityReservationOptions{
 		OnlyActive:    true,
@@ -130,8 +134,7 @@ func TestGetCapacityReservations_AllRegionsFailed(t *testing.T) {
 }
 
 func TestGetCapacityReservations_MultiRegionAllFailed(t *testing.T) {
-	env := testutil.SubstrateServer(t)
-	c := NewClientFromConfig(env.AWSConfig)
+	c := newUnreachableClient(t)
 
 	// Multiple regions exercises the concurrent fan-out path.
 	res, err := c.GetCapacityReservations(context.Background(),
@@ -145,9 +148,13 @@ func TestGetCapacityReservations_MultiRegionAllFailed(t *testing.T) {
 	}
 }
 
+// TestGetCapacityBlocks_AllRegionsFailed still passes against substrate, which
+// has not implemented the capacity-block path — but it is converted for the same
+// reason as its siblings above. It was one emulator release away from the same
+// spurious failure, and "this test happens to pass" is not a property worth
+// keeping.
 func TestGetCapacityBlocks_AllRegionsFailed(t *testing.T) {
-	env := testutil.SubstrateServer(t)
-	c := NewClientFromConfig(env.AWSConfig)
+	c := newUnreachableClient(t)
 
 	res, err := c.GetCapacityBlocks(context.Background(), []string{"us-east-1"}, CapacityBlockOptions{
 		InstanceTypes: []string{"p5.48xlarge"},
