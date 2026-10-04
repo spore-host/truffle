@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Dependencies**: `aws-sdk-go-v2/service/ec2` 1.332.0 → 1.335.0, `config` 1.33.4 →
+  1.33.5, `credentials` 1.20.4 → 1.20.5, `smithy-go` 1.28.1 → 1.28.2, `tablewriter`
+  1.1.4 → 1.1.5, and the substrate test dependency 0.114.0 → **0.120.0**.
+
+### Fixed
+
+- **Three tests asserted on gaps in the test emulator rather than on truffle's own
+  behaviour**, and failed on a routine dependency bump with nothing wrong in truffle
+  (#174). substrate 0.120.0 implements `DescribeCapacityReservations` and
+  `GetSpotPlacementScores` (the latter seedably, substrate#892) — operations it
+  previously answered `InvalidAction` for.
+  Two capacity-reservation tests checked the #63 contract that a total failure must
+  surface as an error instead of reading as "zero results", but produced that failure by
+  relying on substrate rejecting the operation. They now force it with
+  `newUnreachableClient` (a closed port), which fails deterministically and will keep
+  doing so: a contract about *what happens when a call fails* should not depend on which
+  calls an emulator has gotten around to implementing. `GetCapacityBlocks` was converted
+  with them — it still passes, but was one emulator release from the same spurious
+  failure.
+  The third asserted that a spot placement score was absent, which described the
+  emulator rather than truffle. The partial-answer contract it exists to protect ("a
+  missing signal must never be silent") is kept, but no longer names which signal is
+  missing. Its inverse is now covered too: that an available score actually reaches the
+  caller, on the documented 1-10 scale and naming its AZ ID — which nothing had ever
+  checked.
+
 ### Added
 
 - **The changelog policy is now enforced in CI rather than by habit.** A PR that changes

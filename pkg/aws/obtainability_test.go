@@ -56,12 +56,49 @@ func TestObtainability_PartialAnswerNotAnError(t *testing.T) {
 	if obt.InstanceType != "m5.large" || obt.Region != "us-east-1" {
 		t.Errorf("echoed query = %s/%s, want m5.large/us-east-1", obt.InstanceType, obt.Region)
 	}
-	// The emulator serves no GetSpotPlacementScores, so that gap must be visible.
+	// Some signal is still unavailable against the emulator (today:
+	// DescribeCapacityBlockOfferings), and that gap must be visible.
+	//
+	// Deliberately not pinned to WHICH signal is missing. This assertion used to
+	// read "the emulator serves no GetSpotPlacementScores, so that gap must be
+	// visible", which stopped being true at substrate v0.120.0 — it implements
+	// the operation, and seedably (substrate#892). The contract under test is
+	// "a gap is never silent", not "this particular operation is unimplemented",
+	// so naming the operation only coupled the test to the emulator's roadmap
+	// and produced a spurious failure on a routine bump (truffle#174).
 	if len(obt.Warnings) == 0 {
 		t.Error("no warnings recorded despite unavailable signals — a missing signal must never be silent")
 	}
-	if _, ok := obt.BestSpotPlacement(); ok {
-		t.Error("BestSpotPlacement reported a score the emulator never returned")
+}
+
+// TestObtainability_SpotPlacementScoreSurfaces is the other half of the same
+// contract, and the one the old assertion had inverted: when the signal IS
+// available, the score must reach the caller.
+//
+// It was previously asserted that BestSpotPlacement reports nothing, which was a
+// statement about the emulator rather than about truffle. Now that substrate
+// answers GetSpotPlacementScores, the real question is whether the plumbing
+// carries the score through — which nothing had ever checked.
+func TestObtainability_SpotPlacementScoreSurfaces(t *testing.T) {
+	env := testutil.SubstrateServer(t)
+	c := NewClientFromConfig(env.AWSConfig)
+
+	obt, err := c.Obtainability(context.Background(), "m5.large", "us-east-1")
+	if err != nil {
+		t.Fatalf("Obtainability: %v", err)
+	}
+
+	best, ok := obt.BestSpotPlacement()
+	if !ok {
+		t.Skip("the emulator served no spot placement score; nothing to verify")
+	}
+	if best.Score < 1 || best.Score > 10 {
+		t.Errorf("spot placement score = %d, outside the 1-10 scale AWS publishes for the "+
+			"operation — a score outside it means the field is being misread", best.Score)
+	}
+	if best.AZID == "" {
+		t.Error("a zone-scoped score must name the AZ ID: that identifier is what " +
+			"GetSpotPlacementScores itself reports and what a caller needs to act on")
 	}
 }
 
