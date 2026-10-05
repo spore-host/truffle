@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **The changelog policy is now enforced in CI rather than by habit.** A PR that changes
+  non-test Go source without touching `CHANGELOG.md` fails, and `changelog_test.go`
+  checks `[Unreleased]` for duplicate group headings, unknown group names, entries
+  outside a group, and releases missing a compare link.
+  This policy has been suite-wide for a while but only `spawn` enforced it — where it
+  immediately earned its keep, catching a duplicate `### Fixed` **four times in one
+  session** and a PR that had merged with no entry at all (found only at the next
+  release, against an empty `[Unreleased]`, with the entries reconstructed from the diff
+  at tag time).
+  `scripts/changelog-consolidate.py` (and `make changelog-fix` where there's a Makefile)
+  merges duplicate groups mechanically, because two PRs each adding their own
+  `### Fixed` is a routine conflict that merges cleanly for git and badly for the format
+  — not a mistake worth hand-fixing each time.
+
 ### Changed
 
 - **Dependencies**: `aws-sdk-go-v2/service/ec2` 1.332.0 → 1.335.0, `config` 1.33.4 →
@@ -14,6 +30,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   1.1.4 → 1.1.5, and the substrate test dependency 0.114.0 → **0.120.0**.
 
 ### Fixed
+
+- **A throttled Price List call refused any Graviton launch with a cost limit**
+  (#175). `GetProducts` ran on the SDK's default 3-attempt retry budget, which is
+  not enough for this API under fan-out: `spawn task run` is **one process per
+  launch**, so eight concurrent launches are eight cold caches making eight
+  `GetProducts` calls at once against a famously low rate limit. The 24-hour
+  in-process cache is the right design for a long-lived process and can never
+  amortise the case that actually throttles.
+  With `--cost-limit` set, truffle correctly fails closed when no price resolves
+  (#114), so one `ThrottlingException: Rate exceeded` refused the launch outright.
+  The budget is now 8 attempts, using the SDK's existing exponential backoff with
+  jitter — tens of seconds at worst, against a launch about to run for minutes.
+  Fixed by making the live lookup succeed rather than by widening the static
+  fallback: a hand-maintained price substituted into a spend cap is stale by
+  construction and its staleness is invisible at the cap, which is the same
+  objection #114 raised against a fabricated price.
 
 - **Three tests asserted on gaps in the test emulator rather than on truffle's own
   behaviour**, and failed on a routine dependency bump with nothing wrong in truffle
@@ -34,22 +66,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   missing. Its inverse is now covered too: that an available score actually reaches the
   caller, on the documented 1-10 scale and naming its AZ ID — which nothing had ever
   checked.
-
-### Added
-
-- **The changelog policy is now enforced in CI rather than by habit.** A PR that changes
-  non-test Go source without touching `CHANGELOG.md` fails, and `changelog_test.go`
-  checks `[Unreleased]` for duplicate group headings, unknown group names, entries
-  outside a group, and releases missing a compare link.
-  This policy has been suite-wide for a while but only `spawn` enforced it — where it
-  immediately earned its keep, catching a duplicate `### Fixed` **four times in one
-  session** and a PR that had merged with no entry at all (found only at the next
-  release, against an empty `[Unreleased]`, with the entries reconstructed from the diff
-  at tag time).
-  `scripts/changelog-consolidate.py` (and `make changelog-fix` where there's a Makefile)
-  merges duplicate groups mechanically, because two PRs each adding their own
-  `### Fixed` is a routine conflict that merges cleanly for git and badly for the format
-  — not a mistake worth hand-fixing each time.
 
 ## [0.57.1] - 2026-09-25
 
