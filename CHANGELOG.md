@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`Capabilities` now reports the hypervisor and the Nitro System generation.**
+  Two new fields, and they answer different questions from different sources.
+  `Hypervisor` is EC2's own `nitro`/`xen` answer from `DescribeInstanceTypes` —
+  authoritative, free, and per instance type. `NitroGeneration` is the Nitro
+  version (2–6), which the **API does not expose at all**: EC2's `Hypervisor`
+  field distinguishes Nitro from Xen but carries no version, and AWS publishes the
+  version only in documentation. So that one comes from a table, and `0` means
+  "this family is not classified" rather than "not Nitro" — `Hypervisor` answers
+  the latter.
+  The version is worth having because the generations differ in ways that bite: v4
+  added ENA Express and RDMA, v5 raised the per-network-card ceiling to 200 Gbps,
+  and v6 raised it to 400 Gbps *and* cut the default idle TCP timeout from 432,000
+  seconds to 350 — which silently breaks long-lived idle connections.
+- **`make nitro-census` keeps that table honest against AWS.** A hand-maintained
+  table whose staleness is invisible is the thing this project keeps getting
+  burned by, so the table ships with two networked gates.
+  **Contradiction**: every family the table classifies must be reported as `nitro`
+  by EC2 — which validates the one dimension the API *can* validate, automatically.
+  **Coverage**: every Nitro family EC2 offers must be classified, or the check
+  fails and names the ones that are not. That second gate is the new-Nitro-card
+  detector: a new card always arrives carried by new instance families, so an
+  unclassified family is exactly the signal to go read the docs. It cannot tell you
+  the new card is v7 — nothing can, from the API — but it fires precisely when
+  someone needs to look, which is the difference between a stale table and a table
+  that says it is stale.
+  Both gates found real problems on their first run against AWS. Nine Mac families
+  were flagged because bare-metal-only types report no hypervisor at all, which is
+  the field not applying rather than disagreement; and `i3` was classified Nitro v2
+  because the source lists "I3" under bare *metal* only, while every virtualized
+  `i3` size reports `xen`. `i3` is now unclassified, which is correct: a
+  family-level key cannot express "metal sizes only", and it does not need to,
+  because `Hypervisor` is per-type.
+  The table records its source URL and an as-of date, so its age is a fact in the
+  file rather than a guess by whoever reads it next.
+
 ## [0.57.2] - 2026-10-06
 
 ### Added
