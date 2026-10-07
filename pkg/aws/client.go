@@ -659,6 +659,19 @@ type Capabilities struct {
 	NestedVirtualization bool     `json:"nested_virtualization"`   // can run KVM/Hyper-V in-instance
 	GPUs                 int32    `json:"gpus,omitempty"`
 	BareMetal            bool     `json:"bare_metal"`
+	// Hypervisor is EC2's own answer: "nitro" or "xen" (empty if unknown). This
+	// is authoritative — it comes from DescribeInstanceTypes.
+	Hypervisor string `json:"hypervisor,omitempty"`
+	// NitroGeneration is the Nitro System version (2-6), or 0 for unknown.
+	//
+	// NOT from the API: EC2's Hypervisor field distinguishes nitro from xen but
+	// carries no version, which AWS publishes only in documentation. So this
+	// comes from a table (see nitro.go) and 0 genuinely means "we do not
+	// classify this family" rather than "not Nitro" — Hypervisor answers the
+	// latter. The version matters because the generations differ in ways that
+	// bite: v4 added ENA Express and RDMA, v5 raised the per-card ceiling to
+	// 200 Gbps, v6 to 400 Gbps and cut the idle TCP timeout to 350s.
+	NitroGeneration int `json:"nitro_generation,omitempty"`
 	// VCPUs is the instance type's default vCPU count (EC2's VCpuInfo.DefaultVCpus).
 	// Lets a caller convert a per-family vCPU quota (pkg/quotas.QuotaInfo) into an
 	// instance count without re-parsing the type's size suffix — the same
@@ -693,6 +706,8 @@ func (c *Client) GetCapabilities(ctx context.Context, instanceType, region strin
 	caps.NestedVirtualization = supportsNestedVirt(it)
 	caps.Hibernation = it.HibernationSupported != nil && *it.HibernationSupported
 	caps.BareMetal = it.BareMetal != nil && *it.BareMetal
+	caps.Hypervisor = string(it.Hypervisor)
+	caps.NitroGeneration = NitroGeneration(instanceType)
 	if it.NetworkInfo != nil && it.NetworkInfo.EfaSupported != nil {
 		caps.EFA = *it.NetworkInfo.EfaSupported
 	}

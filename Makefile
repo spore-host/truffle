@@ -28,9 +28,29 @@ gen-docs:
 check-docs: gen-docs
 	git diff --exit-code docs-gen/ || { echo "::error::docs-gen/ is stale — run 'make gen-docs' and commit"; exit 1; }
 
-## check-release-version: Release guard — build with the real release ldflag and
+## # Does the hand-maintained Nitro generation table still agree with AWS?
+#
+# Needs credentials, so it is run by hand rather than in CI. Two gates: every
+# family we classify must be reported as nitro by EC2, and every nitro family
+# EC2 offers must be classified. The second is the new-Nitro-card detector — a
+# new card always arrives with new families (truffle#175 discussion).
+.PHONY: nitro-census
+nitro-census:
+	@scripts/nitro-census.sh
+
+check-release-version: Release guard — build with the real release ldflag and
 ## assert the binary reports the tag (#121). Run before tagging:
 ##   make check-release-version TAG=v0.53.0
+# Does the hand-maintained Nitro generation table still agree with AWS?
+#
+# Needs credentials, so it is run by hand rather than in CI. Two gates: every
+# family we classify must be reported as nitro by EC2, and every nitro family
+# EC2 offers must be classified. The second is the new-Nitro-card detector — a
+# new card always arrives with new families (truffle#175 discussion).
+.PHONY: nitro-census
+nitro-census:
+	@scripts/nitro-census.sh
+
 check-release-version:
 	@scripts/check-release-version.sh $(TAG)
 
