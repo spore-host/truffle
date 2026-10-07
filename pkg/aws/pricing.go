@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws/retry"
 	"github.com/aws/aws-sdk-go-v2/service/pricing"
 	pricingtypes "github.com/aws/aws-sdk-go-v2/service/pricing/types"
 	libpricing "github.com/spore-host/libs/pricing"
@@ -201,12 +202,39 @@ func newAWSOnDemandPricer(cfg aws.Config) *awsOnDemandPricer {
 	return &awsOnDemandPricer{cfg: cfg, cache: make(map[string]cachedPrice)}
 }
 
+// pricingMaxAttempts is the retry budget for GetProducts.
+//
+// The SDK default is 3, which is not enough for this API under fan-out
+// (truffle#175). The Price List API has a notoriously low rate limit, and
+// `spawn task run` is ONE PROCESS PER LAUNCH — so eight concurrent launches are
+// eight cold caches making eight GetProducts calls at once. The 24-hour cache
+// above is the right design for a long-lived process and can never amortise the
+// case that actually throttles.
+//
+// A refused launch is the consequence: with --cost-limit set, truffle fails
+// closed when no price can be resolved (#114, correctly), so one ThrottlingException
+// refuses the launch outright.
+//
+// 8 attempts with the SDK's exponential backoff and jitter spans tens of seconds,
+// which is cheap against a launch that is about to run for minutes and far cheaper
+// than the alternative of substituting a guessed price into a spend cap.
+const pricingMaxAttempts = 8
+
 func (p *awsOnDemandPricer) ensureClient() *pricing.Client {
 	if p.client == nil {
 		cfg := p.cfg
 		// The Price List API has only two endpoints; us-east-1 is the canonical one.
 		if cfg.Region == "" || (cfg.Region != "us-east-1" && cfg.Region != "ap-south-1") {
 			cfg.Region = "us-east-1"
+		}
+		// Retry ThrottlingException harder than the SDK default (truffle#175).
+		// retry.NewStandard already treats throttling as retryable and applies
+		// exponential backoff with jitter; the default attempt budget is simply too
+		// small for a concurrently-launched fan-out.
+		cfg.Retryer = func() aws.Retryer {
+			return retry.NewStandard(func(o *retry.StandardOptions) {
+				o.MaxAttempts = pricingMaxAttempts
+			})
 		}
 		p.client = pricing.NewFromConfig(cfg)
 	}
