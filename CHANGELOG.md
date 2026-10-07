@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.57.2] - 2026-10-06
+
 ### Added
 
 - **The changelog policy is now enforced in CI rather than by habit.** A PR that changes
@@ -966,7 +968,8 @@ Initial tagged release from the standalone `spore-host/truffle` repository.
 Older releases are summarized in the
 [GitHub Releases](https://github.com/spore-host/truffle/releases) for this repo.
 
-[Unreleased]: https://github.com/spore-host/truffle/compare/v0.57.1...HEAD
+[Unreleased]: https://github.com/spore-host/truffle/compare/v0.57.2...HEAD
+[0.57.2]: https://github.com/spore-host/truffle/compare/v0.57.1...v0.57.2
 [0.57.1]: https://github.com/spore-host/truffle/compare/v0.57.0...v0.57.1
 [0.57.0]: https://github.com/spore-host/truffle/compare/v0.56.0...v0.57.0
 [0.56.0]: https://github.com/spore-host/truffle/compare/v0.55.0...v0.56.0
