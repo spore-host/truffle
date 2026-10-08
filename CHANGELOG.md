@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A throttled Price List no longer refuses a Graviton launch that carries a cost
+  limit** (#175). The static fallback required an exact `(region, instanceType)`
+  hit in `libs/pricing`, and that table had **no Graviton family in any region** —
+  no `c6g`–`c9g`, no `m6g`–`m8g`, no `r6g`–`r9g`. So for the entire Graviton line
+  the fallback could not fire, and any `GetProducts` hiccup meant a hard refusal:
+  reported from a real eight-way fan-out where `c7g.2xlarge` in us-west-2 with
+  `--cost-limit 0.15` died outright.
+  That was the opposite of the intended degradation order. Failing closed is
+  correct and #114 settled it; the problem was that the thing it fell back to had
+  no coverage of the architecture most of this suite's users run. Fixed by bumping
+  `libs` to **v0.51.0**, which adds **405 real Graviton rates** fetched from the
+  Price List API across all eight regions the table covers.
+  Guarded here rather than only upstream, since this is where the refusal
+  happened: nine mature families × five sizes × eight regions are now asserted
+  present, the reported throttling error is asserted to degrade to the static
+  table *and* to report `PriceSourceStatic` so a caller can still tell a degraded
+  price from a live one, and `c9g`/`r9g` — which AWS does not yet offer
+  everywhere — are held to a coverage floor plus a no-partial-ladder rule instead
+  of a hardcoded region list, so a normal AWS rollout cannot turn the build red
+  while a coverage regression still does.
+
 ## [0.58.0] - 2026-10-07
 
 ### Added
