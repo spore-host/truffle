@@ -286,3 +286,169 @@ func TestHourlyRate_RejectsReservedAndUnknown(t *testing.T) {
 		t.Error("expected error for unknown model, got nil")
 	}
 }
+
+// TestStaticOnDemandPricer_GravitonCoverage is the truffle#175 regression, and
+// the reported repro verbatim: `c7g.2xlarge` in `us-west-2`.
+//
+// The static table had **no** Graviton family in **any** region — no c6g–c9g, no
+// m6g–m8g, no r6g–r9g. So for the entire Graviton line the fallback could not
+// fire, and a throttled Price List plus a `--cost-limit` meant a refused launch:
+// the exact inversion of the intended degradation order, since the table exists
+// precisely for "Price List unavailable" and was missing the architecture most of
+// this suite's users run.
+//
+// Asserting on every (family, size, region) rather than one spot check, because
+// the defect was *absence* — and absence is the one thing a single happy-path
+// case cannot detect.
+func TestStaticOnDemandPricer_GravitonCoverage(t *testing.T) {
+	p := staticOnDemandPricer{}
+
+	// The eight regions the table covers. Hardcoded rather than ranged over
+	// EC2Pricing, so dropping a region fails this test instead of shrinking it.
+	regions := []string{
+		"us-east-1", "us-east-2", "us-west-1", "us-west-2",
+		"eu-west-1", "eu-central-1", "ap-northeast-1", "ap-southeast-1",
+	}
+	// The sizes the issue asked for.
+	sizes := []string{"large", "xlarge", "2xlarge", "4xlarge", "8xlarge"}
+	// Mature generations, required in EVERY covered region. AWS offers all nine
+	// everywhere the table reaches, so a miss here is a table defect.
+	mature := []string{
+		"c6g", "c7g", "c8g",
+		"m6g", "m7g", "m8g",
+		"r6g", "r7g", "r8g",
+	}
+
+	for _, region := range regions {
+		for _, fam := range mature {
+			for _, size := range sizes {
+				it := fam + "." + size
+				t.Run(region+"/"+it, func(t *testing.T) {
+					price, err := p.OnDemandPrice(context.Background(), it, region)
+					if err != nil {
+						t.Fatalf("no static price for %s in %s: %v — a throttled Price List "+
+							"would refuse this launch outright when a cost limit is set (#175)", it, region, err)
+					}
+					if price <= 0 {
+						t.Errorf("static price for %s in %s = %v, want > 0", it, region, price)
+					}
+				})
+			}
+		}
+	}
+}
+
+// TestStaticOnDemandPricer_NewestGravitonCoverage covers c9g and r9g, which the
+// issue also asked for but which AWS does not yet offer in every region the
+// table reaches — c9g in five of the eight, r9g in four.
+//
+// So this does NOT demand availability that does not exist, which would make the
+// test a liability the moment it was right to omit a rate. It asserts the two
+// things that are actually invariants:
+//
+//  1. No partial size ladder. A family present in a region must have ALL the
+//     asked sizes, because a half-populated family is the shape a hand-edit or a
+//     truncated fetch leaves behind, and it fails at launch for exactly the one
+//     size somebody picked.
+//  2. A floor on breadth, not an exact list. Pinning the regions would turn a
+//     normal AWS rollout into a red build; a minimum catches the regression
+//     (coverage collapsing) while letting expansion pass untouched.
+func TestStaticOnDemandPricer_NewestGravitonCoverage(t *testing.T) {
+	p := staticOnDemandPricer{}
+	regions := []string{
+		"us-east-1", "us-east-2", "us-west-1", "us-west-2",
+		"eu-west-1", "eu-central-1", "ap-northeast-1", "ap-southeast-1",
+	}
+	sizes := []string{"large", "xlarge", "2xlarge", "4xlarge", "8xlarge"}
+
+	// Floors as measured at PricesAsOf 2026-10-07: c9g in 5 regions, r9g in 4.
+	for fam, minRegions := range map[string]int{"c9g": 5, "r9g": 4} {
+		t.Run(fam, func(t *testing.T) {
+			covered := 0
+			for _, region := range regions {
+				found := pricedSizes(p, fam, region, sizes)
+				switch found {
+				case 0:
+					continue // not offered here; not a defect
+				case len(sizes):
+					covered++
+				default:
+					t.Errorf("%s in %s has %d of %d sizes — a partial ladder fails at launch "+
+						"for whichever size is missing", fam, region, found, len(sizes))
+				}
+			}
+			if covered < minRegions {
+				t.Errorf("%s priced in %d regions, want at least %d — coverage went backwards (#175)",
+					fam, covered, minRegions)
+			}
+		})
+	}
+}
+
+// TestFallbackPricer_GravitonSurvivesThrottling is #175's outer half: the
+// coverage above only matters if the fallback actually engages on the error the
+// reporter saw. The primary here fails with the real ThrottlingException text
+// from the issue.
+func TestFallbackPricer_GravitonSurvivesThrottling(t *testing.T) {
+	throttled := errors.New("price list GetProducts for c7g.2xlarge in us-west-2: " +
+		"operation error Pricing: GetProducts, exceeded maximum number of attempts, 3, " +
+		"https response error StatusCode: 400, ThrottlingException: Rate exceeded")
+
+	f := &fallbackPricer{primary: stubPricer{err: throttled}, fallback: staticOnDemandPricer{}}
+	price, source, err := f.OnDemandPriceWithSource(context.Background(), "c7g.2xlarge", "us-west-2")
+	if err != nil {
+		t.Fatalf("throttled Price List did not degrade to the static table: %v", err)
+	}
+	if price <= 0 {
+		t.Errorf("price = %v, want > 0", price)
+	}
+	// The caller must be able to tell a degraded price from a live one — that
+	// distinction is why #114 made the static pricer error rather than guess.
+	if source != PriceSourceStatic {
+		t.Errorf("source = %v, want %v", source, PriceSourceStatic)
+	}
+}
+
+// pricedSizes counts how many of sizes the pricer can answer for one family in
+// one region. Extracted so the partial-ladder rule above can be exercised
+// against a pricer with a deliberate hole — the embedded table has none, so an
+// inline check would be an assertion nothing could ever trip.
+func pricedSizes(p OnDemandPricer, fam, region string, sizes []string) int {
+	n := 0
+	for _, size := range sizes {
+		if price, err := p.OnDemandPrice(context.Background(), fam+"."+size, region); err == nil && price > 0 {
+			n++
+		}
+	}
+	return n
+}
+
+// holePricer answers like the static table except for one instance type, which
+// it refuses — the shape a truncated fetch or a hand-edit leaves behind.
+type holePricer struct {
+	inner   OnDemandPricer
+	missing string
+}
+
+func (h holePricer) OnDemandPrice(ctx context.Context, instanceType, region string) (float64, error) {
+	if instanceType == h.missing {
+		return 0, errors.New("no static price for " + instanceType + " in " + region)
+	}
+	return h.inner.OnDemandPrice(ctx, instanceType, region)
+}
+
+// TestPricedSizes_DetectsAPartialLadder is the gate on the gate: without it,
+// TestStaticOnDemandPricer_NewestGravitonCoverage's partial-ladder arm is
+// unreachable, since every family in the real table is complete.
+func TestPricedSizes_DetectsAPartialLadder(t *testing.T) {
+	sizes := []string{"large", "xlarge", "2xlarge", "4xlarge", "8xlarge"}
+
+	if got := pricedSizes(staticOnDemandPricer{}, "c9g", "us-east-1", sizes); got != len(sizes) {
+		t.Fatalf("precondition: complete ladder counted %d of %d", got, len(sizes))
+	}
+	holed := holePricer{inner: staticOnDemandPricer{}, missing: "c9g.4xlarge"}
+	if got := pricedSizes(holed, "c9g", "us-east-1", sizes); got != len(sizes)-1 {
+		t.Errorf("one missing size counted %d of %d — the partial-ladder arm would never fire",
+			got, len(sizes))
+	}
+}
