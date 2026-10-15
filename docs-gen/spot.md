@@ -28,7 +28,6 @@ truffle spot <instance-type-pattern>... [flags]
 | `--lookback-hours` |  | int | `1` | Hours to look back for price history (1-720) |
 | `--max-price` |  | float64 |  | Maximum Spot price per hour (USD) |
 | `--pick-first` |  | bool |  | Output only the top result's instance type (useful for piping to spawn) |
-| `--show-savings` |  | bool |  | Show savings vs On-Demand pricing |
 | `--sort-by-price` |  | bool |  | Sort by price (cheapest first) |
 | `--timeout` |  | duration | `5m0s` | Timeout for AWS API calls |
 

@@ -33,6 +33,5 @@ truffle capacity [flags]
 | `--gpu-only` |  | bool |  | Only show GPU/ML instance reservations |
 | `--instance-types` |  | stringSlice |  | Filter by instance types (comma-separated) |
 | `--min-capacity` |  | int |  | Minimum available capacity |
-| `--odcr` |  | bool | `true` | Show On-Demand Capacity Reservations (default) |
 | `--timeout` |  | duration | `5m0s` | Timeout for AWS API calls |
 

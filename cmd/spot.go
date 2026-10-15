@@ -17,7 +17,6 @@ import (
 
 var (
 	spotMaxPrice      float64
-	spotShowSavings   bool
 	spotSortByPrice   bool
 	spotOnlyActive    bool
 	spotLookbackHours int
@@ -37,7 +36,11 @@ func init() {
 
 	addAllRegionsFlag(spotCmd, spotRegionDefault)
 	spotCmd.Flags().Float64Var(&spotMaxPrice, "max-price", 0, "Maximum Spot price per hour (USD)")
-	spotCmd.Flags().BoolVar(&spotShowSavings, "show-savings", false, "Show savings vs On-Demand pricing")
+	// --show-savings has been a no-op since #21 made spot always fetch on-demand
+	// prices and show the savings column. Kept, deprecated, so existing scripts
+	// still parse (#204).
+	spotCmd.Flags().Bool("show-savings", false, "Show savings vs On-Demand pricing")
+	_ = spotCmd.Flags().MarkDeprecated("show-savings", "savings vs On-Demand are always shown; the flag has no effect and will be removed")
 	spotCmd.Flags().BoolVar(&spotSortByPrice, "sort-by-price", false, "Sort by price (cheapest first)")
 	spotCmd.Flags().BoolVar(&spotOnlyActive, "active-only", false, "Only show AZs with active Spot capacity")
 	spotCmd.Flags().IntVar(&spotLookbackHours, "lookback-hours", 1, "Hours to look back for price history (1-720)")
@@ -192,9 +195,9 @@ func runSpot(cmd *cobra.Command, args []string) error {
 		})
 	}
 
-	// On-demand price and savings are populated by GetSpotPricing when
-	// --show-savings is set (SpotOptions.ShowSavings), sourced from the live
-	// AWS Price List API with a static fallback.
+	// On-demand price and savings are always populated by GetSpotPricing
+	// (SpotOptions.ShowSavings above), sourced from the live AWS Price List API
+	// with a static fallback.
 
 	// --pick-first: output just the instance type of the top result and exit
 	if spotPickFirst {

@@ -21,7 +21,6 @@ var (
 	crMinCapacity   int
 	crGPUOnly       bool
 	crShowBlocks    bool
-	crShowODCR      bool
 )
 
 var capacityCmd = &cobra.Command{
@@ -40,7 +39,11 @@ func init() {
 	capacityCmd.Flags().IntVar(&crMinCapacity, "min-capacity", 0, "Minimum available capacity")
 	capacityCmd.Flags().BoolVar(&crGPUOnly, "gpu-only", false, "Only show GPU/ML instance reservations")
 	capacityCmd.Flags().BoolVar(&crShowBlocks, "blocks", false, "Show Capacity Blocks for ML (training workloads)")
-	capacityCmd.Flags().BoolVar(&crShowODCR, "odcr", true, "Show On-Demand Capacity Reservations (default)")
+	// --odcr never did anything: ODCRs are what capacity shows unless --blocks
+	// is given, and --odcr=false did not hide them. Kept, deprecated, so existing
+	// scripts still parse (#205).
+	capacityCmd.Flags().Bool("odcr", true, "Show On-Demand Capacity Reservations (default)")
+	_ = capacityCmd.Flags().MarkDeprecated("odcr", "On-Demand Capacity Reservations are shown by default (use --blocks for Capacity Blocks); the flag has no effect and will be removed")
 	capacityCmd.Flags().DurationVar(&timeout, "timeout", 5*time.Minute, "Timeout for AWS API calls")
 }
 

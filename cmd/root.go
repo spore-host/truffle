@@ -29,7 +29,9 @@ var (
 	verbose      bool
 
 	// Shared spore.host config flags (see libs/sporeconfig). truffle's region is
-	// per-request (--regions filter), so only the profile/account are wired here.
+	// per-request (--regions filter), so only the profile and account are
+	// wired here: the profile into pkg/awscfg, the account as a guard checked
+	// in PersistentPreRunE (see account.go).
 	sharedProfile string
 	sharedAccount string
 
@@ -151,6 +153,13 @@ func init() {
 		// Region stays unset here — truffle selects regions per request.
 		awscfg.SetFlags(sharedProfile, "")
 
+		// --account: verify the resolved credentials belong to the named
+		// account before doing anything else (#199). A refusal is not a usage
+		// error, so don't follow it with the help text.
+		if err := runAccountGuard(); err != nil {
+			cmd.SilenceUsage = true
+			return err
+		}
 		return nil
 	}
 
