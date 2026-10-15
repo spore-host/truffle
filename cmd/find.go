@@ -3,9 +3,11 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -59,6 +61,8 @@ Understands:
   - NVIDIA MPS: mps (matches ANY NVIDIA GPU — MPS is a CUDA runtime feature,
     not a hardware capability tied to instance type, unlike MIG above)
   - Specs: 8 cores, 8 physical cores, 32gb, 4 gpus
+    (minimums: results are listed closest fit first, then cheapest — the
+    request's exact size leads; add --exact to show only exact matches)
   - Sizes: tiny, small, medium, large, huge
   - Architecture: x86_64, arm64
   - Network: efa, 10gbps, 25gbps, 50gbps, 100gbps, 200gbps, 400gbps
@@ -290,53 +294,10 @@ func runFind(cmd *cobra.Command, args []string) error {
 			i18n.Symbol("warning"), staticPriced, len(results), pluralize(staticPriced, "type is", "types are"))
 	}
 
-	// Sort results based on qualitative preference or default (newest gen first)
-	sort.Slice(results, func(i, j int) bool {
-		switch sortPref {
-		case find.SortCheapest:
-			pi, pj := results[i].OnDemandPrice, results[j].OnDemandPrice
-			if pi == 0 && pj != 0 {
-				return false // push unknown prices to end
-			}
-			if pi != 0 && pj == 0 {
-				return true
-			}
-			if pi != pj {
-				return pi < pj
-			}
-		case find.SortExpensive:
-			pi, pj := results[i].OnDemandPrice, results[j].OnDemandPrice
-			if pi == 0 && pj != 0 {
-				return false
-			}
-			if pi != 0 && pj == 0 {
-				return true
-			}
-			if pi != pj {
-				return pi > pj
-			}
-		case find.SortPerformant:
-			if results[i].VCPUs != results[j].VCPUs {
-				return results[i].VCPUs > results[j].VCPUs
-			}
-		case find.SortNewest:
-			genI := instanceGeneration(results[i].InstanceType)
-			genJ := instanceGeneration(results[j].InstanceType)
-			if genI != genJ {
-				return genI > genJ
-			}
-		default:
-			genI := instanceGeneration(results[i].InstanceType)
-			genJ := instanceGeneration(results[j].InstanceType)
-			if genI != genJ {
-				return genI > genJ
-			}
-		}
-		if results[i].InstanceType != results[j].InstanceType {
-			return results[i].InstanceType < results[j].InstanceType
-		}
-		return results[i].Region < results[j].Region
-	})
+	// Order results closest-fit first (truffle#187), or by the qualitative
+	// preference when one was given. The table renders this order as-is
+	// (PreserveOrder), so table, JSON, YAML, CSV and --pick-first agree.
+	sortFindResults(results, criteria.FilterOptions, sortPref)
 
 	if len(results) == 0 {
 		if ctx.Err() != nil {
@@ -378,7 +339,17 @@ func runFind(cmd *cobra.Command, args []string) error {
 	}
 
 	// Print results
-	return printFindResults(enrichedResults, localZones)
+	if err := printFindResults(enrichedResults, localZones); err != nil {
+		return err
+	}
+	// Spec terms are minimums, so say so — and how to get an exact match —
+	// next to the table. Human output only; machine formats stay clean.
+	if outputFormat == "table" {
+		if hint := minimumSpecHint(results, criteria.FilterOptions, sortPref); hint != "" {
+			fmt.Fprintln(os.Stderr, hint)
+		}
+	}
+	return nil
 }
 
 func printParsedQuery(query *find.ParsedQuery) {
@@ -553,6 +524,7 @@ func printFindTable(results []find.FindResult, printer *output.Printer, localZon
 		ShowGPURatios: findShowGPURatios,
 		PriceUnit:     priceUnit,
 		LocalZoneAZs:  localZones,
+		PreserveOrder: true, // already sorted closest-fit first by sortFindResults (#187)
 	}
 	return printer.PrintTableWithOptions(baseResults, opts)
 }
@@ -805,4 +777,175 @@ func runSearchWithPatternDisplay(regexPattern, display, service string) error {
 	default:
 		return fmt.Errorf("unsupported output format: %s", outputFormat)
 	}
+}
+
+// fitDistance scores how far an instance type overshoots the requested
+// minimums (truffle#187). Each specified dimension (vCPU, memory, physical
+// cores) contributes |log2(actual/requested)|, so an exact match scores 0 and
+// doubling any one dimension costs the same 1.0 — 16 vCPU/128 GiB and
+// 32 vCPU/64 GiB are equally far from a "16 cores 64gb" request, and
+// 192 vCPU/1536 GiB is far away. Unspecified dimensions contribute nothing,
+// so with no size terms every type scores 0.
+func fitDistance(r aws.InstanceTypeResult, f aws.FilterOptions) float64 {
+	d := 0.0
+	add := func(actual, want float64) {
+		if want > 0 && actual > 0 {
+			d += math.Abs(math.Log2(actual / want))
+		}
+	}
+	add(float64(r.VCPUs), float64(f.MinVCPUs))
+	add(float64(r.MemoryMiB)/1024.0, f.MinMemory)
+	add(float64(r.PhysicalCores), float64(f.MinPhysicalCores))
+	return d
+}
+
+// hasSizeSpec reports whether the query constrained vCPU, memory, or cores.
+func hasSizeSpec(f aws.FilterOptions) bool {
+	return f.MinVCPUs > 0 || f.MinMemory > 0 || f.MinPhysicalCores > 0
+}
+
+// sortFindResults orders find results in place. Rows for one instance type
+// stay contiguous (types are ranked as a unit, regardless of region), and
+// within a type the rows go cheapest region first (most expensive first for
+// "expensive"); unknown prices sort last.
+//
+// Default ranking (truffle#187): when the query has size terms, closest fit
+// first (see fitDistance), then cheapest; with no size terms, newest
+// generation first, then cheapest. Qualitative keywords (cheap, expensive,
+// fast, newest) override the primary key.
+func sortFindResults(results []aws.InstanceTypeResult, f aws.FilterOptions, pref find.SortPreference) {
+	type typeKey struct {
+		fit                float64
+		gen                int
+		vcpus              int32
+		minPrice, maxPrice float64 // 0 = unknown in every region
+	}
+	keys := make(map[string]*typeKey)
+	for _, r := range results {
+		k, ok := keys[r.InstanceType]
+		if !ok {
+			k = &typeKey{
+				fit:   fitDistance(r, f),
+				gen:   instanceGeneration(r.InstanceType),
+				vcpus: r.VCPUs,
+			}
+			keys[r.InstanceType] = k
+		}
+		if p := r.OnDemandPrice; p > 0 {
+			if k.minPrice == 0 || p < k.minPrice {
+				k.minPrice = p
+			}
+			if p > k.maxPrice {
+				k.maxPrice = p
+			}
+		}
+	}
+
+	// cmpPrice orders known prices ascending (or descending) with unknown (0)
+	// always last; returns 0 when equal.
+	cmpPrice := func(a, b float64, desc bool) int {
+		switch {
+		case a == b:
+			return 0
+		case a == 0:
+			return 1
+		case b == 0:
+			return -1
+		case (a < b) != desc:
+			return -1
+		default:
+			return 1
+		}
+	}
+	const eps = 1e-9
+	cmpFit := func(a, b *typeKey) int {
+		switch {
+		case a.fit < b.fit-eps:
+			return -1
+		case a.fit > b.fit+eps:
+			return 1
+		}
+		return 0
+	}
+	cmpGen := func(a, b *typeKey) int {
+		switch {
+		case a.gen > b.gen:
+			return -1
+		case a.gen < b.gen:
+			return 1
+		}
+		return 0
+	}
+	sizeSpec := hasSizeSpec(f)
+
+	sort.SliceStable(results, func(i, j int) bool {
+		ri, rj := results[i], results[j]
+		if ri.InstanceType != rj.InstanceType {
+			a, b := keys[ri.InstanceType], keys[rj.InstanceType]
+			var order []int
+			switch pref {
+			case find.SortCheapest:
+				order = []int{cmpPrice(a.minPrice, b.minPrice, false), cmpFit(a, b), cmpGen(a, b)}
+			case find.SortExpensive:
+				order = []int{cmpPrice(a.maxPrice, b.maxPrice, true), cmpFit(a, b), cmpGen(a, b)}
+			case find.SortPerformant:
+				v := 0
+				if a.vcpus != b.vcpus {
+					v = 1
+					if a.vcpus > b.vcpus {
+						v = -1
+					}
+				}
+				order = []int{v, cmpPrice(a.minPrice, b.minPrice, false), cmpGen(a, b)}
+			case find.SortNewest:
+				order = []int{cmpGen(a, b), cmpFit(a, b), cmpPrice(a.minPrice, b.minPrice, false)}
+			default:
+				if sizeSpec {
+					order = []int{cmpFit(a, b), cmpPrice(a.minPrice, b.minPrice, false), cmpGen(a, b)}
+				} else {
+					order = []int{cmpGen(a, b), cmpPrice(a.minPrice, b.minPrice, false)}
+				}
+			}
+			for _, c := range order {
+				if c != 0 {
+					return c < 0
+				}
+			}
+			return ri.InstanceType < rj.InstanceType
+		}
+		if c := cmpPrice(ri.OnDemandPrice, rj.OnDemandPrice, pref == find.SortExpensive); c != 0 {
+			return c < 0
+		}
+		return ri.Region < rj.Region
+	})
+}
+
+// minimumSpecHint is the one-line note shown under the find table explaining
+// that size terms are minimums (truffle#187), e.g. "Showing 28 types with
+// ≥16 vCPU and ≥64 GiB memory, closest fit first; use --exact for an exact
+// match" (the order clause only for the default sort). Empty when the query had no size terms or used --exact.
+func minimumSpecHint(results []aws.InstanceTypeResult, f aws.FilterOptions, pref find.SortPreference) string {
+	if !hasSizeSpec(f) || f.ExactVCPUs || f.ExactMemory || f.ExactCores {
+		return ""
+	}
+	types := make(map[string]bool)
+	for _, r := range results {
+		types[r.InstanceType] = true
+	}
+	var terms []string
+	if f.MinVCPUs > 0 {
+		terms = append(terms, fmt.Sprintf("≥%d vCPU", f.MinVCPUs))
+	}
+	if f.MinPhysicalCores > 0 {
+		terms = append(terms, fmt.Sprintf("≥%d physical cores", f.MinPhysicalCores))
+	}
+	if f.MinMemory > 0 {
+		terms = append(terms, fmt.Sprintf("≥%s GiB memory", strconv.FormatFloat(f.MinMemory, 'f', -1, 64)))
+	}
+	order := ""
+	if pref == find.SortDefault {
+		order = ", closest fit first"
+	}
+	return fmt.Sprintf("Showing %d %s with %s%s; use --exact for an exact match",
+		len(types), pluralize(len(types), "type", "types"), strings.Join(terms, " and "), order)
 }

@@ -890,6 +890,40 @@ func TestPrintTable_WithinGroupSortedByPriceDescending(t *testing.T) {
 	}
 }
 
+// TestPrintTable_PreserveOrder covers truffle#187: `find` sorts closest fit
+// first and the table must render that order rather than re-sorting
+// largest-first, still grouping each type's rows (at its first appearance,
+// rows in the given order).
+func TestPrintTable_PreserveOrder(t *testing.T) {
+	results := []aws.InstanceTypeResult{
+		{InstanceType: "m8a.4xlarge", Region: "us-west-2", VCPUs: 16, MemoryMiB: 64 * 1024, Architecture: "x86_64", OnDemandPrice: 0.97},
+		{InstanceType: "r8a.4xlarge", Region: "us-west-2", VCPUs: 16, MemoryMiB: 128 * 1024, Architecture: "x86_64", OnDemandPrice: 1.28},
+		{InstanceType: "m8a.4xlarge", Region: "us-east-1", VCPUs: 16, MemoryMiB: 64 * 1024, Architecture: "x86_64", OnDemandPrice: 1.01},
+		{InstanceType: "r8a.48xlarge", Region: "us-west-2", VCPUs: 192, MemoryMiB: 1536 * 1024, Architecture: "x86_64", OnDemandPrice: 15.34},
+	}
+	out := captureStdout(t, func() {
+		_ = NewPrinter(false).PrintTableWithOptions(results, TableOptions{ShowPrice: true, PreserveOrder: true})
+	})
+	var got []string
+	for _, l := range strings.Split(out, "\n") {
+		for _, tok := range []string{"us-west-2", "us-east-1"} {
+			if strings.Contains(l, tok) {
+				it := "(cont)"
+				for _, name := range []string{"m8a.4xlarge", "r8a.4xlarge", "r8a.48xlarge"} {
+					if strings.Contains(l, name) {
+						it = name
+					}
+				}
+				got = append(got, it+"@"+tok)
+			}
+		}
+	}
+	want := []string{"m8a.4xlarge@us-west-2", "(cont)@us-east-1", "r8a.4xlarge@us-west-2", "r8a.48xlarge@us-west-2"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("row order = %v, want %v\n%s", got, want, out)
+	}
+}
+
 func TestPrintTable_SageMakerSpotEligibleAndFooter(t *testing.T) {
 	q := 4.0
 	results := []aws.InstanceTypeResult{

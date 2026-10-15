@@ -15,14 +15,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   commit and build date, without the network update check, so it is safe in
   scripts.
 
-### Security
-
-- **Rebuilt against Go 1.26.9 and `golang.org/x/net` v0.60.0** for the Go
-  vulnerabilities disclosed 2026-10-09: GO-2026-6605, 6607, 6608, 6610, 6611,
-  6612, 6613 and 6617, across `net/http`, `crypto/tls`, `mime/multipart`,
-  `net/http/httputil`, `net/textproto` and x/net's HTTP/2 implementation. The CI
-  Go pin moves 1.26.8 → 1.26.9 in all workflows.
-
 ### Fixed
 
 - **No spinner frames when output isn't a terminal** (#189). Piping or
@@ -38,6 +30,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   simplifications) are fixed without changing output, and a new `Lint` CI job runs
   `make lint` with golangci-lint pinned to 2.14.0 and its download verified against a
   pinned SHA256. `make lint` warns if your local version differs from the pin.
+- **`truffle find` lists the closest fit first, not the biggest box** (#187).
+  Size terms like `16 cores 64gb` are minimums, and the table re-sorted every
+  match largest-first, so `truffle find "amd turin 16 cores 64gb"` opened with a
+  $15/hr 192-vCPU `r8a.48xlarge` and put the requested `m8a.4xlarge` on the 28th
+  row (off-screen across all regions). Results now rank by how far each type
+  overshoots the request — each specified dimension (vCPU, memory, physical
+  cores) adds |log2(actual/requested)|, so an exact match ranks first and
+  doubling either dimension costs the same — then cheapest, then newest
+  generation. A type's rows stay together across regions, cheapest region
+  first. A one-line hint under the table (stderr, table output only) says
+  e.g. "Showing 28 types with ≥16 vCPU and ≥64 GiB memory, closest fit first;
+  use --exact for an exact match". JSON/YAML/CSV and `--pick-first` now use the
+  same order as the table (`--pick-first` therefore returns the closest fit).
+  The table also now honors the `cheap`/`expensive`/`fast`/`newest` sort
+  keywords, which it previously overrode with its own largest-first order.
+  Queries without size terms keep newest-generation-first.
+  Library: `output.TableOptions` gains a `PreserveOrder` field (additive; the
+  zero value keeps the historical largest-first table order).
+
 - **A throttled Price List no longer refuses a Graviton launch that carries a cost
   limit** (#175). The static fallback required an exact `(region, instanceType)`
   hit in `libs/pricing`, and that table had **no Graviton family in any region** —
@@ -58,6 +69,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   everywhere — are held to a coverage floor plus a no-partial-ladder rule instead
   of a hardcoded region list, so a normal AWS rollout cannot turn the build red
   while a coverage regression still does.
+
+### Security
+
+- **Rebuilt against Go 1.26.9 and `golang.org/x/net` v0.60.0** for the Go
+  vulnerabilities disclosed 2026-10-09: GO-2026-6605, 6607, 6608, 6610, 6611,
+  6612, 6613 and 6617, across `net/http`, `crypto/tls`, `mime/multipart`,
+  `net/http/httputil`, `net/textproto` and x/net's HTTP/2 implementation. The CI
+  Go pin moves 1.26.8 → 1.26.9 in all workflows.
 
 ## [0.58.0] - 2026-10-07
 

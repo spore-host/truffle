@@ -21,6 +21,8 @@ Understands:
   - NVIDIA MPS: mps (matches ANY NVIDIA GPU — MPS is a CUDA runtime feature,
     not a hardware capability tied to instance type, unlike MIG above)
   - Specs: 8 cores, 8 physical cores, 32gb, 4 gpus
+    (minimums: results are listed closest fit first, then cheapest — the
+    request's exact size leads; add --exact to show only exact matches)
   - Sizes: tiny, small, medium, large, huge
   - Architecture: x86_64, arm64
   - Network: efa, 10gbps, 25gbps, 50gbps, 100gbps, 200gbps, 400gbps
