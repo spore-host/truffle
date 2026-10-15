@@ -88,6 +88,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **SageMaker price lookups retry throttling as hard as EC2 ones** (#219). The
+  EC2 on-demand pricer retries a throttled Price List request up to 8 times
+  (#175), but the SageMaker pricer used the SDK default of 3. Now that `find
+  --service sagemaker` prices several types at once (#210), throttling is more
+  likely there, and a throttled lookup shows N/A since SageMaker has no static
+  fallback. Both pricers now build their Price List client the same way.
+
 - **Availability-zone lists come out in the same order on every run** (#217).
   `find`, `search` and `az` listed each type's AZs in whatever order EC2
   returned them, which changes between calls, so the same query showed its AZs

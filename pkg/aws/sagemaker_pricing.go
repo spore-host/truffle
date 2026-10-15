@@ -175,11 +175,8 @@ func newAWSSageMakerPricer(cfg aws.Config) *awsSageMakerPricer {
 
 func (p *awsSageMakerPricer) ensureClient() *pricing.Client {
 	if p.client == nil {
-		cfg := p.cfg
-		if cfg.Region == "" || (cfg.Region != "us-east-1" && cfg.Region != "ap-south-1") {
-			cfg.Region = "us-east-1"
-		}
-		p.client = pricing.NewFromConfig(cfg)
+		// Same endpoint and throttling retry budget as the EC2 pricer (#219).
+		p.client = newPriceListClient(p.cfg)
 	}
 	return p.client
 }
