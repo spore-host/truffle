@@ -33,6 +33,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   likewise off when stdout isn't a terminal, when `NO_COLOR` is set, or with
   `TERM=dumb`, as well as with `--no-color`.
 
+- **`make lint` is clean on `main` again, and CI now runs it** (#192). Contributor-facing
+  only: the ten golangci-lint findings (unchecked writes, two staticcheck
+  simplifications) are fixed without changing output, and a new `Lint` CI job runs
+  `make lint` with golangci-lint pinned to 2.14.0 and its download verified against a
+  pinned SHA256. `make lint` warns if your local version differs from the pin.
 - **A throttled Price List no longer refuses a Graviton launch that carries a cost
   limit** (#175). The static fallback required an exact `(region, instanceType)`
   hit in `libs/pricing`, and that table had **no Graviton family in any region** —

@@ -68,13 +68,13 @@ func runAppList(cmd *cobra.Command, args []string) error {
 		return w.Error()
 	default:
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "NAME\tDESCRIPTION\tGPU\tFAMILIES\tLICENSE")
+		_, _ = fmt.Fprintln(w, "NAME\tDESCRIPTION\tGPU\tFAMILIES\tLICENSE")
 		for _, r := range rows {
 			gpu := "no"
 			if r.GPU {
 				gpu = "yes"
 			}
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
+			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
 				r.Name, r.Description, gpu,
 				strings.Join(r.InstanceFamilies, ", "), r.License)
 		}

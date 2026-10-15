@@ -130,13 +130,13 @@ func (t *table) render() error {
 		}
 	}
 
-	fmt.Fprintln(os.Stdout, borderLine("┌", "┬", "┐", "─"))
-	fmt.Fprintln(os.Stdout, dataLine(headers))
-	fmt.Fprintln(os.Stdout, borderLine("├", "┼", "┤", "─"))
+	fmt.Println(borderLine("┌", "┬", "┐", "─"))
+	fmt.Println(dataLine(headers))
+	fmt.Println(borderLine("├", "┼", "┤", "─"))
 	for _, row := range t.rows {
-		fmt.Fprintln(os.Stdout, dataLine(row))
+		fmt.Println(dataLine(row))
 	}
-	fmt.Fprintln(os.Stdout, borderLine("└", "┴", "┘", "─"))
+	fmt.Println(borderLine("└", "┴", "┘", "─"))
 	return nil
 }
 
@@ -1016,7 +1016,7 @@ func stripAnsiCodes(s string) string {
 		if i < len(s)-1 && s[i] == ansiEscape[0] && s[i+1] == '[' {
 			// Skip until we find the ending letter
 			i += 2
-			for i < len(s) && !((s[i] >= 'a' && s[i] <= 'z') || (s[i] >= 'A' && s[i] <= 'Z')) {
+			for i < len(s) && (s[i] < 'a' || s[i] > 'z') && (s[i] < 'A' || s[i] > 'Z') {
 				i++
 			}
 			if i < len(s) {

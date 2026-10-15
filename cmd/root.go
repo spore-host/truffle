@@ -50,10 +50,10 @@ func Execute() {
 	// Pre-scan argv for i18n-relevant flags before cobra parses them,
 	// because i18n must initialize before any output is produced.
 	for _, arg := range os.Args[1:] {
-		switch {
-		case arg == "--accessibility":
+		switch arg {
+		case "--accessibility":
 			flagAccessibility = true
-		case arg == "--no-emoji":
+		case "--no-emoji":
 			flagNoEmoji = true
 		}
 	}
