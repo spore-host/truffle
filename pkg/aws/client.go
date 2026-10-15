@@ -215,11 +215,32 @@ func NewClientFromConfig(cfg aws.Config) *Client {
 	return &Client{cfg: cfg}
 }
 
+// ConfiguredRegion returns the default region the client's config resolved to
+// (shared spore.host config, then AWS_REGION / AWS_DEFAULT_REGION, then the
+// profile's region), or "" when none is configured. Commands that want a
+// "just my region" default scope (e.g. `truffle find`, #188) use this.
+func (c *Client) ConfiguredRegion() string {
+	return c.cfg.Region
+}
+
+// regionDiscoveryFallback is the endpoint GetEnabledRegions uses when no
+// region is configured at all. DescribeRegions answers with the account's
+// enabled-region list from any region, so the choice only matters for
+// reachability; us-east-1 is the conventional global endpoint.
+const regionDiscoveryFallback = "us-east-1"
+
 // GetEnabledRegions returns AWS regions enabled for this account.
 // This respects Service Control Policies (SCPs) that may restrict regions.
 // Regions blocked by organizational SCPs will not appear in the returned list.
+//
+// If the client has no configured region, the lookup is sent to us-east-1
+// rather than failing with the SDK's "missing region" error.
 func (c *Client) GetEnabledRegions(ctx context.Context) ([]string, error) {
-	client := ec2.NewFromConfig(c.cfg)
+	cfg := c.cfg
+	if cfg.Region == "" {
+		cfg.Region = regionDiscoveryFallback
+	}
+	client := ec2.NewFromConfig(cfg)
 
 	// DescribeRegions with AllRegions=false returns only enabled regions
 	// This automatically respects SCPs and account-level region restrictions
@@ -439,19 +460,84 @@ func (c *Client) searchInRegion(ctx context.Context, region string, matcher *reg
 			result := buildResultFromEC2(it, instanceType, region)
 			result.SpawnSupported = spawn.IsSpawnSupported(region)
 
-			// Get availability zones if requested
-			if opts.IncludeAZs {
-				azs, err := c.getAvailabilityZones(ctx, region, instanceType)
-				if err == nil {
-					result.AvailableAZs = azs
-				}
-			}
-
 			results = append(results, result)
 		}
 	}
 
+	// Get availability zones if requested — batched, one
+	// DescribeInstanceTypeOfferings call per azBatchSize matched types, rather
+	// than one call per type (#188). A broad query can match dozens of types
+	// per region, and the serial per-type round trips dominated find's runtime.
+	// As before, an AZ lookup failure leaves AvailableAZs empty rather than
+	// failing the region.
+	if opts.IncludeAZs && len(results) > 0 {
+		names := make([]string, len(results))
+		for i := range results {
+			names[i] = results[i].InstanceType
+		}
+		azsByType := c.getAvailabilityZonesBatch(ctx, region, names)
+		for i := range results {
+			results[i].AvailableAZs = azsByType[results[i].InstanceType]
+		}
+	}
+
 	return results, nil
+}
+
+// azBatchSize bounds how many instance types go into one
+// DescribeInstanceTypeOfferings filter. EC2 caps the number of values in a
+// single filter, so large match sets are split into chunks of this size.
+const azBatchSize = 100
+
+// getAvailabilityZonesBatch returns the offered AZs for each of instanceTypes
+// in region, keyed by instance type, using one paginated
+// DescribeInstanceTypeOfferings call per azBatchSize types. A chunk whose
+// lookup fails is simply absent from the map (callers treat that as "AZs
+// unknown", matching getAvailabilityZones' best-effort use in search).
+func (c *Client) getAvailabilityZonesBatch(ctx context.Context, region string, instanceTypes []string) map[string][]string {
+	cfg := c.cfg
+	cfg.Region = region
+	client := ec2.NewFromConfig(cfg)
+
+	out := make(map[string][]string, len(instanceTypes))
+	for start := 0; start < len(instanceTypes); start += azBatchSize {
+		end := start + azBatchSize
+		if end > len(instanceTypes) {
+			end = len(instanceTypes)
+		}
+		chunk := make(map[string][]string, end-start)
+		paginator := ec2.NewDescribeInstanceTypeOfferingsPaginator(client, &ec2.DescribeInstanceTypeOfferingsInput{
+			LocationType: types.LocationTypeAvailabilityZone,
+			Filters: []types.Filter{
+				{
+					Name:   stringPtr("instance-type"),
+					Values: instanceTypes[start:end],
+				},
+			},
+		})
+		ok := true
+		for paginator.HasMorePages() {
+			page, err := paginator.NextPage(ctx)
+			if err != nil {
+				ok = false
+				break
+			}
+			for _, offering := range page.InstanceTypeOfferings {
+				if offering.Location == nil {
+					continue
+				}
+				t := string(offering.InstanceType)
+				chunk[t] = append(chunk[t], *offering.Location)
+			}
+		}
+		if !ok {
+			continue
+		}
+		for t, azs := range chunk {
+			out[t] = azs
+		}
+	}
+	return out
 }
 
 // buildResultFromEC2 maps an EC2 DescribeInstanceTypes record into an

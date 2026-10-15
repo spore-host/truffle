@@ -48,6 +48,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Queries without size terms keep newest-generation-first.
   Library: `output.TableOptions` gains a `PreserveOrder` field (additive; the
   zero value keeps the historical largest-first table order).
+- **`truffle find --all-regions`** searches every enabled region (the old
+  default). Passing it together with `--regions` is an error.
+- **`(*aws.Client).ConfiguredRegion()`** (library) returns the default region the
+  client's config resolved to, or `""` if none is set.
+
+### Changed
+
+- **`truffle find` now searches your configured region by default, not every
+  enabled region** (#188). Previously a bare `truffle find "amd turin 16 cores
+  64gb"` fanned out to all 18 enabled regions and took ~42 s; it now searches
+  the region you already work in — the spore.host config region, then
+  `AWS_REGION` / `AWS_DEFAULT_REGION`, then your AWS profile's region — and
+  finishes in ~4–5 s. A one-line note names the region and points at the new
+  flag. `--regions` still overrides it. If no region is configured anywhere,
+  `find` keeps the old behaviour and searches every enabled region, saying why.
+  Scripts that relied on the global default should add `--all-regions`. Other
+  commands (`search`, `spot`, `az`, `capacity`, `capacity-blocks`) are unchanged
+  and still default to every enabled region.
+- **Region searches that report availability zones are faster** (#188). AZ
+  offerings are now fetched in one batched call per region instead of one call
+  per matching instance type. This affects `find`, `search`, `spot`, and library
+  callers of `SearchInstanceTypes` that set `IncludeAZs`. A broad single-region
+  `find` drops from ~10 s to ~5 s; the results are identical.
+
+### Fixed
+
+- **`truffle find` no longer fails with `Missing Region` when no AWS region is
+  configured** (#188). Enabled-region discovery (`GetEnabledRegions`) now falls
+  back to the us-east-1 endpoint in that case, for every command that uses it.
 
 - **A throttled Price List no longer refuses a Graviton launch that carries a cost
   limit** (#175). The static fallback required an exact `(region, instanceType)`
