@@ -76,6 +76,12 @@ Understands:
   - Specs: 8 cores, 8 physical cores, 32gb, 4 gpus
     (minimums: results are listed closest fit first, then cheapest — the
     request's exact size leads; add --exact to show only exact matches)
+  - Memory: a bare size is host memory ("amd 16 cores 64gb"), except in a
+    GPU or accelerator query, where it is the memory of each GPU, in GB as
+    the GPU is sold: "gpu 24gb" is A10G, L4 and larger, not the 16 GB T4.
+    Say which you mean with "64gb ram" / "64gb memory" (host) or
+    "24gb vram" / "24gb gpu memory" (per GPU); "a10g 24gb 64gb ram" gives
+    both. find prints a note when it reads a bare size as per-GPU memory.
   - Sizes: tiny, small, medium, large, huge
   - Families and exact sizes: g5, m7i-flex, xlarge, 2xlarge, metal-24xl
     ("g5 xlarge" is g5.xlarge; "g5" alone is every g5 size)
@@ -101,6 +107,8 @@ Examples:
   truffle find "8 physical cores 32gb"        (physical core count)
   truffle find "cheap graviton 8 cores"       (sorted by price)
   truffle find nvidia                         (all NVIDIA GPU instances)
+  truffle find "gpu 24gb"                     (GPUs with at least 24 GB each)
+  truffle find "a10g 64gb ram"                (A10G hosts with ≥64 GiB RAM)
   truffle find "h100 efa"                     (GPU AND network, by default)
   truffle find "h100 or efa"                  (GPU OR network, explicit)
   truffle find avx-512                        (instruction-set search)
@@ -223,6 +231,11 @@ func runFind(cmd *cobra.Command, args []string) (err error) {
 	// nothing matched (#229).
 	if unknown := query.UnknownTerms(); len(unknown) > 0 {
 		fmt.Fprintf(os.Stderr, "Note: ignored unknown %s: %s\n", pluralize(len(unknown), "term", "terms"), describeUnknownTerms(unknown))
+	}
+
+	// Say when a bare size in a GPU query was read as per-GPU memory (#236).
+	if note := query.MemoryReadingNote(); note != "" {
+		fmt.Fprintln(os.Stderr, note)
 	}
 
 	// Show parsed query if requested
@@ -415,6 +428,9 @@ func printParsedQuery(query *find.ParsedQuery) {
 	}
 	if query.MinMemory > 0 {
 		fmt.Fprintf(os.Stderr, "   Min Memory: %.0f GiB\n", query.MinMemory)
+	}
+	if query.MinGPUMemory > 0 {
+		fmt.Fprintf(os.Stderr, "   Min GPU Memory: %s GB per GPU\n", strconv.FormatFloat(query.MinGPUMemory, 'f', -1, 64))
 	}
 	if query.Architecture != "" {
 		fmt.Fprintf(os.Stderr, "   Architecture: %s\n", query.Architecture)
@@ -818,7 +834,7 @@ func runSearchWithPatternDisplay(regexPattern, display, service string) error {
 
 // fitDistance scores how far an instance type overshoots the requested
 // minimums (truffle#187). Each specified dimension (vCPU, memory, physical
-// cores) contributes |log2(actual/requested)|, so an exact match scores 0 and
+// cores, per-GPU memory as sold, #236) contributes |log2(actual/requested)|, so an exact match scores 0 and
 // doubling any one dimension costs the same 1.0 — 16 vCPU/128 GiB and
 // 32 vCPU/64 GiB are equally far from a "16 cores 64gb" request, and
 // 192 vCPU/1536 GiB is far away. Unspecified dimensions contribute nothing,
@@ -833,12 +849,14 @@ func fitDistance(r aws.InstanceTypeResult, f aws.FilterOptions) float64 {
 	add(float64(r.VCPUs), float64(f.MinVCPUs))
 	add(float64(r.MemoryMiB)/1024.0, f.MinMemory)
 	add(float64(r.PhysicalCores), float64(f.MinPhysicalCores))
+	add(aws.NominalGPUMemoryGB(r.AccelMemoryMiB), f.MinGPUMemory)
 	return d
 }
 
-// hasSizeSpec reports whether the query constrained vCPU, memory, or cores.
+// hasSizeSpec reports whether the query constrained vCPU, memory, cores, or
+// per-GPU memory.
 func hasSizeSpec(f aws.FilterOptions) bool {
-	return f.MinVCPUs > 0 || f.MinMemory > 0 || f.MinPhysicalCores > 0
+	return f.MinVCPUs > 0 || f.MinMemory > 0 || f.MinPhysicalCores > 0 || f.MinGPUMemory > 0
 }
 
 // sortFindResults orders find results in place. Rows for one instance type
@@ -962,7 +980,7 @@ func sortFindResults(results []aws.InstanceTypeResult, f aws.FilterOptions, pref
 // ≥16 vCPU and ≥64 GiB memory, closest fit first; use --exact for an exact
 // match" (the order clause only for the default sort). Empty when the query had no size terms or used --exact.
 func minimumSpecHint(results []aws.InstanceTypeResult, f aws.FilterOptions, pref find.SortPreference) string {
-	if !hasSizeSpec(f) || f.ExactVCPUs || f.ExactMemory || f.ExactCores {
+	if !hasSizeSpec(f) || f.ExactVCPUs || f.ExactMemory || f.ExactCores || f.ExactGPUMemory {
 		return ""
 	}
 	types := make(map[string]bool)
@@ -978,6 +996,9 @@ func minimumSpecHint(results []aws.InstanceTypeResult, f aws.FilterOptions, pref
 	}
 	if f.MinMemory > 0 {
 		terms = append(terms, fmt.Sprintf("≥%s GiB memory", strconv.FormatFloat(f.MinMemory, 'f', -1, 64)))
+	}
+	if f.MinGPUMemory > 0 {
+		terms = append(terms, fmt.Sprintf("≥%s GB per GPU", strconv.FormatFloat(f.MinGPUMemory, 'f', -1, 64)))
 	}
 	order := ""
 	if pref == find.SortDefault {

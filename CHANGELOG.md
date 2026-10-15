@@ -35,6 +35,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A `trainium2` entry in `metadata.GPUDatabase`** (#233), for trn2, so
   `find trainium2` and `find training` reach it.
 
+- **Per-GPU memory in the library** (#236): `FilterOptions.MinGPUMemory` and
+  `ExactGPUMemory` filter on the memory of one GPU or accelerator device;
+  `InstanceTypeResult.AccelMemoryMiB` (JSON/YAML `accelerator_memory_mib`)
+  records it (the GPU's, else the Neuron device's for Inferentia and
+  Trainium, else the inference accelerator's for dl2q); and
+  `aws.NominalGPUMemoryGB` / `aws.MatchesGPUMemory` read a device's MiB as the
+  size it is sold as. In `find`, `ParsedQuery.MinGPUMemory`, `GPUMemoryRead`
+  and `MemoryReadingNote`, and the `TokenHostMemory` / `TokenGPUMemory`
+  token types.
+
 ### Changed
 
 - **`metadata.SizeCategory` is a size range, not a list** (#220). It now has
@@ -89,6 +99,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Most of that command's remaining time is on-demand price lookups (#210).
   This affects `find`, `search`, `az`, `spot`, and library callers of
   `SearchInstanceTypes` / `SearchInstanceTypesByRegion`; no API changes.
+
+- **In a GPU query, `find` reads a bare memory size as memory per GPU**
+  (#236). `truffle find "gpu 24gb"` used to mean "any accelerator host with
+  at least 24 GiB of RAM" (71 types in us-east-1, including the 16 GB T4 and
+  quarter-L4 slices); it now means GPUs with at least 24 GB each: the A10G,
+  L4 and larger (53 types), closest fit first. `h100 80gb` and `a100 80gb` (or
+  `A100-80GB`) select the 80 GB parts, so `a100 80gb` is now p4de only. The
+  size is compared as the GPU is sold, so the A10G and L4, which EC2 reports
+  as 22888 MiB (22 GiB in the VRAM column), count as 24 GB; Inferentia and
+  Trainium use their Neuron device memory. A one-line note on stderr says
+  when a size was read this way. To mean host memory, write `64gb ram` or
+  `64gb memory` (`a10g 64gb ram` is g5 hosts with at least 64 GiB); to ask
+  for per-GPU memory anywhere, write `24gb vram` or `24gb gpu memory`. Both
+  can appear together (`a10g 24gb 64gb ram`). `--exact` matches the GPU size
+  exactly. Queries with no GPU or accelerator word are unchanged, except that
+  `ram`, `memory` and `mem` after a size are no longer reported as unknown
+  terms.
 
 ### Deprecated
 

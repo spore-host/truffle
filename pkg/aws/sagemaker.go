@@ -209,7 +209,7 @@ func (c *Client) searchSageMakerInRegion(ctx context.Context, region string, mat
 		// No EC2 peer returned — emit a quota-only row (specs unknown). Skip it
 		// if spec-based filters were requested, since we can't verify them.
 		if opts.Architecture != "" || opts.MinVCPUs > 0 || opts.MinMemory > 0 ||
-			opts.MinPhysicalCores > 0 || opts.NestedVirt {
+			opts.MinPhysicalCores > 0 || opts.MinGPUMemory > 0 || opts.NestedVirt {
 			continue
 		}
 		if opts.InstanceFamily != "" && "ml."+extractFamily(base) != opts.InstanceFamily {

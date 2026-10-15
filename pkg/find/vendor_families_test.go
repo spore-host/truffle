@@ -158,8 +158,8 @@ func TestAcceleratorWords(t *testing.T) {
 }
 
 // TestAcceleratorWordCriteria checks the accelerator words through
-// BuildCriteria: "gpu 24gb" keeps its memory minimum, and a GPU that is not
-// in the named use case matches nothing (#233).
+// BuildCriteria: "gpu 24gb" keeps its memory minimum, as per-GPU memory
+// (#236), and a GPU that is not in the named use case matches nothing (#233).
 func TestAcceleratorWordCriteria(t *testing.T) {
 	pq, err := ParseQuery("gpu 24gb")
 	if err != nil {
@@ -169,8 +169,8 @@ func TestAcceleratorWordCriteria(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sc.FilterOptions.MinMemory != 24 {
-		t.Errorf("MinMemory = %v, want 24", sc.FilterOptions.MinMemory)
+	if sc.FilterOptions.MinGPUMemory != 24 || sc.FilterOptions.MinMemory != 0 {
+		t.Errorf("MinGPUMemory = %v, MinMemory = %v; want 24, 0", sc.FilterOptions.MinGPUMemory, sc.FilterOptions.MinMemory)
 	}
 	for _, it := range []string{"g5.xlarge", "g5g.xlarge", "p5.48xlarge", "inf2.xlarge"} {
 		if !sc.InstanceTypePattern.MatchString(it) {

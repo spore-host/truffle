@@ -150,3 +150,34 @@ func TestSortFindResults_TurinDemoClosestFitFirst(t *testing.T) {
 		t.Errorf("order = %v, want m8a.4xlarge first and x8aedz.6xlarge last", got)
 	}
 }
+
+// TestSortFindResults_GPUMemoryClosestFit checks closest-fit ordering for a
+// per-GPU memory request (#236): for "gpu 24gb" the 24 GB A10G and L4 lead
+// (cheapest first), then the 32 GB, 48 GB and 80 GB GPUs.
+func TestSortFindResults_GPUMemoryClosestFit(t *testing.T) {
+	mk := func(it string, accelMiB int64, price float64) aws.InstanceTypeResult {
+		return aws.InstanceTypeResult{InstanceType: it, Region: "us-east-1", VCPUs: 4, MemoryMiB: 16384, AccelMemoryMiB: accelMiB, OnDemandPrice: price}
+	}
+	rs := []aws.InstanceTypeResult{
+		mk("p5.4xlarge", 81920, 6.88),  // H100, 80 GB
+		mk("g6e.xlarge", 45776, 1.861), // L40S, 48 GB
+		mk("g7.2xlarge", 32768, 2.52),  // RTX PRO 4500, 32 GB
+		mk("g5.xlarge", 22888, 1.006),  // A10G, 24 GB
+		mk("g6.xlarge", 22888, 0.8048), // L4, 24 GB
+	}
+	f := aws.FilterOptions{MinGPUMemory: 24}
+	sortFindResults(rs, f, find.SortDefault)
+	want := "g6.xlarge@us-east-1,g5.xlarge@us-east-1,g7.2xlarge@us-east-1,g6e.xlarge@us-east-1,p5.4xlarge@us-east-1"
+	if got := strings.Join(types(rs), ","); got != want {
+		t.Errorf("order mismatch\n got: %s\nwant: %s", got, want)
+	}
+	if d := fitDistance(rs[0], f); d != 0 {
+		t.Errorf("fitDistance(L4, 24gb) = %v, want 0", d)
+	}
+	if got := minimumSpecHint(rs, f, find.SortDefault); got != "Showing 5 types with ≥24 GB per GPU, closest fit first; use --exact for an exact match" {
+		t.Errorf("hint = %q", got)
+	}
+	if got := minimumSpecHint(rs, aws.FilterOptions{MinGPUMemory: 24, ExactGPUMemory: true}, find.SortDefault); got != "" {
+		t.Errorf("exact hint = %q, want none", got)
+	}
+}
