@@ -13,7 +13,14 @@ type ProcessorInfo struct {
 //
 // Family lists are cross-checked against live us-east-1 DescribeInstanceTypes
 // output (2026-08) plus per-family processor listings (instances.vantage.sh),
-// since AWS's own API exposes no processor codename field. Every AZ/storage/
+// since AWS's own API exposes no processor codename field. The lists have to
+// stay hand-maintained for that reason: DescribeInstanceTypes' ProcessorInfo
+// gives the manufacturer (AWS, Intel, AMD, Apple), architecture and clock
+// speed, but nothing that tells Graviton4 from Graviton5 or Genoa from Turin.
+// The Graviton lists were re-checked against us-west-2 and us-east-1 on
+// 2026-10-15 (#221): every family whose ProcessorInfo.Manufacturer is AWS is
+// in one of them (TestGravitonListsCoverEveryAWSFamily; set TRUFFLE_LIVE_AWS=1
+// to repeat the check live). Every AZ/storage/
 // network variant suffix (-d, -n, -dn, -a, -e, -flex, -b, -in, -ine, -zn, ...)
 // that shares its parent family's silicon is included explicitly — a prior
 // version of this table only listed the base family, which silently excluded
@@ -191,7 +198,7 @@ var ProcessorDatabase = map[string]ProcessorInfo{
 		Vendor:       "aws",
 		Architecture: "arm64",
 		Generation:   "5th gen",
-		Families:     []string{"m9g", "m9gd", "c9g", "c9gd"},
+		Families:     []string{"m9g", "m9gd", "c9g", "c9gd", "r9g", "r9gd"},
 	},
 }
 
