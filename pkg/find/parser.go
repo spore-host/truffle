@@ -24,6 +24,7 @@ package find
 import (
 	"fmt"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -801,25 +802,22 @@ func (pq *ParsedQuery) DeriveArchitecture() string {
 	return ""
 }
 
-// BuildSizePattern returns a regex pattern for size filtering
+// BuildSizePattern returns a regex pattern for size filtering: the union of
+// the query's size categories, each derived from its size range (#220), so
+// it matches numbered sizes such as 3xlarge or metal-24xl as well as named
+// ones.
 func (pq *ParsedQuery) BuildSizePattern() string {
-	sizeSet := make(map[string]bool)
-
+	seen := make(map[string]bool)
+	var patterns []string
 	for _, sizeCategory := range pq.Sizes {
-		sizes := metadata.GetSizesForCategory(sizeCategory)
-		for _, size := range sizes {
-			sizeSet[size] = true
+		if p := metadata.SizePattern(sizeCategory); p != "" && !seen[p] {
+			seen[p] = true
+			patterns = append(patterns, p)
 		}
 	}
-
-	if len(sizeSet) == 0 {
+	if len(patterns) == 0 {
 		return ".*"
 	}
-
-	sizes := make([]string, 0, len(sizeSet))
-	for size := range sizeSet {
-		sizes = append(sizes, regexp.QuoteMeta(size))
-	}
-
-	return "(" + strings.Join(sizes, "|") + ")"
+	sort.Strings(patterns)
+	return "(" + strings.Join(patterns, "|") + ")"
 }

@@ -1,7 +1,7 @@
 package find
 
 import (
-	"strings"
+	"regexp"
 	"testing"
 )
 
@@ -496,9 +496,10 @@ func TestParsedQuery_BuildSizePattern(t *testing.T) {
 				return
 			}
 
+			re := regexp.MustCompile("^(?:" + pattern + ")$")
 			for _, want := range tt.wantContains {
-				if !strings.Contains(pattern, want) {
-					t.Errorf("BuildSizePattern() = %v, should contain %v", pattern, want)
+				if !re.MatchString(want) {
+					t.Errorf("BuildSizePattern() = %v, should match %v", pattern, want)
 				}
 			}
 		})
