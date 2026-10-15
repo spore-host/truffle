@@ -15,7 +15,8 @@ Auto-detects query type:
 
 Understands:
   - CPU vendors: intel, amd, graviton, nvidia
-  - Processors: emerald rapids, sapphire rapids, ice lake, genoa, turin, milan
+  - Processors: emerald rapids, sapphire rapids, ice lake, turin, genoa, milan,
+    rome, naples (and zen 1 to zen 5)
   - GPUs: h200, h100, a100, b200, b300, l40s, l4, a10g, t4, rtx, inferentia, trainium
   - Any accelerator: gpu, gpus, accelerator, accelerators (every GPU,
     Inferentia, Trainium, FPGA and media-accelerator family; "amd gpu" is the

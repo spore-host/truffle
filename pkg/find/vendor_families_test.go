@@ -30,6 +30,10 @@ func TestVendorQueriesSelectManufacturerFamilies(t *testing.T) {
 		{"intel trainium", []string{"trn1.32xlarge"}, []string{"m6i.large"}},
 		{"amd 1 gpus", []string{"g5.xlarge", "p5.48xlarge"}, nil},
 		{"ice lake", []string{"i4i.large"}, []string{"x2iezn.2xlarge"}},
+		// m5a, m5ad, r5a, r5ad and t3a are Naples (EPYC 7571), not Rome (#232).
+		{"rome 8 cores", []string{"c5a.2xlarge", "c5ad.2xlarge"}, []string{"m5a.2xlarge", "r5a.2xlarge", "m5ad.2xlarge", "r5ad.2xlarge", "t3a.2xlarge"}},
+		{"naples", []string{"m5a.large", "m5ad.large", "r5a.large", "r5ad.large", "t3a.large"}, []string{"c5a.large", "m6a.large"}},
+		{"zen 2", []string{"c5a.large"}, []string{"m5a.large"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.query, func(t *testing.T) {
