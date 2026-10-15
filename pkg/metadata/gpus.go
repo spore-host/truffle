@@ -6,7 +6,7 @@ import "sort"
 type GPUInfo struct {
 	Name            string   // "A100", "V100", "H100"
 	Vendor          string   // "nvidia", "amd", "aws"
-	MemoryGB        int      // GPU memory per GPU, in GB as sold (the aws.NominalGPUMemoryGB figure: A10G 24, not 22 GiB; #238)
+	MemoryGB        int      // GPU memory per GPU, in GB as sold (the aws.NominalGPUMemoryGB figure: A10G 24, not 22 GiB; #238). Where a model's memory varies by family (V100: 16 on p3, 32 on p3dn; A100: 40 on p4d, 80 on p4de), this is the base variant's; AcceleratorMemoryMiB has the per-family figure (#240)
 	UseCase         string   // "training", "inference", "graphics"
 	Families        []string // Instance families (for fuzzy matching)
 	InstanceTypes   []string // Exact instance types (for precise matching)
@@ -240,6 +240,57 @@ var GPUDatabase = map[string]GPUInfo{
 		Families:      []string{"trn2"},
 		InstanceTypes: []string{"trn2.48xlarge"},
 	},
+}
+
+// acceleratorMemoryMiB is the memory of one GPU or accelerator device, in
+// MiB, that DescribeInstanceTypes reported for each family in us-west-2,
+// us-east-1, us-east-2, eu-west-1 and ap-northeast-1 on 2026-10-15
+// (GpuInfo.Gpus[].MemoryInfo, else NeuronInfo.NeuronDevices[].MemoryInfo,
+// else InferenceAcceleratorInfo.Accelerators[].MemoryInfo; #240). It is the
+// per-family figure where a GPU model's memory varies: the V100 is 32 GB on
+// p3dn (16 GB on the retired p3), the A100 80 GB on p4de and 40 GB on p4d.
+// Set TRUFFLE_LIVE_AWS=1 to compare it with the live catalog
+// (TestLiveAcceleratorMemoryRecorded in pkg/aws).
+//
+// Left out, so callers fall back to GPUDatabase's MemoryGB:
+//   - g6f, gr6f: fractional L4s, whose per-device memory is the partition's
+//     and varies by size (2861 MiB on g6f.large, 11444 on g6f.4xlarge).
+//   - trn2: EC2 reports 524288 MiB (512 GiB) per Trainium2 device, which is
+//     not the chip's 96 GB of HBM.
+//   - p3, p2, g3, g4ad: not offered in any region on 2026-10-15.
+var acceleratorMemoryMiB = map[string]int64{
+	"dl2q":    16000,  // Qualcomm AI100, 16 GB
+	"g4dn":    16384,  // T4
+	"g5":      22888,  // A10G, 24 GB
+	"g5g":     16384,  // T4g
+	"g6":      22888,  // L4, 24 GB
+	"g6e":     45776,  // L40S, 48 GB
+	"g7":      32768,  // RTX PRO 4500
+	"g7e":     98304,  // RTX PRO Server 6000
+	"gr6":     22888,  // L4, 24 GB
+	"inf1":    8192,   // Inferentia
+	"inf2":    32768,  // Inferentia2
+	"p3dn":    32768,  // V100, 32 GB
+	"p4d":     40960,  // A100, 40 GB
+	"p4de":    81920,  // A100, 80 GB
+	"p5":      81920,  // H100
+	"p5e":     144384, // H200
+	"p5en":    144384, // H200
+	"p6-b200": 183359, // B200
+	"p6-b300": 275040, // B300
+	"trn1":    32768,  // Trainium
+	"trn1n":   32768,  // Trainium
+}
+
+// AcceleratorMemoryMiB returns the memory of one GPU or accelerator device
+// in family, in MiB as DescribeInstanceTypes reported it (see
+// acceleratorMemoryMiB), and false when the family isn't recorded or its
+// devices differ in size by instance type. aws.NominalGPUMemoryGB reads it
+// as the size the device is sold as. Prefer it to GPUDatabase's MemoryGB,
+// which is one figure per model (#240).
+func AcceleratorMemoryMiB(family string) (int64, bool) {
+	mib, ok := acceleratorMemoryMiB[family]
+	return mib, ok
 }
 
 // GPUAliases maps common GPU names to canonical forms

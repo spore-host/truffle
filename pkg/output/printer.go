@@ -213,6 +213,10 @@ func (p *Printer) printTable(results []aws.InstanceTypeResult, opts TableOptions
 	// reports GPUs==0 but has real per-GPU VRAM (GPUMemoryPerMiB>0) — include
 	// it here so those rows don't silently lose their GPU columns (truffle#116).
 	hasGPU := false
+	// A Neuron (Inferentia, Trainium) or other inference accelerator row
+	// renders in the same columns, which are then headed "Accel" rather than
+	// "GPUs", so the table doesn't call an Inferentia2 a GPU (#240).
+	hasNonGPUAccel := false
 	// Show the nested-virt column only when at least one result supports it
 	// (matches the conditional-GPU-columns convention).
 	hasNestedV := false
@@ -220,8 +224,11 @@ func (p *Printer) printTable(results []aws.InstanceTypeResult, opts TableOptions
 	// SageMaker result is eligible — no flag needed, since it's derived data.
 	hasSpotEligible := false
 	for _, r := range results {
-		if r.GPUs > 0 || r.GPUMemoryPerMiB > 0 {
+		if hasAccelerator(r) {
 			hasGPU = true
+			if !isGPURow(r) {
+				hasNonGPUAccel = true
+			}
 		}
 		if r.NestedVirt {
 			hasNestedV = true
@@ -241,10 +248,18 @@ func (p *Printer) printTable(results []aws.InstanceTypeResult, opts TableOptions
 	// vCPUs and Memory are always present and always numeric.
 	rightAlignCols := []int{2, 3}
 	if hasGPU {
-		headers = append(headers, "GPUs", "GPU Model", "VRAM (GB)")
-		rightAlignCols = append(rightAlignCols, len(headers)-3, len(headers)-1) // GPUs, VRAM — not GPU Model
+		if hasNonGPUAccel {
+			headers = append(headers, "Accel", "Accel Model", "Accel mem (GB)")
+		} else {
+			headers = append(headers, "GPUs", "GPU Model", "VRAM (GB)")
+		}
+		rightAlignCols = append(rightAlignCols, len(headers)-3, len(headers)-1) // count, memory — not model
 		if opts.ShowGPURatios {
-			headers = append(headers, "vCPU/GPU", "RAM/GPU (GiB)")
+			if hasNonGPUAccel {
+				headers = append(headers, "vCPU/Accel", "RAM/Accel (GiB)")
+			} else {
+				headers = append(headers, "vCPU/GPU", "RAM/GPU (GiB)")
+			}
 			rightAlignCols = append(rightAlignCols, len(headers)-2, len(headers)-1)
 		}
 	}
@@ -370,34 +385,36 @@ func (p *Printer) printTable(results []aws.InstanceTypeResult, opts TableOptions
 				result.Architecture,
 			}
 			if hasGPU {
-				if result.GPUs > 0 || result.GPUMemoryPerMiB > 0 {
-					gpuModel := result.GPUModel
-					if result.GPUManufacturer != "" {
-						gpuModel = result.GPUManufacturer + " " + gpuModel
-					}
-					// VRAM in nominal GB, the size the GPU is sold as and the
-					// figure the per-GPU memory filter compares (#238), so a
-					// "gpu 24gb" query lists the A10G as 24, not 22 (GiB). The
-					// total is the per-GPU size times the count, not the
-					// nominal reading of the total MiB, which can land near a
-					// whole GiB by chance (4 x A10G = 91552 MiB = 89.4 GiB).
-					vramDisplay := formatGB(aws.NominalGPUMemoryGB(result.GPUMemoryMiB))
-					if result.GPUMemoryPerMiB > 0 {
-						perGB := aws.NominalGPUMemoryGB(result.GPUMemoryPerMiB)
-						totalGB := perGB
-						if result.GPUs > 0 {
-							totalGB = perGB * float64(result.GPUs)
+				if count, model, perDev, ok := acceleratorCells(result); ok {
+					// Memory in nominal GB, the size the device is sold as and
+					// the figure the per-GPU memory filter compares (#238), so
+					// a "gpu 24gb" query lists the A10G as 24, not 22 (GiB).
+					// The total is the per-device size times the count, not
+					// the nominal reading of the total MiB, which can land near
+					// a whole GiB by chance (4 x A10G = 91552 MiB = 89.4 GiB).
+					accelMem := "-"
+					if perDev > 0 {
+						n := float64(result.GPUs)
+						unit := "gpu"
+						if !isGPURow(result) {
+							n = float64(result.AcceleratorCount)
+							unit = "dev"
 						}
-						vramDisplay = fmt.Sprintf("%s (%s/gpu)", formatGB(totalGB), formatGB(perGB))
+						totalGB := perDev
+						if n > 0 {
+							totalGB = perDev * n
+						}
+						accelMem = fmt.Sprintf("%s (%s/%s)", formatGB(totalGB), formatGB(perDev), unit)
+					} else if result.GPUMemoryMiB > 0 {
+						accelMem = formatGB(aws.NominalGPUMemoryGB(result.GPUMemoryMiB))
 					}
-					gpuCountDisplay := strconv.Itoa(int(result.GPUs))
-					if result.GPUs == 0 && result.GPUPartitionSize > 0 {
-						// Fractional GPU (e.g. g6f.large): AWS reports Count as 0
-						// by convention. Show the partition fraction instead of a
-						// misleading "0" (truffle#116).
-						gpuCountDisplay = fmt.Sprintf("%.3g", result.GPUPartitionSize)
+					if count == "" {
+						count = "-"
 					}
-					row = append(row, gpuCountDisplay, gpuModel, vramDisplay)
+					if model == "" {
+						model = "-"
+					}
+					row = append(row, count, model, accelMem)
 					if opts.ShowGPURatios {
 						row = append(row, gpuRatioDisplay(result)...)
 					}
@@ -579,15 +596,19 @@ func printFooterNote(useColor bool, note string) {
 // resource-feeding ratio — so both columns render "-" rather than dividing by
 // a fractional count that would produce a number nobody asked for.
 func gpuRatioDisplay(result aws.InstanceTypeResult) []string {
-	if result.GPUs <= 0 {
+	n := result.GPUs
+	if !isGPURow(result) {
+		n = result.AcceleratorCount // Neuron / inference accelerator row (#240)
+	}
+	if n <= 0 {
 		return []string{"-", "-"}
 	}
-	vcpuPerGPU := float64(result.VCPUs) / float64(result.GPUs)
+	vcpuPerGPU := float64(result.VCPUs) / float64(n)
 	vcpuDisplay := fmt.Sprintf("%.1f", vcpuPerGPU)
 
 	ramDisplay := "-"
 	if result.MemoryMiB > 0 {
-		ramPerGPUGiB := float64(result.MemoryMiB) / 1024.0 / float64(result.GPUs)
+		ramPerGPUGiB := float64(result.MemoryMiB) / 1024.0 / float64(n)
 		ramDisplay = fmt.Sprintf("%.1f", ramPerGPUGiB)
 	}
 	return []string{vcpuDisplay, ramDisplay}
@@ -620,6 +641,57 @@ func formatPrice(hourlyRate float64, u PriceUnit) string {
 	default:
 		return fmt.Sprintf("$%.4f", hourlyRate)
 	}
+}
+
+// isGPURow reports whether a result has a GPU (whole or fractional), as
+// opposed to no accelerator or a Neuron / inference accelerator.
+func isGPURow(r aws.InstanceTypeResult) bool {
+	return r.GPUs > 0 || r.GPUMemoryPerMiB > 0
+}
+
+// hasAccelerator reports whether a result has a GPU or another accelerator
+// device (Inferentia, Trainium, dl2q's AI100) to show in the accelerator
+// columns (#240).
+func hasAccelerator(r aws.InstanceTypeResult) bool {
+	return isGPURow(r) || r.AcceleratorCount > 0 || r.AccelMemoryMiB > 0
+}
+
+// acceleratorCells returns a result's accelerator count, model and
+// per-device memory (nominal GB, 0 if unknown) for the table and CSV, and
+// false when it has none. A GPU row reads the GPU fields, showing a
+// fractional GPU's partition size as its count (truffle#116); any other
+// accelerator row reads AcceleratorCount/Model/Manufacturer and
+// AccelMemoryMiB, from NeuronInfo or InferenceAcceleratorInfo (#240).
+func acceleratorCells(r aws.InstanceTypeResult) (count, model string, perDeviceGB float64, ok bool) {
+	if isGPURow(r) {
+		count = strconv.Itoa(int(r.GPUs))
+		if r.GPUs == 0 && r.GPUPartitionSize > 0 {
+			// Fractional GPU (e.g. g6f.large): AWS reports Count as 0 by
+			// convention. Show the partition fraction instead of a
+			// misleading "0" (truffle#116).
+			count = strconv.FormatFloat(r.GPUPartitionSize, 'g', 3, 64)
+		}
+		return count, withMaker(r.GPUManufacturer, r.GPUModel), aws.NominalGPUMemoryGB(r.GPUMemoryPerMiB), true
+	}
+	if !hasAccelerator(r) {
+		return "", "", 0, false
+	}
+	if r.AcceleratorCount > 0 {
+		count = strconv.Itoa(int(r.AcceleratorCount))
+	}
+	return count, withMaker(r.AcceleratorManufacturer, r.AcceleratorModel), aws.NominalGPUMemoryGB(r.AccelMemoryMiB), true
+}
+
+// withMaker prefixes a device model with its maker ("NVIDIA A10G") unless
+// the model already names it, as EC2's "Qualcomm AI100" does.
+func withMaker(maker, model string) string {
+	if maker == "" || strings.HasPrefix(strings.ToLower(model), strings.ToLower(maker)) {
+		return model
+	}
+	if model == "" {
+		return maker
+	}
+	return maker + " " + model
 }
 
 // formatGB renders a nominal GB figure to at most one decimal place:
@@ -687,12 +759,15 @@ func (p *Printer) PrintCSV(results []aws.InstanceTypeResult) error {
 		}
 	}
 
-	// GPU columns only when some result has a GPU (as in the table), so the
-	// CSV for a CPU-only query is unchanged. vram_gb_per_gpu is the nominal
-	// figure the per-GPU memory filter compares (#238).
+	// Accelerator columns only when some result has a GPU or other
+	// accelerator (as in the table), so the CSV for a CPU-only query is
+	// unchanged. They are named for the JSON fields they mirror
+	// (accelerator_count, accelerator_model, accelerator_memory_gb, the
+	// nominal per-device figure the per-GPU memory filter compares; #238,
+	// #240), and carry Neuron and inference accelerators as well as GPUs.
 	hasGPU := false
 	for _, r := range results {
-		if r.GPUs > 0 || r.GPUMemoryPerMiB > 0 {
+		if hasAccelerator(r) {
 			hasGPU = true
 			break
 		}
@@ -700,7 +775,7 @@ func (p *Printer) PrintCSV(results []aws.InstanceTypeResult) error {
 
 	header := []string{"instance_type", "region", "vcpus", "memory_gib", "architecture"}
 	if hasGPU {
-		header = append(header, "gpus", "gpu_model", "vram_gb_per_gpu")
+		header = append(header, "accelerator_count", "accelerator_model", "accelerator_memory_gb")
 	}
 	if hasPrice {
 		header = append(header, "on_demand_price")
@@ -721,17 +796,10 @@ func (p *Printer) PrintCSV(results []aws.InstanceTypeResult) error {
 		}
 		if hasGPU {
 			gpus, model, vram := "", "", ""
-			if result.GPUs > 0 || result.GPUMemoryPerMiB > 0 {
-				gpus = strconv.Itoa(int(result.GPUs))
-				if result.GPUs == 0 && result.GPUPartitionSize > 0 {
-					gpus = strconv.FormatFloat(result.GPUPartitionSize, 'f', -1, 64)
-				}
-				model = result.GPUModel
-				if result.GPUManufacturer != "" {
-					model = result.GPUManufacturer + " " + model
-				}
-				if result.GPUMemoryPerMiB > 0 {
-					vram = formatGB(aws.NominalGPUMemoryGB(result.GPUMemoryPerMiB))
+			if count, m, perDev, ok := acceleratorCells(result); ok {
+				gpus, model = count, m
+				if perDev > 0 {
+					vram = formatGB(perDev)
 				}
 			}
 			row = append(row, gpus, model, vram)
