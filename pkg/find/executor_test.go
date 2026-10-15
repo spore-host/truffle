@@ -244,3 +244,62 @@ func TestSearchCriteria_Matcher(t *testing.T) {
 		})
 	}
 }
+
+// TestBuildInstanceTypePattern_SizeWithoutFamily is #211: a size word was
+// dropped when the query had no family dimension (no vendor, processor, GPU,
+// instruction set or app), because buildInstanceTypePattern returned ".*"
+// before it looked at the sizes. "arm64 large" returned every size, medium to
+// metal, while "graviton large" correctly returned only 2xlarge and 4xlarge.
+func TestBuildInstanceTypePattern_SizeWithoutFamily(t *testing.T) {
+	tests := []struct {
+		query string
+		match []string
+		skip  []string
+	}{
+		{"arm64 large", []string{"m7g.2xlarge", "c8g.4xlarge", "r6g.2xlarge"},
+			[]string{"m7g.medium", "m7g.large", "m7g.xlarge", "m7g.8xlarge", "m7g.16xlarge", "m7g.metal"}},
+		{"x86_64 small", []string{"t3.small", "t3.medium", "m7i-flex.small"},
+			[]string{"t3.micro", "t3.large", "m7i.xlarge", "c7i.2xlarge"}},
+		{"large", []string{"c7i.2xlarge", "m8g.4xlarge"}, []string{"c7i.8xlarge", "c7i.large"}},
+		{"16 cores huge", []string{"c7i.8xlarge", "m8a.48xlarge", "m7i.metal"}, []string{"c7i.4xlarge"}},
+		// The GPU exact-type shortcut dropped sizes the same way.
+		{"t4 medium", []string{"g4dn.xlarge"}, []string{"g4dn.2xlarge", "g4dn.12xlarge", "g4dn.metal"}},
+		// No size word: still every size.
+		{"arm64", []string{"m7g.medium", "m7g.metal", "c8g.48xlarge"}, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.query, func(t *testing.T) {
+			pq, err := ParseQuery(tt.query)
+			if err != nil {
+				t.Fatalf("ParseQuery error: %v", err)
+			}
+			criteria, err := pq.BuildCriteria(false)
+			if err != nil {
+				t.Fatalf("BuildCriteria error: %v", err)
+			}
+			m := criteria.Matcher()
+			for _, it := range tt.match {
+				if !m(it) {
+					t.Errorf("%q does not match %s (pattern %s)", tt.query, it, criteria.InstanceTypePattern)
+				}
+			}
+			for _, it := range tt.skip {
+				if m(it) {
+					t.Errorf("%q matches %s, a size it did not ask for (pattern %s)", tt.query, it, criteria.InstanceTypePattern)
+				}
+			}
+		})
+	}
+}
+
+// TestBuildInstanceTypePattern_GPUSizeWithNoInstance: a GPU that is not sold in
+// the requested size matches nothing, rather than every size of that GPU.
+func TestBuildInstanceTypePattern_GPUSizeWithNoInstance(t *testing.T) {
+	pq, err := ParseQuery("a100 small")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := pq.buildInstanceTypePattern(); got != `^$` {
+		t.Errorf("pattern = %s, want ^$ (no A100 instance is small or medium)", got)
+	}
+}
