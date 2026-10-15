@@ -10,8 +10,8 @@ import (
 // TestExplainMatch_GPUMemoryPerFamily checks the "why it matched" line
 // quotes the GPU memory of the family the type is in, where a model's
 // memory varies (#240): V100 16 GB on p3 and 32 GB on p3dn, A100 40 GB on
-// p4d and 80 GB on p4de. Trainium2 keeps its 96 GB (EC2's trn2 record says
-// 512 GiB per device, which is not the chip's HBM).
+// p4d and 80 GB on p4de. Trainium2 is its documented 96 GB per chip (EC2's
+// trn2 record says 512 GiB per device; #242).
 func TestExplainMatch_GPUMemoryPerFamily(t *testing.T) {
 	for _, tt := range []struct{ query, it, want string }{
 		{"v100", "p3.2xlarge", "GPU: V100 (16 GB"},

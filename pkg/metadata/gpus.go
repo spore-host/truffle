@@ -252,11 +252,12 @@ var GPUDatabase = map[string]GPUInfo{
 // Set TRUFFLE_LIVE_AWS=1 to compare it with the live catalog
 // (TestLiveAcceleratorMemoryRecorded in pkg/aws).
 //
+// trn2 is the documented 96 GiB per Trainium2 chip, which pkg/aws reads in
+// place of the 524288 MiB (512 GiB) EC2 reports per device (#242).
+//
 // Left out, so callers fall back to GPUDatabase's MemoryGB:
 //   - g6f, gr6f: fractional L4s, whose per-device memory is the partition's
 //     and varies by size (2861 MiB on g6f.large, 11444 on g6f.4xlarge).
-//   - trn2: EC2 reports 524288 MiB (512 GiB) per Trainium2 device, which is
-//     not the chip's 96 GB of HBM.
 //   - p3, p2, g3, g4ad: not offered in any region on 2026-10-15.
 var acceleratorMemoryMiB = map[string]int64{
 	"dl2q":    16000,  // Qualcomm AI100, 16 GB
@@ -280,6 +281,7 @@ var acceleratorMemoryMiB = map[string]int64{
 	"p6-b300": 275040, // B300
 	"trn1":    32768,  // Trainium
 	"trn1n":   32768,  // Trainium
+	"trn2":    98304,  // Trainium2, 96 GiB per chip (EC2 says 512 GiB; #242)
 }
 
 // AcceleratorMemoryMiB returns the memory of one GPU or accelerator device

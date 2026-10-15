@@ -154,6 +154,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Trainium2 memory is 96 GB per chip, and B200/B300 read as AWS documents
+  them** (#242). EC2's DescribeInstanceTypes reports 512 GiB per Trainium2
+  device (8 TiB for trn2.48xlarge), but a NeuronInfo device is one chip (its
+  8 NeuronCores are one Trainium2's) and AWS documents 96 GiB of HBM per chip,
+  1.5 TB for trn2.48xlarge's 16. truffle now uses the documented figure in the
+  table, the per-accelerator memory filter, the closest-fit sort and JSON
+  (`accelerator_memory_mib` 98304, `accelerator_memory_gb` 96), so
+  trn2.48xlarge shows `1536 (96/chip)` and `trainium2 256gb` no longer matches
+  it. Inferentia and Trainium rows now label their memory `/chip`; inf1 (8),
+  inf2 and trn1 (32) were already right. The B200 and B300 read as 179 and 268
+  GB, AWS's per-instance totals (1,432 and 2,144 GB) over 8 GPUs, rather than
+  179.1 and 268.6, so `b300 268gb --exact` finds p6-b300.48xlarge.
+
 - **Inferentia, Trainium and dl2q rows show their accelerators** (#240). In
   the `find`/`search` table they showed `-` in the GPU columns, since only
   GPUs were read; they now show the device count, model and memory from the

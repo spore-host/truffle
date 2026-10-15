@@ -78,8 +78,8 @@ func TestPrintTable_NeuronAccelerators(t *testing.T) {
 		t.Errorf("a table with Inferentia rows should not head the columns GPU/VRAM:\n%s", out)
 	}
 	for _, tt := range []struct{ it, want string }{
-		{"inf2.xlarge", "1|Inferentia2|32 (32/dev)"},
-		{"inf2.48xlarge", "12|Inferentia2|384 (32/dev)"},
+		{"inf2.xlarge", "1|Inferentia2|32 (32/chip)"},
+		{"inf2.48xlarge", "12|Inferentia2|384 (32/chip)"},
 		{"dl2q.24xlarge", "8|Qualcomm AI100|128 (16/dev)"},
 		{"g5.xlarge", "1|NVIDIA A10G|24 (24/gpu)"},
 	} {

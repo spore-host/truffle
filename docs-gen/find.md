@@ -44,7 +44,8 @@ Understands:
     both. find prints a note when it reads a bare size as per-GPU memory.
     The VRAM column is in the same GB, so an A10G shows 24 (24/gpu); when
     Inferentia or Trainium rows are listed the columns read Accel /
-    Accel mem (GB), e.g. inf2.xlarge's 1 Inferentia2 is 32 (32/dev).
+    Accel mem (GB), e.g. inf2.xlarge's 1 Inferentia2 is 32 (32/chip) and
+    trn2.48xlarge's 16 Trainium2 chips 1536 (96/chip).
   - Sizes: tiny, small, medium, large, huge
   - Families and exact sizes: g5, m7i-flex, xlarge, 2xlarge, metal-24xl
     ("g5 xlarge" is g5.xlarge; "g5" alone is every g5 size)

@@ -398,7 +398,7 @@ func (p *Printer) printTable(results []aws.InstanceTypeResult, opts TableOptions
 						unit := "gpu"
 						if !isGPURow(result) {
 							n = float64(result.AcceleratorCount)
-							unit = "dev"
+							unit = accelUnit(result.AcceleratorModel)
 						}
 						totalGB := perDev
 						if n > 0 {
@@ -680,6 +680,19 @@ func acceleratorCells(r aws.InstanceTypeResult) (count, model string, perDeviceG
 		count = strconv.Itoa(int(r.AcceleratorCount))
 	}
 	return count, withMaker(r.AcceleratorManufacturer, r.AcceleratorModel), aws.NominalGPUMemoryGB(r.AccelMemoryMiB), true
+}
+
+// accelUnit names what a non-GPU row's per-device memory is per: "chip"
+// for an Inferentia or Trainium device, which EC2's NeuronInfo counts one
+// per chip (its NeuronCores are the chip's: 4 on Inferentia, 2 on
+// Inferentia2 and Trainium, 8 on Trainium2), so the figure is the one AWS
+// quotes per chip (Trainium2: 96 GB); "dev" for any other accelerator
+// (#242).
+func accelUnit(model string) string {
+	if strings.HasPrefix(model, "Inferentia") || strings.HasPrefix(model, "Trainium") {
+		return "chip"
+	}
+	return "dev"
 }
 
 // withMaker prefixes a device model with its maker ("NVIDIA A10G") unless
