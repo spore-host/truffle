@@ -30,6 +30,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`metadata.SizeCategory` is a size range, not a list** (#220). It now has
+  `Min` and `Max` multipliers (xlarge = 1) instead of `Sizes`;
+  `metadata.SizeMultiplier`, `SizeCategoryOf`, `InSizeCategory` and
+  `SizePattern` replace `GetSizesForCategory`, which is removed, since a range
+  such as "8xlarge and up" can't be listed.
+
 - **`truffle quotas` and `truffle available` now check your configured region by
   default, not us-east-1** (#200). Both answers are per-region, so a user working
   in us-west-2 was shown quota headroom and obtainability for a region they don't
@@ -87,6 +93,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hide them. It still parses, prints a deprecation notice, and will be removed.
 
 ### Fixed
+
+- **Size words cover every instance size** (#220). `huge` matched a fixed list
+  of sizes, so `find "amd huge"` listed c8a.24xlarge but not c8a.metal-24xl
+  (the same shape on bare metal), and sizes such as 3xlarge, 6xlarge, 9xlarge,
+  10xlarge, 18xlarge, 64xlarge, 96xlarge and 224xlarge were in no size word
+  at all. The words now select by size: `tiny` is nano and micro, `small` is
+  small and medium, `medium` is large and xlarge, `large` is 2xlarge up to
+  6xlarge, and `huge` is 8xlarge and up, including every `metal` and
+  `metal-Nxl` size (metal-Nxl counts as Nxlarge). A size EC2 adds later falls
+  into the word its position says. `large` now also matches 3xlarge and
+  6xlarge, and `huge` 9xlarge and up.
 
 - **SageMaker price lookups retry throttling as hard as EC2 ones** (#219). The
   EC2 on-demand pricer retries a throttled Price List request up to 8 times

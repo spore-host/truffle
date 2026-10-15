@@ -91,16 +91,15 @@ gpuDone:
 instructionSetDone:
 
 	// Check size match
-	for _, size := range query.Sizes {
-		sizes := metadata.GetSizesForCategory(size)
-		for _, s := range sizes {
-			if strings.HasSuffix(result.InstanceType, "."+s) {
+	if dot := strings.LastIndexByte(result.InstanceType, '.'); dot >= 0 {
+		typeSize := result.InstanceType[dot+1:]
+		for _, size := range query.Sizes {
+			if metadata.InSizeCategory(typeSize, size) {
 				reasons = append(reasons, fmt.Sprintf("Size: %s", size))
-				goto sizeDone
+				break
 			}
 		}
 	}
-sizeDone:
 
 	// Check vCPU match
 	if query.MinVCPU > 0 && result.VCPUs >= int32(query.MinVCPU) {
