@@ -175,7 +175,7 @@ func runCapacityBlocksOfferings(cmd *cobra.Command, args []string) error {
 			len(results), cboInstanceType, cboInstanceCount, durationHours)
 	}
 
-	printer := output.NewPrinter(!noColor)
+	printer := output.NewPrinter(useColor())
 	switch outputFormat {
 	case "json":
 		return printer.PrintBlockOfferingsJSON(results)
