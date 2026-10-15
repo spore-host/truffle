@@ -57,6 +57,13 @@ Understands:
   - CPU vendors: intel, amd, graviton, nvidia
   - Processors: emerald rapids, sapphire rapids, ice lake, genoa, turin, milan
   - GPUs: h200, h100, a100, b200, b300, l40s, l4, a10g, t4, rtx, inferentia, trainium
+  - Any accelerator: gpu, gpus, accelerator, accelerators (every GPU,
+    Inferentia, Trainium, FPGA and media-accelerator family; "amd gpu" is the
+    GPU hosts with an AMD CPU, e.g. g5 and g6, and "graviton gpu" is g5g)
+  - Accelerator use case: training (H100, H200, A100, V100, B200, B300,
+    Trainium, Trainium2) or inference (A10G, T4, L4, L40S, Inferentia,
+    Inferentia2), as AWS positions each chip; name a GPU to get one outside
+    its usual use case
     (hyphenated/suffixed spec strings also work, e.g. "RTX-PRO-6000",
     "A100-80GB", "H100!", "B200+" — Modal's documented GPU naming convention)
   - Instruction sets: avx2, avx-512, sve, sve2
@@ -381,6 +388,9 @@ func printParsedQuery(query *find.ParsedQuery) {
 	if len(query.GPUs) > 0 {
 		fmt.Fprintf(os.Stderr, "   GPU: %s\n", strings.Join(query.GPUs, ", "))
 	}
+	if len(query.Accelerators) > 0 {
+		fmt.Fprintf(os.Stderr, "   Accelerator: %s\n", strings.Join(query.Accelerators, ", "))
+	}
 	if len(query.InstructionSets) > 0 {
 		fmt.Fprintf(os.Stderr, "   Instruction set: %s\n", strings.Join(query.InstructionSets, ", "))
 	}
@@ -447,6 +457,9 @@ func activeDimensionCount(query *find.ParsedQuery) int {
 	if len(query.GPUs) > 0 {
 		count++
 	}
+	if len(query.Accelerators) > 0 {
+		count++
+	}
 	if len(query.InstructionSets) > 0 {
 		count++
 	}
@@ -481,7 +494,7 @@ func printSuggestions(query *find.ParsedQuery) {
 		fmt.Fprintln(os.Stderr, "  - Try: intel, amd, graviton, ice lake, milan, a100, v100, h100")
 	}
 
-	if len(query.Vendors) == 0 && len(query.Processors) == 0 && len(query.GPUs) == 0 && len(query.InstructionSets) == 0 {
+	if len(query.Vendors) == 0 && len(query.Processors) == 0 && len(query.GPUs) == 0 && len(query.Accelerators) == 0 && len(query.InstructionSets) == 0 {
 		fmt.Fprintln(os.Stderr, "  - Specify a vendor (intel, amd, graviton)")
 		fmt.Fprintln(os.Stderr, "  - Or a processor (ice lake, milan, sapphire rapids)")
 		fmt.Fprintln(os.Stderr, "  - Or a GPU (a100, v100, h100, inferentia)")

@@ -57,6 +57,7 @@ const (
 	TokenOr             // Explicit "or" keyword — combine dimensions with union
 	TokenFamily         // Instance family name (e.g. "g5", "m7i-flex"), #229
 	TokenInstanceSize   // Instance size name that is not a size word (e.g. "xlarge", "2xlarge", "metal-24xl"), #229
+	TokenAccelerator    // Any GPU or accelerator ("gpu", "accelerators"), or one for a use case ("training", "inference"), #233
 )
 
 // Token represents a single classified word from a natural language query.
@@ -72,6 +73,7 @@ type ParsedQuery struct {
 	Vendors         []string          // Hardware vendor filters, e.g. ["amd"], ["nvidia"]
 	Processors      []string          // Processor code names, e.g. ["genoa", "sapphire rapids"]
 	GPUs            []string          // GPU model names, e.g. ["h100", "a100"]
+	Accelerators    []string          // Accelerator words: "any" (gpu, accelerator), "training" or "inference" (#233)
 	InstructionSets []string          // CPU instruction-set extensions, e.g. ["avx-512", "sve2"]
 	Sizes           []string          // Size-category filters, e.g. ["large", "huge"]
 	Families        []string          // Instance families named directly, e.g. ["g5"] (#229)
@@ -198,6 +200,8 @@ func ParseQuery(query string) (*ParsedQuery, error) {
 			pq.Processors = append(pq.Processors, token.Value)
 		case TokenGPU:
 			pq.GPUs = append(pq.GPUs, token.Value)
+		case TokenAccelerator:
+			pq.Accelerators = append(pq.Accelerators, token.Value)
 		case TokenInstructionSet:
 			pq.InstructionSets = append(pq.InstructionSets, token.Value)
 		case TokenSize:
@@ -277,7 +281,7 @@ func (pq *ParsedQuery) UnknownTerms() []string {
 // Qualitative words, "and" and "or" only sort or combine.
 func (pq *ParsedQuery) hasConstraints() bool {
 	return len(pq.Vendors) > 0 || len(pq.Processors) > 0 || len(pq.GPUs) > 0 ||
-		len(pq.InstructionSets) > 0 || len(pq.Sizes) > 0 || len(pq.Families) > 0 ||
+		len(pq.Accelerators) > 0 || len(pq.InstructionSets) > 0 || len(pq.Sizes) > 0 || len(pq.Families) > 0 ||
 		len(pq.InstanceSizes) > 0 || len(pq.Apps) > 0 || pq.MinVCPU > 0 ||
 		pq.MinPhysCores > 0 || pq.MinMemory > 0 || pq.GPUCount > 0 ||
 		pq.Architecture != "" || pq.MinNetworkGbps > 0 || pq.RequireEFA ||
@@ -322,6 +326,8 @@ func classifyTokens(words []string) []Token {
 			tokens = append(tokens, Token{Type: TokenInstructionSet, Value: alias, Raw: word})
 		} else if _, ok := metadata.SizeCategories[word]; ok {
 			tokens = append(tokens, Token{Type: TokenSize, Value: word, Raw: word})
+		} else if acc, ok := acceleratorWords[word]; ok {
+			tokens = append(tokens, Token{Type: TokenAccelerator, Value: acc, Raw: word})
 		} else if word == "efa" {
 			tokens = append(tokens, Token{Type: TokenEFA, Value: "efa", Raw: word})
 		} else if word == "mig" {
@@ -404,6 +410,29 @@ func classifyTokens(words []string) []Token {
 
 	return tokens
 }
+
+// acceleratorWords maps the generic accelerator words to a
+// [ParsedQuery.Accelerators] value (#233). "gpu", "gpus", "accelerator" and
+// "accelerators" mean any GPU or accelerator family (metadata's
+// acceleratorFamilies: GPUs, Inferentia, Trainium, Qualcomm AI 100, FPGAs
+// and media accelerators). "training" and "inference" mean the GPUs and accelerators
+// GPUDatabase files under that use case: training is H100, H200, A100, V100,
+// B200, B300, Trainium and Trainium2; inference is A10G, T4, L4, L40S,
+// Inferentia and Inferentia2. That is how AWS positions the chips, not a
+// limit on what each can run, so "training" leaves out L40S and "inference"
+// leaves out H100; name the GPU to get those.
+var acceleratorWords = map[string]string{
+	"gpu":          acceleratorAny,
+	"gpus":         acceleratorAny,
+	"accelerator":  acceleratorAny,
+	"accelerators": acceleratorAny,
+	"training":     "training",
+	"inference":    "inference",
+}
+
+// acceleratorAny is the [ParsedQuery.Accelerators] value for any GPU or
+// accelerator.
+const acceleratorAny = "any"
 
 // IsRecognizedTerm reports whether a single space-free word is fully
 // classified by the tokenizer — i.e. resolves entirely to known token types,
@@ -719,6 +748,10 @@ func (pq *ParsedQuery) ResolveInstanceFamilies() []string {
 		dimensions = append(dimensions, set)
 	}
 
+	if len(pq.Accelerators) > 0 {
+		dimensions = append(dimensions, familySet(pq.acceleratorFamilies()))
+	}
+
 	if len(pq.InstructionSets) > 0 {
 		set := make(map[string]bool)
 		for _, is := range pq.InstructionSets {
@@ -789,11 +822,29 @@ func (pq *ParsedQuery) ResolveInstanceFamilies() []string {
 	return families
 }
 
+// acceleratorFamilies returns the families the query's accelerator words
+// select: the families of its use cases ("training", "inference"), or every
+// accelerator family when it names only "gpu"/"accelerator". A use case
+// narrows the generic word, so "inference gpu" means inference GPUs (#233).
+func (pq *ParsedQuery) acceleratorFamilies() []string {
+	var families []string
+	for _, acc := range pq.Accelerators {
+		if acc != acceleratorAny {
+			families = append(families, metadata.GetFamiliesByUseCase(acc)...)
+		}
+	}
+	if len(families) == 0 {
+		return metadata.AcceleratorFamilies()
+	}
+	return families
+}
+
 // wantsAccelerators reports whether the query asks for a GPU or accelerator:
-// a GPU or accelerator name (a10g, h100, nvidia, inferentia, trainium, ...), a
-// GPU count, MIG, or an accelerator family named directly (g5, p5).
+// a GPU or accelerator name (a10g, h100, nvidia, inferentia, trainium, ...),
+// an accelerator word (gpu, accelerator, training, inference), a GPU count,
+// MIG, or an accelerator family named directly (g5, p5).
 func (pq *ParsedQuery) wantsAccelerators() bool {
-	if len(pq.GPUs) > 0 || pq.GPUCount > 0 || pq.RequireMIG {
+	if len(pq.GPUs) > 0 || len(pq.Accelerators) > 0 || pq.GPUCount > 0 || pq.RequireMIG {
 		return true
 	}
 	for _, f := range pq.Families {
@@ -819,12 +870,12 @@ func (pq *ParsedQuery) HasNoMatchingFamily() bool {
 }
 
 // hasOtherActiveDimensions reports whether any family-contributing dimension
-// OTHER than GPUs is present in the query (vendor, processor, instruction
-// set, EFA, MIG, network speed). Used by buildInstanceTypePattern to decide
+// OTHER than GPUs is present in the query (vendor, processor, accelerator
+// word, instruction set, EFA, MIG, network speed). Used by buildInstanceTypePattern to decide
 // whether the GPU-exact-instance-type shortcut is safe to take (#144) — it
 // isn't, once another dimension also needs to constrain the result.
 func (pq *ParsedQuery) hasOtherActiveDimensions() bool {
-	return len(pq.Vendors) > 0 || len(pq.Processors) > 0 || len(pq.InstructionSets) > 0 || len(pq.Families) > 0 || pq.RequireEFA || pq.RequireMIG || pq.MinNetworkGbps > 0
+	return len(pq.Vendors) > 0 || len(pq.Processors) > 0 || len(pq.Accelerators) > 0 || len(pq.InstructionSets) > 0 || len(pq.Families) > 0 || pq.RequireEFA || pq.RequireMIG || pq.MinNetworkGbps > 0
 }
 
 // ResolveGPUInstances returns exact instance types for GPU queries

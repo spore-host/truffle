@@ -110,6 +110,9 @@ func vocabulary() []string {
 	for k := range metadata.GPUAliases {
 		add(k)
 	}
+	for k := range acceleratorWords {
+		add(k)
+	}
 	for k := range metadata.InstructionSetDatabase {
 		add(k)
 	}

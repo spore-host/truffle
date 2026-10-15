@@ -70,6 +70,16 @@ processorDone:
 	}
 gpuDone:
 
+	// Check accelerator-word match ("gpu", "training", ...), #233
+	if len(query.Accelerators) > 0 {
+		for _, f := range query.acceleratorFamilies() {
+			if f == family {
+				reasons = append(reasons, fmt.Sprintf("Accelerator: %s", strings.Join(query.Accelerators, ", ")))
+				break
+			}
+		}
+	}
+
 	// Check instruction-set match
 	for _, is := range query.InstructionSets {
 		for _, f := range metadata.GetFamiliesByInstructionSet(is) {

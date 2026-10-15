@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/spore-host/truffle/pkg/aws"
+	"github.com/spore-host/truffle/pkg/metadata"
 )
 
 // TestVendorQueriesSelectManufacturerFamilies: vendor and codename words
@@ -95,4 +96,110 @@ func TestCPUWordsLeaveOutGPUHosts(t *testing.T) {
 			}
 		}
 	}
+}
+
+// TestAcceleratorWords: "gpu", "gpus", "accelerator" and "accelerators" mean
+// any GPU or accelerator family, and with a CPU word they select the
+// accelerator hosts with that CPU (#233). Before, "amd gpu" ignored "gpu" and
+// listed CPU-only AMD families.
+func TestAcceleratorWords(t *testing.T) {
+	tests := []struct {
+		query   string
+		want    []string // families that must be selected
+		notWant []string // families that must not be
+		exact   bool     // want is the whole result
+	}{
+		{"amd gpu", []string{"g5", "g6", "g6e", "g6f", "gr6", "gr6f", "p5", "p5e", "inf2", "f2"}, []string{"m6a", "t3a", "c7a", "g4dn", "p4d", "g5g"}, false},
+		{"amd gpus", []string{"g5", "g6", "p5"}, []string{"m6a", "g4dn"}, false},
+		{"intel accelerator", []string{"g4dn", "p4d", "p5en", "trn1", "dl2q", "vt1"}, []string{"m6i", "g5", "g5g"}, false},
+		{"graviton gpu", []string{"g5g"}, nil, true},
+		{"gpu", metadata.AcceleratorFamilies(), nil, true},
+		{"accelerators", metadata.AcceleratorFamilies(), nil, true},
+		{"gpu 24gb", metadata.AcceleratorFamilies(), nil, true},
+		{"inference", []string{"g4dn", "g5", "g6", "g6e", "inf1", "inf2"}, []string{"p5", "p4d", "trn1", "trn2", "m6i"}, false},
+		{"inference gpu", []string{"g5", "inf2"}, []string{"p5", "trn1"}, false},
+		{"training", []string{"p3dn", "p4d", "p5", "p5en", "p6-b200", "p6-b300", "trn1", "trn1n", "trn2"}, []string{"g5", "inf2", "m6i"}, false},
+		{"intel training", []string{"p3dn", "p4d", "p5en", "trn1", "trn2"}, []string{"p5", "p5e", "g4dn"}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.query, func(t *testing.T) {
+			pq, err := ParseQuery(tt.query)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if u := pq.UnknownTerms(); len(u) > 0 {
+				t.Errorf("unknown terms %v", u)
+			}
+			got := pq.ResolveInstanceFamilies()
+			slices.Sort(got)
+			if tt.exact {
+				want := slices.Clone(tt.want)
+				slices.Sort(want)
+				if !slices.Equal(got, want) {
+					t.Errorf("families = %v, want %v", got, want)
+				}
+			}
+			for _, f := range tt.want {
+				if !slices.Contains(got, f) {
+					t.Errorf("families %v lack %s", got, f)
+				}
+			}
+			for _, f := range tt.notWant {
+				if slices.Contains(got, f) {
+					t.Errorf("families %v include %s", got, f)
+				}
+			}
+		})
+	}
+}
+
+// TestAcceleratorWordCriteria checks the accelerator words through
+// BuildCriteria: "gpu 24gb" keeps its memory minimum, and a GPU that is not
+// in the named use case matches nothing (#233).
+func TestAcceleratorWordCriteria(t *testing.T) {
+	pq, err := ParseQuery("gpu 24gb")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sc, err := pq.BuildCriteria(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sc.FilterOptions.MinMemory != 24 {
+		t.Errorf("MinMemory = %v, want 24", sc.FilterOptions.MinMemory)
+	}
+	for _, it := range []string{"g5.xlarge", "g5g.xlarge", "p5.48xlarge", "inf2.xlarge"} {
+		if !sc.InstanceTypePattern.MatchString(it) {
+			t.Errorf("gpu 24gb does not match %s (pattern %s)", it, sc.InstanceTypePattern)
+		}
+	}
+	if sc.InstanceTypePattern.MatchString("m6i.2xlarge") {
+		t.Errorf("gpu 24gb matches m6i.2xlarge")
+	}
+
+	pq, err = ParseQuery("a10g training")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sc, err = pq.BuildCriteria(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sc.InstanceTypePattern.MatchString("g5.xlarge") {
+		t.Errorf("a10g training matches g5.xlarge (pattern %s)", sc.InstanceTypePattern)
+	}
+
+	reasons := ExplainMatch(aws.InstanceTypeResult{InstanceType: "g5.xlarge", Architecture: "x86_64"}, mustParse(t, "amd gpu"))
+	if !slices.Contains(reasons, "Accelerator: any") || !slices.Contains(reasons, "Vendor: amd") {
+		t.Errorf("reasons = %v, want Accelerator: any and Vendor: amd", reasons)
+	}
+}
+
+func mustParse(t *testing.T, q string) *ParsedQuery {
+	t.Helper()
+	pq, err := ParseQuery(q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pq
 }
