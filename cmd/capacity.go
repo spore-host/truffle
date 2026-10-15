@@ -105,16 +105,7 @@ func runCapacity(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Sort by available capacity (most available first), then by instance type
-	sort.Slice(results, func(i, j int) bool {
-		if results[i].AvailableCapacity != results[j].AvailableCapacity {
-			return results[i].AvailableCapacity > results[j].AvailableCapacity
-		}
-		if results[i].InstanceType != results[j].InstanceType {
-			return results[i].InstanceType < results[j].InstanceType
-		}
-		return results[i].Region < results[j].Region
-	})
+	sortCapacityReservations(results)
 
 	// Print summary (table output only — keeps stdout clean for json/csv/yaml)
 	if outputFormat == "table" {
@@ -250,12 +241,7 @@ func runCapacityBlocksOwned(ctx context.Context, awsClient *aws.Client, searchRe
 		fmt.Println(i18n.T("truffle.capacity.no_results"))
 		return nil
 	}
-	sort.Slice(results, func(i, j int) bool {
-		if results[i].StartDate != results[j].StartDate {
-			return results[i].StartDate < results[j].StartDate
-		}
-		return results[i].InstanceType < results[j].InstanceType
-	})
+	sortCapacityBlocks(results)
 	printer := output.NewPrinter(useColor())
 	switch outputFormat {
 	case "json":
@@ -271,4 +257,44 @@ func runCapacityBlocksOwned(ctx context.Context, awsClient *aws.Client, searchRe
 			"Format": outputFormat,
 		})
 	}
+}
+
+// sortCapacityReservations orders reservations most-available-first, then by
+// instance type, region, AZ and reservation ID.
+func sortCapacityReservations(results []aws.CapacityReservationResult) {
+	sort.Slice(results, func(i, j int) bool {
+		if results[i].AvailableCapacity != results[j].AvailableCapacity {
+			return results[i].AvailableCapacity > results[j].AvailableCapacity
+		}
+		if results[i].InstanceType != results[j].InstanceType {
+			return results[i].InstanceType < results[j].InstanceType
+		}
+		if results[i].Region != results[j].Region {
+			return results[i].Region < results[j].Region
+		}
+		// Same type and region in several AZs: order by AZ, then ID, so the
+		// rows don't reorder between runs (#217).
+		if results[i].AvailabilityZone != results[j].AvailabilityZone {
+			return results[i].AvailabilityZone < results[j].AvailabilityZone
+		}
+		return results[i].ReservationID < results[j].ReservationID
+	})
+}
+
+// sortCapacityBlocks orders capacity blocks soonest-first, then by instance
+// type, AZ and block ID.
+func sortCapacityBlocks(results []aws.CapacityBlockResult) {
+	sort.Slice(results, func(i, j int) bool {
+		if results[i].StartDate != results[j].StartDate {
+			return results[i].StartDate < results[j].StartDate
+		}
+		if results[i].InstanceType != results[j].InstanceType {
+			return results[i].InstanceType < results[j].InstanceType
+		}
+		// Tie-break on AZ, then ID, for a deterministic order (#217).
+		if results[i].AvailabilityZone != results[j].AvailabilityZone {
+			return results[i].AvailabilityZone < results[j].AvailabilityZone
+		}
+		return results[i].CapacityBlockID < results[j].CapacityBlockID
+	})
 }

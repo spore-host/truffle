@@ -247,7 +247,7 @@ func summarizeAZRegions(results []aws.InstanceTypeResult) []azRegionSummary {
 	for region := range azs {
 		s := azRegionSummary{
 			Region:            region,
-			AvailabilityZones: sortedKeys(azs[region]),
+			AvailabilityZones: sortedZoneKeys(azs[region]),
 			InstanceTypes:     sortedKeys(types[region]),
 		}
 		s.AZCount = len(s.AvailabilityZones)
@@ -260,6 +260,14 @@ func summarizeAZRegions(results []aws.InstanceTypeResult) []azRegionSummary {
 		return summaries[i].Region < summaries[j].Region
 	})
 	return summaries
+}
+
+// sortedZoneKeys returns the zone names in m in aws.SortZoneNames order, the
+// order every other truffle AZ list uses (#217).
+func sortedZoneKeys(m map[string]bool) []string {
+	keys := sortedKeys(m)
+	aws.SortZoneNames(keys)
+	return keys
 }
 
 func sortedKeys(m map[string]bool) []string {

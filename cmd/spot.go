@@ -179,20 +179,10 @@ func runSpot(cmd *cobra.Command, args []string) error {
 
 	// Sort results
 	if spotSortByPrice {
-		sort.Slice(spotResults, func(i, j int) bool {
-			return spotResults[i].SpotPrice < spotResults[j].SpotPrice
-		})
+		sortSpotResults(spotResults, true)
 	} else {
 		// Default: sort by instance type, then region, then AZ
-		sort.Slice(spotResults, func(i, j int) bool {
-			if spotResults[i].InstanceType != spotResults[j].InstanceType {
-				return spotResults[i].InstanceType < spotResults[j].InstanceType
-			}
-			if spotResults[i].Region != spotResults[j].Region {
-				return spotResults[i].Region < spotResults[j].Region
-			}
-			return spotResults[i].AvailabilityZone < spotResults[j].AvailabilityZone
-		})
+		sortSpotResults(spotResults, false)
 	}
 
 	// On-demand price and savings are always populated by GetSpotPricing
@@ -279,4 +269,28 @@ func printSpotSummary(results []aws.SpotPriceResult) {
 		fmt.Printf("   %s: %.1f%% %s\n", i18n.T("truffle.spot.summary.average_savings"), avgSavings, i18n.T("truffle.spot.summary.vs_on_demand"))
 	}
 	fmt.Println()
+}
+
+// sortSpotResults orders spot rows by instance type, region and AZ, or
+// cheapest-first when byPrice is set. Equal prices are common (one price
+// across a region's AZs), so the price order falls back to the same
+// type/region/AZ key: without it the rows came out in whatever order
+// DescribeSpotPriceHistory returned them, which differs between runs (#217).
+func sortSpotResults(results []aws.SpotPriceResult, byPrice bool) {
+	sort.Slice(results, func(i, j int) bool {
+		a, b := results[i], results[j]
+		if byPrice && a.SpotPrice != b.SpotPrice {
+			return a.SpotPrice < b.SpotPrice
+		}
+		if a.InstanceType != b.InstanceType {
+			return a.InstanceType < b.InstanceType
+		}
+		if a.Region != b.Region {
+			return a.Region < b.Region
+		}
+		if a.AvailabilityZone != b.AvailabilityZone {
+			return a.AvailabilityZone < b.AvailabilityZone
+		}
+		return a.ProductType < b.ProductType
+	})
 }

@@ -212,6 +212,7 @@ func (c *Client) Obtainability(ctx context.Context, instanceType, region string)
 		// Since this count is rendered against a region-AZ denominator ("1 of 6"), a
 		// duplicate would print a nonsense ratio like "24 of 3".
 		offered = uniqueSorted(offered)
+		SortZoneNames(offered)
 		total, err := c.countRegionAZs(ctx, region)
 		if err != nil {
 			warn("region AZ count unavailable: %v", err)

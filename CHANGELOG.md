@@ -24,6 +24,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   left unpriced because the context ended carries the context error and is not
   filled from the static table.
 
+- **`aws.SortZoneNames` and `aws.ZoneNamesSorted`** (#217), the zone-name
+  order truffle uses for every AZ list (standard AZs, then Local and Wavelength
+  Zones, each alphabetically), for library callers that build or merge AZ lists.
+
 ### Changed
 
 - **`truffle quotas` and `truffle available` now check your configured region by
@@ -83,6 +87,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hide them. It still parses, prints a deprecation notice, and will be removed.
 
 ### Fixed
+
+- **Availability-zone lists come out in the same order on every run** (#217).
+  `find`, `search` and `az` listed each type's AZs in whatever order EC2
+  returned them, which changes between calls, so the same query showed its AZs
+  in a different order each time, and because the table shows only the first
+  few, a different set of AZs. The lists are now in a fixed order in the
+  table, JSON, YAML and CSV output, in `az` and `available`, and in the
+  library's `SearchInstanceTypes` results: standard AZs alphabetically, then
+  Local and Wavelength Zones, so the table leads with in-region AZs.
+  Rows that differ only by AZ are also in a fixed order now: `spot
+  --sort-by-price` when several AZs have the same price, and `capacity`
+  reservations and blocks.
 
 - **`truffle find` no longer times out pricing a cross-region search, and a
   pricing timeout is now an error** (#210). `find` looked up the on-demand price
