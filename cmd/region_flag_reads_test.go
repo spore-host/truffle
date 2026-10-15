@@ -6,7 +6,7 @@ import (
 	"go/importer"
 	"go/parser"
 	"go/token"
-	"go/types"
+	gotypes "go/types"
 	"os"
 	"path/filepath"
 	"slices"
@@ -160,8 +160,8 @@ func commandsIgnoringRegionFlag(t *testing.T, dir string) (regional, bad []strin
 	// Imports are deliberately not resolved (type-checking the AWS SDK from
 	// source is slow, and only this package's objects matter), so type errors
 	// about imported packages are expected and ignored.
-	info := &types.Info{Uses: map[*ast.Ident]types.Object{}, Defs: map[*ast.Ident]types.Object{}}
-	conf := types.Config{
+	info := &gotypes.Info{Uses: map[*ast.Ident]gotypes.Object{}, Defs: map[*ast.Ident]gotypes.Object{}}
+	conf := gotypes.Config{
 		Importer: unresolvedImporter{},
 		Error:    func(error) {},
 	}
@@ -169,13 +169,13 @@ func commandsIgnoringRegionFlag(t *testing.T, dir string) (regional, bad []strin
 	if pkg == nil {
 		t.Fatal("type-check produced no package")
 	}
-	regionsVar, ok := pkg.Scope().Lookup("regions").(*types.Var)
+	regionsVar, ok := pkg.Scope().Lookup("regions").(*gotypes.Var)
 	if !ok {
 		t.Fatalf("package-level var `regions` (the --regions flag) not found in %s", dir)
 	}
 
 	// Package-level function bodies, by object.
-	bodies := map[types.Object]*ast.BlockStmt{}
+	bodies := map[gotypes.Object]*ast.BlockStmt{}
 	for _, f := range files {
 		for _, d := range f.Decls {
 			if fd, ok := d.(*ast.FuncDecl); ok && fd.Recv == nil && fd.Body != nil {
@@ -214,8 +214,8 @@ func commandsIgnoringRegionFlag(t *testing.T, dir string) (regional, bad []strin
 // closureFacts walks root and every package function it transitively
 // references, reporting whether that closure hits a regional sink and whether
 // it reads regionsVar.
-func closureFacts(root ast.Node, info *types.Info, bodies map[types.Object]*ast.BlockStmt, regionsVar *types.Var) (regional, reads bool) {
-	seen := map[types.Object]bool{}
+func closureFacts(root ast.Node, info *gotypes.Info, bodies map[gotypes.Object]*ast.BlockStmt, regionsVar *gotypes.Var) (regional, reads bool) {
+	seen := map[gotypes.Object]bool{}
 	queue := []ast.Node{root}
 	for len(queue) > 0 {
 		n := queue[0]
@@ -224,7 +224,7 @@ func closureFacts(root ast.Node, info *types.Info, bodies map[types.Object]*ast.
 			switch n := n.(type) {
 			case *ast.SelectorExpr:
 				if x, ok := n.X.(*ast.Ident); ok {
-					if pn, ok := info.Uses[x].(*types.PkgName); ok && regionalSinks[pn.Imported().Path()][n.Sel.Name] {
+					if pn, ok := info.Uses[x].(*gotypes.PkgName); ok && regionalSinks[pn.Imported().Path()][n.Sel.Name] {
 						regional = true
 					}
 				}
@@ -232,7 +232,7 @@ func closureFacts(root ast.Node, info *types.Info, bodies map[types.Object]*ast.
 				obj := info.Uses[n]
 				switch {
 				case obj == nil:
-				case obj == types.Object(regionsVar):
+				case obj == gotypes.Object(regionsVar):
 					reads = true
 				case bodies[obj] != nil:
 					if regionalSinks[""][obj.Name()] {
@@ -295,7 +295,7 @@ func commandUseAndHandler(lit *ast.CompositeLit) (string, ast.Expr) {
 // without loading any dependency.
 type unresolvedImporter struct{}
 
-func (unresolvedImporter) Import(path string) (*types.Package, error) {
+func (unresolvedImporter) Import(path string) (*gotypes.Package, error) {
 	if path == "unsafe" {
 		return importer.Default().Import(path)
 	}
