@@ -30,7 +30,7 @@ type InstructionSetInfo struct {
 // the term meaningful. AVX2 arrives with Haswell on Intel; every AMD EPYC
 // generation AWS offers (Rome/Zen2 onward) already has it.
 var instructionSetProcessors = map[string][]string{
-	"avx2":    {"haswell", "broadwell", "cascade lake", "skylake", "ice lake", "sapphire rapids", "emerald rapids", "granite rapids", "rome", "milan", "zen 3", "genoa", "bergamo", "zen 4", "turin", "zen 5"},
+	"avx2":    {"haswell", "broadwell", "cascade lake", "skylake", "ice lake", "sapphire rapids", "emerald rapids", "granite rapids", "naples", "zen 1", "rome", "zen 2", "milan", "zen 3", "genoa", "bergamo", "zen 4", "turin", "zen 5"},
 	"avx-512": {"ice lake", "sapphire rapids", "emerald rapids", "granite rapids", "genoa", "bergamo", "zen 4", "turin", "zen 5"},
 	"sve":     {"graviton3", "graviton3e"},
 	"sve2":    {"graviton4", "graviton5"},

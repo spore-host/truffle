@@ -101,6 +101,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **m5a, m5ad, r5a and r5ad are Naples, not Rome; `naples` is a processor
+  word** (#232). AWS's instance-type docs list the AMD EPYC 7571, a
+  1st-generation (Naples, Zen) part, for m5a, m5ad, r5a, r5ad and t3a; only
+  c5a and c5ad (and g5) have the 2nd Gen EPYC 7R32 (Rome). `find rome` used to
+  return the four Naples families. They, and t3a, which had no codename, are
+  now under `naples` (alias `zen 1`); `rome` (alias `zen 2`) is c5a, c5ad and
+  g5. `avx2` still includes all of them.
+
 - **`find` recognises `gpu`, `gpus`, `accelerator` and `accelerators`**
   (#233). They used to be ignored, so `truffle find "amd gpu"` printed
   `ignored unknown term: gpu` and, since #230, listed only CPU-only AMD

@@ -131,12 +131,36 @@ var ProcessorDatabase = map[string]ProcessorInfo{
 		Generation:   "3rd gen",
 		Families:     []string{"m6a", "c6a", "r6a", "hpc6a", "g6", "g6e", "g6f", "gr6", "gr6f", "p5", "p5e", "inf2", "f2"},
 	},
+	// AWS's instance-type docs give c5a/c5ad (and g5) the 2nd Gen EPYC 7R32,
+	// and m5a, m5ad, r5a, r5ad and t3a the EPYC 7571, a 1st-generation
+	// (Naples, Zen) part (#232).
 	"rome": {
 		CodeName:     "Rome",
 		Vendor:       "amd",
 		Architecture: "x86_64",
 		Generation:   "2nd gen",
-		Families:     []string{"m5a", "c5a", "r5a", "m5ad", "c5ad", "r5ad", "g5"},
+		Families:     []string{"c5a", "c5ad", "g5"},
+	},
+	"naples": {
+		CodeName:     "Naples",
+		Vendor:       "amd",
+		Architecture: "x86_64",
+		Generation:   "1st gen",
+		Families:     []string{"m5a", "m5ad", "r5a", "r5ad", "t3a"},
+	},
+	"zen 1": {
+		CodeName:     "Zen 1",
+		Vendor:       "amd",
+		Architecture: "x86_64",
+		Generation:   "1st gen",
+		Families:     []string{"m5a", "m5ad", "r5a", "r5ad", "t3a"},
+	},
+	"zen 2": {
+		CodeName:     "Zen 2",
+		Vendor:       "amd",
+		Architecture: "x86_64",
+		Generation:   "2nd gen",
+		Families:     []string{"c5a", "c5ad", "g5"},
 	},
 	"zen 3": {
 		CodeName:     "Zen 3",

@@ -24,7 +24,7 @@ func TestInstructionSetDatabase(t *testing.T) {
 			wantArch:     "x86_64",
 			wantFamilies: 5,
 			mustInclude:  []string{"m6i", "m7i", "m7a", "m8a"},
-			// Milan/Rome/Zen3 (m6a/c6a/r6a, m5a/c5a/r5a) predate AMD's AVX-512
+			// Milan/Rome/Naples (m6a/c6a/r6a, c5a, m5a/r5a) predate AMD's AVX-512
 			// support (introduced with Genoa/Zen4); Skylake/Cascade Lake (m5,
 			// c5, r5) predate the extensions ("VNNI"/"GFNI"/"VAES") this
 			// database's AVX-512 entry is scoped to.

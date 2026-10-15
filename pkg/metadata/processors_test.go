@@ -1,6 +1,7 @@
 package metadata
 
 import (
+	"slices"
 	"testing"
 )
 
@@ -251,6 +252,30 @@ func TestCodenameEntriesAgreeWithManufacturer(t *testing.T) {
 			if maker, ok := recorded[f]; ok && maker != info.Vendor {
 				t.Errorf("%q (%s) lists %s, whose processor is made by %s", key, info.Vendor, f, maker)
 			}
+		}
+	}
+}
+
+// TestNaplesFamilies232: AWS's instance-type docs list the EPYC 7571, a
+// 1st-generation (Naples) part, for m5a, m5ad, r5a, r5ad and t3a, and the
+// 2nd Gen EPYC 7R32 (Rome) for c5a and c5ad (#232).
+func TestNaplesFamilies232(t *testing.T) {
+	naples := []string{"m5a", "m5ad", "r5a", "r5ad", "t3a"}
+	rome := []string{"c5a", "c5ad", "g5"}
+	for _, key := range []string{"naples", "zen 1"} {
+		if got := ProcessorDatabase[key].Families; !slices.Equal(got, naples) {
+			t.Errorf("%q families = %v, want %v", key, got, naples)
+		}
+	}
+	for _, key := range []string{"rome", "zen 2"} {
+		if got := ProcessorDatabase[key].Families; !slices.Equal(got, rome) {
+			t.Errorf("%q families = %v, want %v", key, got, rome)
+		}
+	}
+	avx2 := GetFamiliesByInstructionSet("avx2")
+	for _, f := range append(naples, rome...) {
+		if !slices.Contains(avx2, f) {
+			t.Errorf("avx2 lacks %s", f)
 		}
 	}
 }
