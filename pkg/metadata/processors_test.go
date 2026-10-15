@@ -137,3 +137,42 @@ func TestGetFamiliesByVendor(t *testing.T) {
 		})
 	}
 }
+
+// awsManufacturedFamilies is every instance family whose
+// ProcessorInfo.Manufacturer was "AWS" in us-west-2 and us-east-1
+// DescribeInstanceTypes on 2026-10-15 (#221).
+var awsManufacturedFamilies = []string{
+	"a1", "c6g", "c6gd", "c6gn", "c7g", "c7gd", "c7gn", "c8g", "c8gb", "c8gd",
+	"c8gn", "c9g", "c9gd", "g5g", "hpc7g", "i4g", "i8g", "i8ge", "im4gn",
+	"is4gen", "m6g", "m6gd", "m7g", "m7gd", "m8g", "m8gb", "m8gd", "m8gn",
+	"m9g", "m9gd", "r6g", "r6gd", "r7g", "r7gd", "r8g", "r8gb", "r8gd", "r8gn",
+	"r9g", "r9gd", "t4g", "x2gd", "x8g",
+}
+
+// TestGravitonListsCoverEveryAWSFamily is the gate for #221: every
+// Graviton family EC2 offers is in a Graviton processor entry, so "graviton"
+// (and "arm", "aws") queries select it. r9g and r9gd were missing.
+func TestGravitonListsCoverEveryAWSFamily(t *testing.T) {
+	have := make(map[string]bool)
+	for _, f := range GetFamiliesByVendor("aws") {
+		have[f] = true
+	}
+	for _, f := range awsManufacturedFamilies {
+		if !have[f] {
+			t.Errorf("Graviton family %s is in no Graviton processor entry", f)
+		}
+	}
+}
+
+// TestGraviton5Families: r9g/r9gd are Graviton5, alongside m9g and c9g.
+func TestGraviton5Families(t *testing.T) {
+	got := make(map[string]bool)
+	for _, f := range ProcessorDatabase["graviton5"].Families {
+		got[f] = true
+	}
+	for _, f := range []string{"m9g", "m9gd", "c9g", "c9gd", "r9g", "r9gd"} {
+		if !got[f] {
+			t.Errorf("graviton5 is missing %s", f)
+		}
+	}
+}

@@ -94,6 +94,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`graviton` queries include r9g and r9gd** (#221). The Graviton5 list had
+  m9g, m9gd, c9g and c9gd but not the memory-optimised r9g and r9gd, so
+  `find "graviton large"` (and any vendor or processor query that should match
+  Graviton5) left out r9g.2xlarge, r9g.4xlarge, r9gd.2xlarge and r9gd.4xlarge.
+  Re-checked against DescribeInstanceTypes in us-west-2 and us-east-1: those
+  were the only Graviton families missing.
+
 - **Size words cover every instance size** (#220). `huge` matched a fixed list
   of sizes, so `find "amd huge"` listed c8a.24xlarge but not c8a.metal-24xl
   (the same shape on bare metal), and sizes such as 3xlarge, 6xlarge, 9xlarge,
