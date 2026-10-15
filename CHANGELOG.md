@@ -53,6 +53,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   per matching instance type. This affects `find`, `search`, `spot`, and library
   callers of `SearchInstanceTypes` that set `IncludeAZs`. A broad single-region
   `find` drops from ~10 s to ~5 s; the results are identical.
+- **Instance-type searches fetch less of the EC2 catalog** (#195). When a
+  query names families or exact types (for example `find "amd turin …"` or
+  `find "m7i*"`), an architecture, or an exact vCPU count (`--exact`), truffle
+  now asks EC2 for just those types instead of paging through the whole catalog
+  in every region. Minimum vCPU, memory, and core counts are still checked
+  locally, and results are unchanged. The search step of a cross-region
+  `find "amd turin 16 cores 64gb" --all-regions` drops from ~6 s to ~4.5 s.
+  Most of that command's remaining time is on-demand price lookups (#210).
+  This affects `find`, `search`, `az`, `spot`, and library callers of
+  `SearchInstanceTypes` / `SearchInstanceTypesByRegion`; no API changes.
 
 ### Deprecated
 
