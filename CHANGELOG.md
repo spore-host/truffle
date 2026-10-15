@@ -76,6 +76,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   configured** (#188). Enabled-region discovery (`GetEnabledRegions`) now falls
   back to the us-east-1 endpoint in that case, for every command that uses it.
 
+- **`make check-release-version TAG=…` works again, and `make` no longer warns
+  about `nitro-census` on every run** (#197). Contributor-facing only, since the
+  release workflow calls the script directly. A bad merge in #180 defined
+  `nitro-census` twice and turned the `check-release-version` help comment into a
+  rule, so the pre-tag guard stopped with "No rule to make target `Release'".
+  `make help` now lists every target, including `nitro-census`, `changelog-fix`,
+  `dev` and `release`, and lists only targets. A description containing a colon no
+  longer misaligns the help table. A new hygiene test dry-runs every Makefile
+  target. It fails on a duplicate target, a `##` help line that isn't
+  `## <target>: <description>`, or a target that is missing from `make help`.
 - **A throttled Price List no longer refuses a Graviton launch that carries a cost
   limit** (#175). The static fallback required an exact `(region, instanceType)`
   hit in `libs/pricing`, and that table had **no Graviton family in any region** —
