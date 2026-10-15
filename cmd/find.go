@@ -69,9 +69,13 @@ Understands:
     (minimums: results are listed closest fit first, then cheapest — the
     request's exact size leads; add --exact to show only exact matches)
   - Sizes: tiny, small, medium, large, huge
+  - Families and exact sizes: g5, m7i-flex, xlarge, 2xlarge, metal-24xl
+    ("g5 xlarge" is g5.xlarge; "g5" alone is every g5 size)
   - Architecture: x86_64, arm64
   - Network: efa, 10gbps, 25gbps, 50gbps, 100gbps, 200gbps, 400gbps
   - Sort hints: cheap/cheapest, fast/fastest, newest/latest
+  - A query with no recognised word is an error that names the unknown
+    words, rather than a search of every instance type
   - Combining constraints: multiple constraint types (e.g. a GPU and "efa")
     combine with AND by default — "h100 efa" means H100 instances that also
     have EFA, not "either." Add the literal word "or" anywhere in the query
@@ -207,6 +211,12 @@ func runFind(cmd *cobra.Command, args []string) (err error) {
 		}
 	}
 
+	// Say which words were ignored, before searching, rather than only when
+	// nothing matched (#229).
+	if unknown := query.UnknownTerms(); len(unknown) > 0 {
+		fmt.Fprintf(os.Stderr, "Note: ignored unknown %s: %s\n", pluralize(len(unknown), "term", "terms"), describeUnknownTerms(unknown))
+	}
+
 	// Show parsed query if requested
 	if findShowQuery || verbose {
 		printParsedQuery(query)
@@ -305,6 +315,11 @@ func runFind(cmd *cobra.Command, args []string) (err error) {
 			return nil
 		}
 		fmt.Fprintln(os.Stderr, "No instances match your query")
+		if query.HasNoMatchingFamily() {
+			// e.g. "intel h100": the constraints exclude each other, so the
+			// search matched nothing rather than everything (#229).
+			fmt.Fprintln(os.Stderr, "  No instance family satisfies all of the query's constraints together; drop one, or add \"or\" to match any of them")
+		}
 		printSuggestions(query)
 		return nil
 	}
@@ -375,6 +390,12 @@ func printParsedQuery(query *find.ParsedQuery) {
 	if len(query.Sizes) > 0 {
 		fmt.Fprintf(os.Stderr, "   Size: %s\n", strings.Join(query.Sizes, ", "))
 	}
+	if len(query.Families) > 0 {
+		fmt.Fprintf(os.Stderr, "   Family: %s\n", strings.Join(query.Families, ", "))
+	}
+	if len(query.InstanceSizes) > 0 {
+		fmt.Fprintf(os.Stderr, "   Instance size: %s\n", strings.Join(query.InstanceSizes, ", "))
+	}
 	if query.MinVCPU > 0 {
 		fmt.Fprintf(os.Stderr, "   Min vCPUs: %d\n", query.MinVCPU)
 	}
@@ -429,6 +450,9 @@ func activeDimensionCount(query *find.ParsedQuery) int {
 	if len(query.InstructionSets) > 0 {
 		count++
 	}
+	if len(query.Families) > 0 {
+		count++
+	}
 	if query.RequireEFA {
 		count++
 	}
@@ -453,7 +477,7 @@ func printSuggestions(query *find.ParsedQuery) {
 	}
 
 	if len(unknownTokens) > 0 {
-		fmt.Fprintf(os.Stderr, "  - Unknown terms: %s\n", strings.Join(unknownTokens, ", "))
+		fmt.Fprintf(os.Stderr, "  - Unknown terms: %s\n", describeUnknownTerms(unknownTokens))
 		fmt.Fprintln(os.Stderr, "  - Try: intel, amd, graviton, ice lake, milan, a100, v100, h100")
 	}
 
@@ -471,6 +495,20 @@ func printSuggestions(query *find.ParsedQuery) {
 	if query.MinMemory > 1024 {
 		fmt.Fprintln(os.Stderr, "  - Very high memory requirement may limit results")
 	}
+}
+
+// describeUnknownTerms lists unknown query words with a suggestion for each
+// that has one: `"gravitn" (did you mean "graviton"?), "zzqx"`.
+func describeUnknownTerms(terms []string) string {
+	suggestions := find.SuggestTerms(terms)
+	parts := make([]string, len(terms))
+	for i, t := range terms {
+		parts[i] = fmt.Sprintf("%q", t)
+		if s, ok := suggestions[t]; ok {
+			parts[i] += fmt.Sprintf(" (did you mean %q?)", s)
+		}
+	}
+	return strings.Join(parts, ", ")
 }
 
 func printFindResults(results []find.FindResult, localZones map[string]bool) error {

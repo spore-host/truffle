@@ -103,7 +103,7 @@ func TestPrintParsedQuery(t *testing.T) {
 
 func TestPrintSuggestions(t *testing.T) {
 	// A query with unknown terms should yield suggestions.
-	pq, err := find.ParseQuery("flibbertigibbet zzznonsense")
+	pq, err := find.ParseQuery("flibbertigibbet zzznonsense graviton")
 	if err != nil {
 		t.Fatalf("ParseQuery: %v", err)
 	}

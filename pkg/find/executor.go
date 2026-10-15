@@ -89,9 +89,10 @@ func (pq *ParsedQuery) buildInstanceTypePattern() string {
 	families := pq.ResolveInstanceFamilies()
 
 	if len(families) == 0 {
-		if pq.hasConflictingFamilyConstraints() {
-			// Intersection of app families and query families is empty — no
-			// instance can satisfy both constraints. Return a never-match pattern.
+		if pq.HasNoMatchingFamily() {
+			// The query's family constraints (or its app's families and the
+			// query's) have no family in common, e.g. "intel h100". Matching
+			// every family instead searched the whole catalog (#229).
 			return `^$`
 		}
 		// No family constraint: any family, but still only the requested
@@ -109,7 +110,7 @@ func (pq *ParsedQuery) buildInstanceTypePattern() string {
 	familyPattern := "(" + strings.Join(escapedFamilies, "|") + ")"
 
 	// Add size constraints if present
-	if len(pq.Sizes) > 0 {
+	if pq.hasSizes() {
 		sizePattern := pq.BuildSizePattern()
 		return "^" + familyPattern + "\\." + sizePattern + "$"
 	}
@@ -128,8 +129,13 @@ func (sc *SearchCriteria) Matcher() func(string) bool {
 // sizeOnlyPattern matches any instance type whose size is one the query asks
 // for (e.g. "large" -> 2xlarge or 4xlarge), or every type when it names none.
 func (pq *ParsedQuery) sizeOnlyPattern() string {
-	if len(pq.Sizes) == 0 {
+	if !pq.hasSizes() {
 		return ".*"
 	}
 	return `^[^.]+\.` + pq.BuildSizePattern() + "$"
+}
+
+// hasSizes reports whether the query names a size word or an instance size.
+func (pq *ParsedQuery) hasSizes() bool {
+	return len(pq.Sizes) > 0 || len(pq.InstanceSizes) > 0
 }

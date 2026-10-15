@@ -29,9 +29,13 @@ Understands:
     (minimums: results are listed closest fit first, then cheapest — the
     request's exact size leads; add --exact to show only exact matches)
   - Sizes: tiny, small, medium, large, huge
+  - Families and exact sizes: g5, m7i-flex, xlarge, 2xlarge, metal-24xl
+    ("g5 xlarge" is g5.xlarge; "g5" alone is every g5 size)
   - Architecture: x86_64, arm64
   - Network: efa, 10gbps, 25gbps, 50gbps, 100gbps, 200gbps, 400gbps
   - Sort hints: cheap/cheapest, fast/fastest, newest/latest
+  - A query with no recognised word is an error that names the unknown
+    words, rather than a search of every instance type
   - Combining constraints: multiple constraint types (e.g. a GPU and "efa")
     combine with AND by default — "h100 efa" means H100 instances that also
     have EFA, not "either." Add the literal word "or" anywhere in the query

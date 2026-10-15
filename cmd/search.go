@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spore-host/libs/i18n"
 	"github.com/spore-host/truffle/pkg/aws"
+	"github.com/spore-host/truffle/pkg/find"
 	"github.com/spore-host/truffle/pkg/output"
 	"github.com/spore-host/truffle/pkg/progress"
 )
@@ -253,6 +254,11 @@ func runSearch(cmd *cobra.Command, args []string) (err error) {
 // regex metacharacters ([, ], +, \d, \w, unanchored ^/$), it's treated as a
 // regex directly. Otherwise it's treated as a glob where * and ? are wildcards.
 func patternToRegex(pattern string) string {
+	// A bare family name means the whole family: "g5" -> every g5 size. It
+	// used to become ^g5$, which no instance type matches (#229).
+	if lower := strings.ToLower(pattern); find.IsInstanceFamily(lower) {
+		return "^(" + regexp.QuoteMeta(lower) + `)\..*$`
+	}
 	if looksLikeRegex(pattern) {
 		// Fix common mistake: bare * used as glob wildcard inside regex.
 		// Replace "*" with ".*" when not preceded by a regex quantifier target
