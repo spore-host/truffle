@@ -1,4 +1,4 @@
-.PHONY: build clean install test lint fmt check-fmt run help vuln gen-docs check-docs check-release-version
+.PHONY: all build build-all clean install test test-coverage lint fmt check-fmt deps run run-search help vuln gen-docs check-docs check-release-version
 
 # Variables
 BINARY_NAME=truffle
@@ -17,7 +17,7 @@ GOMOD=$(GOCMD) mod
 # Build flags
 LDFLAGS=-ldflags "-X main.Version=$(VERSION) -s -w"
 
-# Default target
+## all: Default target — test, then build
 all: test build
 
 ## gen-docs: Regenerate the committed command/flag reference (docs-gen/) from the CLI.
@@ -28,9 +28,9 @@ gen-docs:
 check-docs: gen-docs
 	git diff --exit-code docs-gen/ || { echo "::error::docs-gen/ is stale — run 'make gen-docs' and commit"; exit 1; }
 
-## # Does the hand-maintained Nitro generation table still agree with AWS?
+## nitro-census: Check the hand-maintained Nitro generation table against AWS (needs credentials).
 #
-# Needs credentials, so it is run by hand rather than in CI. Two gates: every
+# Run by hand rather than in CI, because it needs credentials. Two gates: every
 # family we classify must be reported as nitro by EC2, and every nitro family
 # EC2 offers must be classified. The second is the new-Nitro-card detector — a
 # new card always arrives with new families (truffle#175 discussion).
@@ -38,19 +38,10 @@ check-docs: gen-docs
 nitro-census:
 	@scripts/nitro-census.sh
 
-check-release-version: Release guard — build with the real release ldflag and
-## assert the binary reports the tag (#121). Run before tagging:
-##   make check-release-version TAG=v0.53.0
-# Does the hand-maintained Nitro generation table still agree with AWS?
+## check-release-version: Release guard — build with the release ldflag and assert the binary reports TAG (#121).
 #
-# Needs credentials, so it is run by hand rather than in CI. Two gates: every
-# family we classify must be reported as nitro by EC2, and every nitro family
-# EC2 offers must be classified. The second is the new-Nitro-card detector — a
-# new card always arrives with new families (truffle#175 discussion).
-.PHONY: nitro-census
-nitro-census:
-	@scripts/nitro-census.sh
-
+# Run before tagging:
+#   make check-release-version TAG=v0.53.0
 check-release-version:
 	@scripts/check-release-version.sh $(TAG)
 
@@ -153,20 +144,29 @@ run-search: build
 	@$(BUILD_DIR)/$(BINARY_NAME) search "m5.large" --verbose
 
 ## help: Show this help message
+#
+# Only `## <target>: <description>` lines are help entries; continuation text
+# belongs in plain `#` comments. Splitting on the first ": " only, so a
+# description may itself contain colons. internal/hygiene/makefile_test.go
+# checks that every `##` line names a real target and every target has one.
 help:
 	@echo "Usage: make [target]"
 	@echo ""
 	@echo "Targets:"
-	@sed -n 's/^##//p' $(MAKEFILE_LIST) | column -t -s ':' | sed -e 's/^/ /'
+	@grep -hE '^## [A-Za-z0-9_.-]+: ' $(MAKEFILE_LIST) | sed -e 's/^## //' | \
+	  awk '{ i = index($$0, ": "); printf "  %-22s %s\n", substr($$0, 1, i - 1), substr($$0, i + 2) }'
 
-# Development helpers
+## dev: Format, lint, test and build
 .PHONY: dev
 dev: fmt lint test build
 
+## release: Clean, test and cross-compile every platform (local; tagging runs GoReleaser)
 .PHONY: release
 release: clean test build-all
 	@echo "Release build complete"
 
+## changelog-fix: Merge duplicate group headings in CHANGELOG.md [Unreleased]
+#
 # Mechanical fix for the duplicate-group conflict changelog_test.go rejects. Two
 # PRs each adding their own `### Fixed` merge cleanly for git and badly for the
 # format; this merges them in Keep-a-Changelog order. Touches [Unreleased] only.
