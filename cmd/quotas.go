@@ -25,13 +25,28 @@ var (
 )
 
 // quotasRegionList resolves which regions `truffle quotas` checks: the shared
-// persistent --regions flag if given, else the cost-conscious us-east-1 default
-// (quotas fans out an API call per region, so it doesn't default to "all").
-func quotasRegionList() []string {
-	if len(regions) > 0 {
-		return regions
+// persistent --regions / --region flag if given, else the configured region
+// (spore config, AWS_REGION / AWS_DEFAULT_REGION, profile region), else
+// us-east-1 as a last resort (#200). Quotas fans out an API call per region,
+// so it never defaults to "all". fellBack reports the us-east-1 fallback.
+func quotasRegionList(configured string) (quotaRegions []string, fellBack bool) {
+	return configuredOrFallbackRegions(regions, configured)
+}
+
+// resolveQuotasRegions looks up the configured region and resolves the regions
+// to check, telling the user when the us-east-1 fallback is in use.
+func resolveQuotasRegions(ctx context.Context) []string {
+	configured := ""
+	if len(regions) == 0 {
+		// A config-load failure surfaces when the quota client loads the same
+		// config; here it just means "nothing configured".
+		configured, _ = configuredRegion(ctx)
 	}
-	return []string{"us-east-1"}
+	quotaRegions, fellBack := quotasRegionList(configured)
+	if fellBack {
+		printRegionFallback(os.Stderr)
+	}
+	return quotaRegions
 }
 
 var quotasCmd = &cobra.Command{
@@ -41,8 +56,14 @@ var quotasCmd = &cobra.Command{
 
 Requires AWS credentials to be configured.
 
+Checks your configured region by default: the spore config region, then
+AWS_REGION / AWS_DEFAULT_REGION, then the AWS profile's region. Use --region /
+--regions to choose. Only when no region is configured anywhere does it fall
+back to us-east-1 (and says so). Service Quotas is a regional API, so nothing
+here needs us-east-1.
+
 Examples:
-  # Show EC2 quotas for default region
+  # Show EC2 quotas for your configured region
   truffle quotas
 
   # Show quotas for specific regions
@@ -68,7 +89,7 @@ func init() {
 	// NOTE: --regions is the root persistent flag (cmd/root.go), shared with every
 	// other command; quotas previously defined its OWN local --regions that
 	// shadowed it and behaved differently (#64). It now uses the shared flag and
-	// falls back to us-east-1 when none is given (see quotasRegionList).
+	// defaults to the configured region when none is given (see quotasRegionList).
 	quotasCmd.Flags().StringVar(&quotasFamily, "family", "",
 		"Filter by instance family (EC2: Standard/G/P/Inf/Trn; SageMaker: g5/p4d/etc.)")
 	quotasCmd.Flags().BoolVar(&quotasRequest, "request", false,
@@ -102,8 +123,9 @@ func runQuotas(cmd *cobra.Command, args []string) error {
 
 	// Get quotas for each region
 	quotaInfos := make(map[string]*quotas.QuotaInfo)
+	quotaRegions := resolveQuotasRegions(ctx)
 
-	for _, region := range quotasRegionList() {
+	for _, region := range quotaRegions {
 		fmt.Fprintf(os.Stderr, "Fetching quotas for %s...\n", region)
 
 		info, err := quotaClient.GetQuotas(ctx, region)
@@ -141,7 +163,7 @@ func runQuotas(cmd *cobra.Command, args []string) error {
 		return w.Error()
 	default:
 		// Table output
-		for _, region := range quotasRegionList() {
+		for _, region := range quotaRegions {
 			info, ok := quotaInfos[region]
 			if !ok {
 				continue
@@ -479,7 +501,7 @@ func runSageMakerQuotas(ctx context.Context) error {
 		return fmt.Errorf("AWS credentials required: %w", err)
 	}
 
-	for _, region := range quotasRegionList() {
+	for _, region := range resolveQuotasRegions(ctx) {
 		fmt.Fprintf(os.Stderr, "Fetching SageMaker quotas for %s...\n", region)
 		if err := displaySageMakerQuotas(ctx, sqClient, region); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: %s: %v\n", region, err)

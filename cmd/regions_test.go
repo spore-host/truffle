@@ -306,3 +306,74 @@ func TestRunAZ_AllRegionsConflictsWithAZ(t *testing.T) {
 		t.Errorf("err = %v, want errAZAllRegionsConflict", err)
 	}
 }
+
+// TestSingleRegionCommandsUseConfiguredRegion pins #200: quotas and available
+// check the configured region when no region flag is given, the flags always
+// win, and us-east-1 is only a last resort when nothing is configured (with a
+// note saying so).
+func TestSingleRegionCommandsUseConfiguredRegion(t *testing.T) {
+	tests := []struct {
+		name         string
+		explicit     []string
+		configured   string
+		wantQuotas   []string
+		wantAvail    string
+		wantFallback bool
+		wantMultiTip bool
+	}{
+		{
+			name:       "configured region is the default",
+			configured: "us-west-2",
+			wantQuotas: []string{"us-west-2"},
+			wantAvail:  "us-west-2",
+		},
+		{
+			name:       "--region overrides the configured region",
+			explicit:   []string{"eu-west-1"},
+			configured: "us-west-2",
+			wantQuotas: []string{"eu-west-1"},
+			wantAvail:  "eu-west-1",
+		},
+		{
+			name:         "several --regions: quotas checks all, available the first",
+			explicit:     []string{"eu-west-1", "us-east-2"},
+			configured:   "us-west-2",
+			wantQuotas:   []string{"eu-west-1", "us-east-2"},
+			wantAvail:    "eu-west-1",
+			wantMultiTip: true,
+		},
+		{
+			name:         "nothing configured falls back to us-east-1",
+			wantQuotas:   []string{"us-east-1"},
+			wantAvail:    "us-east-1",
+			wantFallback: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			saved := regions
+			t.Cleanup(func() { regions = saved })
+			regions = tt.explicit
+
+			gotQuotas, fellBack := quotasRegionList(tt.configured)
+			if !reflect.DeepEqual(gotQuotas, tt.wantQuotas) {
+				t.Errorf("quotasRegionList(%q) = %v, want %v", tt.configured, gotQuotas, tt.wantQuotas)
+			}
+			if fellBack != tt.wantFallback {
+				t.Errorf("quotasRegionList fellBack = %v, want %v", fellBack, tt.wantFallback)
+			}
+
+			var buf bytes.Buffer
+			if got := availableRegion(&buf, tt.explicit, tt.configured); got != tt.wantAvail {
+				t.Errorf("availableRegion(%v, %q) = %q, want %q", tt.explicit, tt.configured, got, tt.wantAvail)
+			}
+			out := buf.String()
+			if got := strings.Contains(out, "No default AWS region configured"); got != tt.wantFallback {
+				t.Errorf("fallback note printed = %v, want %v; output %q", got, tt.wantFallback, out)
+			}
+			if got := strings.Contains(out, "one region at a time"); got != tt.wantMultiTip {
+				t.Errorf("one-region note printed = %v, want %v; output %q", got, tt.wantMultiTip, out)
+			}
+		})
+	}
+}
