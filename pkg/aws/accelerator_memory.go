@@ -50,7 +50,10 @@ func acceleratorMemoryPerDeviceMiB(it types.InstanceTypeInfo) int64 {
 // converted to MiB (A10G and L4 22888 MiB = 24 GB, L40S 45776 MiB = 48 GB),
 // so the GiB figure is used when it is a whole number (within 0.5%) and the
 // decimal-GB figure, to 0.1 GB, otherwise. A "24gb" GPU query then matches
-// the A10G and L4, which a plain GiB comparison (22.35 GiB) would miss.
+// the A10G and L4, which a plain GiB comparison (22.35 GiB) would miss. A
+// size that is a whole number of thousands of MiB and not of GiB is a GB
+// figure recorded as MiB, as for dl2q's 16 GB Qualcomm AI100 (16000 MiB),
+// and reads as that many GB (#240).
 func NominalGPUMemoryGB(mib int64) float64 {
 	if mib <= 0 {
 		return 0
@@ -58,6 +61,9 @@ func NominalGPUMemoryGB(mib int64) float64 {
 	gib := float64(mib) / 1024
 	if r := math.Round(gib); r > 0 && math.Abs(gib-r)/r <= 0.005 {
 		return gib
+	}
+	if mib%1000 == 0 {
+		return float64(mib / 1000)
 	}
 	// To 0.1 GB, so a 24 GB GPU reads as exactly 24 (22888 MiB is 23.9998 GB).
 	return math.Round(float64(mib)*(1<<20)/1e8) / 10
@@ -80,4 +86,38 @@ func MatchesGPUMemory(mib int64, wantGB float64, exact bool) bool {
 		return math.Abs(got-wantGB) < 0.5
 	}
 	return got >= wantGB-gpuMemoryTolerance
+}
+
+// acceleratorDevices returns the number, model and maker of an instance
+// type's GPUs or accelerator devices, from the same record
+// acceleratorMemoryPerDeviceMiB reads: GpuInfo for GPUs, else NeuronInfo for
+// Inferentia and Trainium (which reports no manufacturer), else
+// InferenceAcceleratorInfo (dl2q). A fractional GPU (g6f) has count 0, as
+// GpuInfo reports it. The model is the last device entry's name, as for
+// InstanceTypeResult.GPUModel (#240).
+func acceleratorDevices(it types.InstanceTypeInfo) (count int32, model, manufacturer string) {
+	if it.GpuInfo != nil && len(it.GpuInfo.Gpus) > 0 {
+		for _, g := range it.GpuInfo.Gpus {
+			count += valueOrZero(g.Count)
+			model = valueOrZero(g.Name)
+			manufacturer = valueOrZero(g.Manufacturer)
+		}
+		return count, model, manufacturer
+	}
+	if it.NeuronInfo != nil && len(it.NeuronInfo.NeuronDevices) > 0 {
+		for _, d := range it.NeuronInfo.NeuronDevices {
+			count += valueOrZero(d.Count)
+			model = valueOrZero(d.Name)
+		}
+		return count, model, ""
+	}
+	if it.InferenceAcceleratorInfo != nil && len(it.InferenceAcceleratorInfo.Accelerators) > 0 {
+		for _, a := range it.InferenceAcceleratorInfo.Accelerators {
+			count += valueOrZero(a.Count)
+			model = valueOrZero(a.Name)
+			manufacturer = valueOrZero(a.Manufacturer)
+		}
+		return count, model, manufacturer
+	}
+	return 0, "", ""
 }

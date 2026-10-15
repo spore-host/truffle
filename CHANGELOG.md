@@ -45,6 +45,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and `MemoryReadingNote`, and the `TokenHostMemory` / `TokenGPUMemory`
   token types.
 
+- **Accelerator identity and per-family memory in the library** (#240):
+  `InstanceTypeResult.AcceleratorCount`, `AcceleratorModel` and
+  `AcceleratorManufacturer` (JSON/YAML `accelerator_count`,
+  `accelerator_model`, `accelerator_manufacturer`) name the devices whose
+  memory `AccelMemoryMiB` records: the GPUs, else the Neuron devices
+  (Inferentia, Trainium; no manufacturer in EC2's record), else the inference
+  accelerators (dl2q). `GPUs` and `GPUModel` stay GPU-only.
+  `metadata.AcceleratorMemoryMiB(family)` returns the per-device memory EC2
+  reported for a GPU or accelerator family on 2026-10-15, where
+  `metadata.GPUDatabase`'s `MemoryGB` is one figure per model (unchanged, and
+  the database's shape is unchanged).
+
 ### Changed
 
 - **GPU memory is shown in GB as sold, matching the GPU-memory filter** (#238).
@@ -52,8 +64,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   same nominal per-GPU figure that `truffle find "gpu 24gb"` compares, so an
   A10G or L4 reads `24 (24/gpu)` instead of `22 (22/gpu)` GiB, and an L40S 48
   instead of 44; binary-sized GPUs are unchanged (H100 `640 (80/gpu)`). CSV
-  output gains `gpus`, `gpu_model` and `vram_gb_per_gpu` columns when any
-  result has a GPU (CPU-only CSV is unchanged). JSON/YAML keep
+  output gains `accelerator_count`, `accelerator_model` and
+  `accelerator_memory_gb` columns, named for the JSON fields, when any result
+  has a GPU or other accelerator (CPU-only CSV is unchanged; #240). JSON/YAML keep
   `accelerator_memory_mib` and add `accelerator_memory_gb`, the nominal figure
   (`InstanceTypeResult.AccelMemoryGB` for library callers). The "why it
   matched" GPU line and `metadata.GPUDatabase` use the same figure (A10G and
@@ -140,6 +153,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hide them. It still parses, prints a deprecation notice, and will be removed.
 
 ### Fixed
+
+- **Inferentia, Trainium and dl2q rows show their accelerators** (#240). In
+  the `find`/`search` table they showed `-` in the GPU columns, since only
+  GPUs were read; they now show the device count, model and memory from the
+  same record the GPU-memory filter uses, e.g. inf2.xlarge `1 │ Inferentia2 │
+  32 (32/dev)`, and the columns are headed `Accel` / `Accel Model` /
+  `Accel mem (GB)` whenever such a row is listed (a GPU-only table keeps
+  `GPUs` / `GPU Model` / `VRAM (GB)`). CSV fills the same columns.
+
+- **The "why it matched" line gives the GPU memory of the instance's family**
+  (#240). It took one figure per model, so p3dn's 32 GB V100s read as 16 GB
+  and p4de's 80 GB A100s as 40 GB; it now uses the recorded per-family
+  figure (p3 16, p3dn 32, p4d 40, p4de 80), falling back to the model's.
+
+- **dl2q's Qualcomm AI100 is 16 GB, not 16.8** (#240). EC2 reports it as
+  16000 MiB, a GB size written as MiB; `aws.NominalGPUMemoryGB` now reads a
+  whole number of thousands of MiB (that is not a whole number of GiB) as
+  that many GB, in the table and the GPU-memory filter.
 
 - **m5a, m5ad, r5a and r5ad are Naples, not Rome; `naples` is a processor
   word** (#232). AWS's instance-type docs list the AMD EPYC 7571, a

@@ -54,8 +54,8 @@ processorDone:
 			for _, inst := range info.InstanceTypes {
 				if inst == result.InstanceType {
 					reasons = append(reasons,
-						fmt.Sprintf("GPU: %s (%d GB, %s)",
-							info.Name, info.MemoryGB, info.UseCase))
+						fmt.Sprintf("GPU: %s (%s GB, %s)",
+							info.Name, gpuMemoryGB(info, family), info.UseCase))
 					goto gpuDone
 				}
 			}
@@ -161,6 +161,16 @@ instructionSetDone:
 networkDone:
 
 	return reasons
+}
+
+// gpuMemoryGB is the per-device memory of GPU model info in family, in GB as
+// sold: the family's recorded figure (metadata.AcceleratorMemoryMiB), so a
+// p3dn V100 reads 32 and a p4de A100 80, else the model's MemoryGB (#240).
+func gpuMemoryGB(info metadata.GPUInfo, family string) string {
+	if mib, ok := metadata.AcceleratorMemoryMiB(family); ok {
+		return strconv.FormatFloat(math.Round(aws.NominalGPUMemoryGB(mib)*10)/10, 'f', -1, 64)
+	}
+	return strconv.Itoa(info.MemoryGB)
 }
 
 // extractFamily extracts the instance family from an instance type

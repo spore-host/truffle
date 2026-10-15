@@ -53,28 +53,31 @@ type Client struct {
 // InstanceTypeResult represents an instance type's availability and specifications
 // in a given region, as returned by [Client.SearchInstanceTypes].
 type InstanceTypeResult struct {
-	InstanceType     string   `json:"instance_type" yaml:"instance_type"`                                       // EC2 instance type, e.g. "m6i.2xlarge"
-	Region           string   `json:"region" yaml:"region"`                                                     // AWS region where this type is available
-	AvailableAZs     []string `json:"availability_zones,omitempty" yaml:"availability_zones,omitempty"`         // AZs with capacity; populated when FilterOptions.IncludeAZs is true
-	VCPUs            int32    `json:"vcpus,omitempty" yaml:"vcpus,omitempty"`                                   // Default vCPU count
-	PhysicalCores    int32    `json:"physical_cores,omitempty" yaml:"physical_cores,omitempty"`                 // Physical CPU cores (vCPUs / threads-per-core)
-	ThreadsPerCore   int32    `json:"threads_per_core,omitempty" yaml:"threads_per_core,omitempty"`             // Threads per physical core (1 for Graviton, 2 for most x86)
-	MemoryMiB        int64    `json:"memory_mib,omitempty" yaml:"memory_mib,omitempty"`                         // Memory in MiB
-	Architecture     string   `json:"architecture,omitempty" yaml:"architecture,omitempty"`                     // CPU architecture: "x86_64" or "arm64"
-	InstanceFamily   string   `json:"instance_family,omitempty" yaml:"instance_family,omitempty"`               // Family prefix, e.g. "m6i"
-	GPUs             int32    `json:"gpus,omitempty" yaml:"gpus,omitempty"`                                     // Number of whole GPUs; 0 for non-GPU instances AND for fractional-GPU instances (see GPUPartitionSize)
-	GPUMemoryMiB     int64    `json:"gpu_memory_mib,omitempty" yaml:"gpu_memory_mib,omitempty"`                 // Total GPU memory in MiB across all GPUs
-	GPUMemoryPerMiB  int64    `json:"gpu_memory_per_gpu_mib,omitempty" yaml:"gpu_memory_per_gpu_mib,omitempty"` // Memory of ONE GPU/partition in MiB, read directly from the device's own MemoryInfo — never derived by dividing GPUMemoryMiB by GPUs, which breaks for fractional GPUs where GPUs==0 (#116)
-	GPUPartitionSize float64  `json:"gpu_partition_size,omitempty" yaml:"gpu_partition_size,omitempty"`         // 1.0 for a whole GPU; 0.125-0.5 for a fractional slice (e.g. g6f.*); 0 if GpuInfo absent
-	LogicalGPUs      int32    `json:"logical_gpus,omitempty" yaml:"logical_gpus,omitempty"`                     // Logical GPU devices exposed to the instance (GpuInfo.Gpus[].LogicalGpuCount); equals GPUs for whole-GPU types
-	GPUModel         string   `json:"gpu_model,omitempty" yaml:"gpu_model,omitempty"`                           // GPU model name, e.g. "A100"
-	GPUManufacturer  string   `json:"gpu_manufacturer,omitempty" yaml:"gpu_manufacturer,omitempty"`             // GPU vendor, e.g. "nvidia"
-	AccelMemoryMiB   int64    `json:"accelerator_memory_mib,omitempty" yaml:"accelerator_memory_mib,omitempty"` // Memory of ONE GPU or accelerator device in MiB: the GPU's (as GPUMemoryPerMiB), else a Neuron device's (Inferentia, Trainium), else an inference accelerator's (dl2q); used by the per-GPU memory filter and closest-fit sort (#236)
-	AccelMemoryGB    float64  `json:"accelerator_memory_gb,omitempty" yaml:"accelerator_memory_gb,omitempty"`   // AccelMemoryMiB as the size the device is sold as, in GB (see NominalGPUMemoryGB): the figure the per-GPU memory filter compares and the table's VRAM column shows, e.g. 24 for an A10G (#238)
-	OnDemandPrice    float64  `json:"on_demand_price,omitempty" yaml:"on_demand_price,omitempty"`               // On-demand $/hr; 0 if not yet fetched
-	SpawnSupported   bool     `json:"spawn_supported,omitempty" yaml:"spawn_supported,omitempty"`               // True if spawn can launch instances in this region
-	NestedVirt       bool     `json:"nested_virtualization,omitempty" yaml:"nested_virtualization,omitempty"`   // True if the type supports nested virtualization (KVM/Hyper-V in-instance)
-	Service          string   `json:"service,omitempty" yaml:"service,omitempty"`                               // Offering namespace: "" / "ec2" (default) or "sagemaker" for ml.* types
+	InstanceType            string   `json:"instance_type" yaml:"instance_type"`                                           // EC2 instance type, e.g. "m6i.2xlarge"
+	Region                  string   `json:"region" yaml:"region"`                                                         // AWS region where this type is available
+	AvailableAZs            []string `json:"availability_zones,omitempty" yaml:"availability_zones,omitempty"`             // AZs with capacity; populated when FilterOptions.IncludeAZs is true
+	VCPUs                   int32    `json:"vcpus,omitempty" yaml:"vcpus,omitempty"`                                       // Default vCPU count
+	PhysicalCores           int32    `json:"physical_cores,omitempty" yaml:"physical_cores,omitempty"`                     // Physical CPU cores (vCPUs / threads-per-core)
+	ThreadsPerCore          int32    `json:"threads_per_core,omitempty" yaml:"threads_per_core,omitempty"`                 // Threads per physical core (1 for Graviton, 2 for most x86)
+	MemoryMiB               int64    `json:"memory_mib,omitempty" yaml:"memory_mib,omitempty"`                             // Memory in MiB
+	Architecture            string   `json:"architecture,omitempty" yaml:"architecture,omitempty"`                         // CPU architecture: "x86_64" or "arm64"
+	InstanceFamily          string   `json:"instance_family,omitempty" yaml:"instance_family,omitempty"`                   // Family prefix, e.g. "m6i"
+	GPUs                    int32    `json:"gpus,omitempty" yaml:"gpus,omitempty"`                                         // Number of whole GPUs; 0 for non-GPU instances AND for fractional-GPU instances (see GPUPartitionSize)
+	GPUMemoryMiB            int64    `json:"gpu_memory_mib,omitempty" yaml:"gpu_memory_mib,omitempty"`                     // Total GPU memory in MiB across all GPUs
+	GPUMemoryPerMiB         int64    `json:"gpu_memory_per_gpu_mib,omitempty" yaml:"gpu_memory_per_gpu_mib,omitempty"`     // Memory of ONE GPU/partition in MiB, read directly from the device's own MemoryInfo — never derived by dividing GPUMemoryMiB by GPUs, which breaks for fractional GPUs where GPUs==0 (#116)
+	GPUPartitionSize        float64  `json:"gpu_partition_size,omitempty" yaml:"gpu_partition_size,omitempty"`             // 1.0 for a whole GPU; 0.125-0.5 for a fractional slice (e.g. g6f.*); 0 if GpuInfo absent
+	LogicalGPUs             int32    `json:"logical_gpus,omitempty" yaml:"logical_gpus,omitempty"`                         // Logical GPU devices exposed to the instance (GpuInfo.Gpus[].LogicalGpuCount); equals GPUs for whole-GPU types
+	GPUModel                string   `json:"gpu_model,omitempty" yaml:"gpu_model,omitempty"`                               // GPU model name, e.g. "A100"
+	GPUManufacturer         string   `json:"gpu_manufacturer,omitempty" yaml:"gpu_manufacturer,omitempty"`                 // GPU vendor, e.g. "nvidia"
+	AccelMemoryMiB          int64    `json:"accelerator_memory_mib,omitempty" yaml:"accelerator_memory_mib,omitempty"`     // Memory of ONE GPU or accelerator device in MiB: the GPU's (as GPUMemoryPerMiB), else a Neuron device's (Inferentia, Trainium), else an inference accelerator's (dl2q); used by the per-GPU memory filter and closest-fit sort (#236)
+	AccelMemoryGB           float64  `json:"accelerator_memory_gb,omitempty" yaml:"accelerator_memory_gb,omitempty"`       // AccelMemoryMiB as the size the device is sold as, in GB (see NominalGPUMemoryGB): the figure the per-GPU memory filter compares and the table's VRAM column shows, e.g. 24 for an A10G (#238)
+	AcceleratorCount        int32    `json:"accelerator_count,omitempty" yaml:"accelerator_count,omitempty"`               // Number of GPU or accelerator devices, from the same record as AccelMemoryMiB: GPUs (as GPUs; 0 for a fractional GPU), else Neuron devices (Inferentia, Trainium), else inference accelerators (dl2q) (#240)
+	AcceleratorModel        string   `json:"accelerator_model,omitempty" yaml:"accelerator_model,omitempty"`               // Device model from the same record, e.g. "A10G", "Inferentia2", "Qualcomm AI100" (#240)
+	AcceleratorManufacturer string   `json:"accelerator_manufacturer,omitempty" yaml:"accelerator_manufacturer,omitempty"` // Device maker as EC2 reports it, e.g. "NVIDIA", "Qualcomm"; empty for Neuron devices, whose record has no maker (#240)
+	OnDemandPrice           float64  `json:"on_demand_price,omitempty" yaml:"on_demand_price,omitempty"`                   // On-demand $/hr; 0 if not yet fetched
+	SpawnSupported          bool     `json:"spawn_supported,omitempty" yaml:"spawn_supported,omitempty"`                   // True if spawn can launch instances in this region
+	NestedVirt              bool     `json:"nested_virtualization,omitempty" yaml:"nested_virtualization,omitempty"`       // True if the type supports nested virtualization (KVM/Hyper-V in-instance)
+	Service                 string   `json:"service,omitempty" yaml:"service,omitempty"`                                   // Offering namespace: "" / "ec2" (default) or "sagemaker" for ml.* types
 
 	// SageMaker-only fields (populated when Service == "sagemaker"):
 	ManagedSpotEligible bool     `json:"managed_spot_eligible,omitempty" yaml:"managed_spot_eligible,omitempty"` // Type can be used with managed spot training (has a "spot training job usage" quota). Managed spot is a billed-time discount (up to 90%), not a spot market — there is no per-type spot price.
@@ -684,6 +687,7 @@ func buildResultFromEC2(it types.InstanceTypeInfo, displayType, region string) I
 
 	result.AccelMemoryMiB = acceleratorMemoryPerDeviceMiB(it)
 	result.AccelMemoryGB = math.Round(NominalGPUMemoryGB(result.AccelMemoryMiB)*10) / 10
+	result.AcceleratorCount, result.AcceleratorModel, result.AcceleratorManufacturer = acceleratorDevices(it)
 
 	return result
 }

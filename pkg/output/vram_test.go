@@ -77,7 +77,7 @@ func TestPrintCSV_VRAMNominalGB(t *testing.T) {
 	out := captureStdout(t, func() {
 		_ = NewPrinter(false).PrintCSV(vramRows())
 	})
-	want := "instance_type,region,vcpus,memory_gib,architecture,gpus,gpu_model,vram_gb_per_gpu,availability_zones\n" +
+	want := "instance_type,region,vcpus,memory_gib,architecture,accelerator_count,accelerator_model,accelerator_memory_gb,availability_zones\n" +
 		"g5.xlarge,us-east-1,4,16.0,x86_64,1,NVIDIA A10G,24,\n" +
 		"g5.12xlarge,us-east-1,48,192.0,x86_64,4,NVIDIA A10G,24,\n" +
 		"p5.48xlarge,us-east-1,192,2048.0,x86_64,8,NVIDIA H100,80,\n"
