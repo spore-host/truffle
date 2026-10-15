@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -20,7 +21,8 @@ import (
 //
 // It parses this package's non-test sources (no allowlist, no hand-kept list
 // of flags), finds every `<x>.Flags().<T>Var(&v, "name", ...)` and
-// `<x>.PersistentFlags().<T>Var(&v, ...)` registration, and requires each
+// `<x>.PersistentFlags().<T>Var(&v, ...)` registration — including through a
+// local alias, `f := <x>.Flags(); f.<T>Var(...)` (#214) — and requires each
 // bound variable to be read somewhere else in the package. A read is any use
 // of the identifier other than its declaration, its registration, or the
 // left-hand side of a plain assignment.
@@ -37,8 +39,15 @@ import (
 // It is syntactic, so it errs towards passing: a read in an unrelated function,
 // or of a same-named local, counts. That makes it a floor, not a proof, but it
 // never fails a flag that works.
+//
+// If discovery finds no registrations at all it fails rather than passing:
+// that means the parser has stopped recognising how flags are registered, not
+// that the package is clean (#214).
 func TestNoInertFlags(t *testing.T) {
-	inert := findInertFlags(t, ".")
+	inert, err := findInertFlags(".")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(inert) > 0 {
 		t.Errorf("flags registered but never read (they parse, show in --help, and do nothing):\n  %s\n"+
 			"read the bound variable where the flag should take effect, or remove/deprecate the flag (#199)",
@@ -55,9 +64,9 @@ func TestInertFlagGateCatchesAnUnreadFlag(t *testing.T) {
 import "github.com/spf13/cobra"
 
 var (
-	used, unused, assignedOnly bool
-	named                      int
-	c                          = &cobra.Command{}
+	used, unused, assignedOnly, viaAlias, viaAliasUsed bool
+	named                                              int
+	c                                                  = &cobra.Command{}
 )
 
 func init() {
@@ -68,11 +77,16 @@ func init() {
 	c.Flags().Int("named-unread", 0, "")
 	c.Flags().Bool("deprecated", false, "")
 	_ = c.Flags().MarkDeprecated("deprecated", "no effect")
+	f := c.Flags()
+	f.BoolVar(&viaAlias, "via-alias", false, "")
+	f.BoolVarP(&viaAliasUsed, "via-alias-used", "a", false, "")
+	pf := c.PersistentFlags()
+	pf.String("via-alias-named-unread", "", "")
 }
 
 func run() {
 	assignedOnly = false
-	if used {
+	if used && viaAliasUsed {
 		_, _ = c.Flags().GetInt("named")
 	}
 }
@@ -80,14 +94,40 @@ func run() {
 	if err := os.WriteFile(filepath.Join(dir, "fake.go"), []byte(src), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	got := findInertFlags(t, dir)
+	got, err := findInertFlags(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	want := []string{
 		`--assigned-only (bound to assignedOnly) in fake.go`,
 		`--named-unread (no variable; never looked up by name) in fake.go`,
 		`--unused (bound to unused) in fake.go`,
+		`--via-alias (bound to viaAlias) in fake.go`,
+		`--via-alias-named-unread (no variable; never looked up by name) in fake.go`,
 	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("findInertFlags =\n  %s\nwant\n  %s", strings.Join(got, "\n  "), strings.Join(want, "\n  "))
+	}
+}
+
+// TestInertFlagGateFailsOnEmptyDiscovery proves an empty discovery is an
+// error, not a pass: a package whose flags the parser cannot see (here, none
+// at all) must not be reported clean (#214).
+func TestInertFlagGateFailsOnEmptyDiscovery(t *testing.T) {
+	dir := t.TempDir()
+	src := `package fake
+
+var unrelated = 1
+`
+	if err := os.WriteFile(filepath.Join(dir, "fake.go"), []byte(src), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	inert, err := findInertFlags(dir)
+	if err == nil {
+		t.Fatalf("findInertFlags on a package with no flag registrations = %v, nil; want an error", inert)
+	}
+	if !strings.Contains(err.Error(), "found no flag registrations") {
+		t.Errorf("error = %q, want it to say no registrations were found", err)
 	}
 }
 
@@ -100,13 +140,13 @@ type flagRegistration struct {
 }
 
 // findInertFlags parses the non-test Go files in dir and returns a sorted
-// description of every flag that nothing reads.
-func findInertFlags(t *testing.T, dir string) []string {
-	t.Helper()
+// description of every flag that nothing reads. It returns an error if dir
+// has no Go sources or no recognisable flag registrations.
+func findInertFlags(dir string) ([]string, error) {
 	fset := token.NewFileSet()
 	paths, err := filepath.Glob(filepath.Join(dir, "*.go"))
 	if err != nil {
-		t.Fatal(err)
+		return nil, err
 	}
 	var files []*ast.File
 	for _, p := range paths {
@@ -115,12 +155,29 @@ func findInertFlags(t *testing.T, dir string) []string {
 		}
 		f, err := parser.ParseFile(fset, p, nil, 0)
 		if err != nil {
-			t.Fatalf("parse %s: %v", p, err)
+			return nil, fmt.Errorf("parse %s: %w", p, err)
 		}
 		files = append(files, f)
 	}
 	if len(files) == 0 {
-		t.Fatalf("no Go sources in %s", dir)
+		return nil, fmt.Errorf("no Go sources in %s", dir)
+	}
+
+	// Local aliases for a flag set: `f := cmd.Flags()`. Matched by name, which is
+	// loose (any `f` counts once one is an alias) but only ever widens what is
+	// recognised as a registration.
+	flagSetAliases := map[string]bool{}
+	for _, f := range files {
+		ast.Inspect(f, func(n ast.Node) bool {
+			if a, ok := n.(*ast.AssignStmt); ok && len(a.Lhs) == len(a.Rhs) {
+				for i, rhs := range a.Rhs {
+					if id, ok := a.Lhs[i].(*ast.Ident); ok && isFlagSet(rhs, nil) {
+						flagSetAliases[id.Name] = true
+					}
+				}
+			}
+			return true
+		})
 	}
 
 	var regs []flagRegistration
@@ -144,7 +201,7 @@ func findInertFlags(t *testing.T, dir string) []string {
 					}
 				}
 			case *ast.CallExpr:
-				if r, ok := parseFlagRegistration(n); ok {
+				if r, ok := parseFlagRegistration(n, flagSetAliases); ok {
 					r.file = file
 					if r.varName != "" {
 						excluded[r.varPos] = true
@@ -170,6 +227,11 @@ func findInertFlags(t *testing.T, dir string) []string {
 		})
 	}
 
+	// A discovery that found nothing has broken, not proven the package clean.
+	if len(regs) == 0 {
+		return nil, fmt.Errorf("found no flag registrations in %s; the parser no longer recognises how flags are registered", dir)
+	}
+
 	var inert []string
 	for _, r := range regs {
 		switch {
@@ -182,15 +244,15 @@ func findInertFlags(t *testing.T, dir string) []string {
 		}
 	}
 	sort.Strings(inert)
-	return inert
+	return inert, nil
 }
 
 // parseFlagRegistration recognises `<x>.Flags().<Method>(...)` and
 // `<x>.PersistentFlags().<Method>(...)` where Method is a pflag definer
 // (Bool, BoolVar, BoolVarP, StringSlice, DurationVar, ...).
-func parseFlagRegistration(call *ast.CallExpr) (flagRegistration, bool) {
+func parseFlagRegistration(call *ast.CallExpr, aliases map[string]bool) (flagRegistration, bool) {
 	sel, ok := call.Fun.(*ast.SelectorExpr)
-	if !ok || !isFlagSet(sel.X) {
+	if !ok || !isFlagSet(sel.X, aliases) {
 		return flagRegistration{}, false
 	}
 	method := sel.Sel.Name
@@ -227,8 +289,11 @@ func parseFlagRegistration(call *ast.CallExpr) (flagRegistration, bool) {
 }
 
 // isFlagSet reports whether e is `<x>.Flags()` / `<x>.PersistentFlags()` /
-// `<x>.LocalFlags()`.
-func isFlagSet(e ast.Expr) bool {
+// `<x>.LocalFlags()`, or an identifier in aliases that was assigned one.
+func isFlagSet(e ast.Expr, aliases map[string]bool) bool {
+	if id, ok := e.(*ast.Ident); ok {
+		return aliases[id.Name]
+	}
 	call, ok := e.(*ast.CallExpr)
 	if !ok {
 		return false
