@@ -12,7 +12,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/aws/retry"
 	"github.com/aws/aws-sdk-go-v2/service/pricing"
-	pricingtypes "github.com/aws/aws-sdk-go-v2/service/pricing/types"
 	libpricing "github.com/spore-host/libs/pricing"
 )
 
@@ -178,6 +177,9 @@ type awsOnDemandPricer struct {
 	mu     sync.Mutex
 	client *pricing.Client
 	cache  map[string]cachedPrice
+
+	// api, when set, replaces the Price List client (a test seam).
+	api pricing.GetProductsAPIClient
 }
 
 // newDefaultOnDemandPricer builds the production pricer: the AWS Price List API
@@ -250,10 +252,10 @@ func (p *awsOnDemandPricer) OnDemandPrice(ctx context.Context, instanceType, reg
 		p.mu.Unlock()
 		return price, nil
 	}
-	client := p.ensureClient()
+	api := p.getProductsAPI()
 	p.mu.Unlock()
 
-	price, err := fetchOnDemandPrice(ctx, client, instanceType, region)
+	price, err := fetchOnDemandPrice(ctx, api, instanceType, region)
 	if err != nil {
 		return 0, err
 	}
@@ -266,27 +268,11 @@ func (p *awsOnDemandPricer) OnDemandPrice(ctx context.Context, instanceType, reg
 
 // fetchOnDemandPrice queries the Price List API for the Linux/shared-tenancy
 // On-Demand rate of one instance type in one region.
-func fetchOnDemandPrice(ctx context.Context, client *pricing.Client, instanceType, region string) (float64, error) {
-	termMatch := func(field, value string) pricingtypes.Filter {
-		return pricingtypes.Filter{
-			Type:  pricingtypes.FilterTypeTermMatch,
-			Field: aws.String(field),
-			Value: aws.String(value),
-		}
-	}
-
-	out, err := client.GetProducts(ctx, &pricing.GetProductsInput{
+func fetchOnDemandPrice(ctx context.Context, api pricing.GetProductsAPIClient, instanceType, region string) (float64, error) {
+	out, err := api.GetProducts(ctx, &pricing.GetProductsInput{
 		ServiceCode:   aws.String("AmazonEC2"),
 		FormatVersion: aws.String("aws_v1"),
-		Filters: []pricingtypes.Filter{
-			termMatch("instanceType", instanceType),
-			termMatch("regionCode", region),
-			termMatch("operatingSystem", "Linux"),
-			termMatch("tenancy", "Shared"),
-			termMatch("preInstalledSw", "NA"),
-			termMatch("capacitystatus", "Used"),
-			termMatch("marketoption", "OnDemand"),
-		},
+		Filters:       onDemandFilters(instanceType, region),
 	})
 	if err != nil {
 		return 0, fmt.Errorf("price list GetProducts for %s in %s: %w", instanceType, region, err)
