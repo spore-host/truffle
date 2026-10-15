@@ -120,8 +120,6 @@ func init() {
 }
 
 func runFind(cmd *cobra.Command, args []string) (err error) {
-	defer func() { silenceUsageOnPricingTimeout(cmd, err) }()
-
 	// --local-zones filters on AZ data, so it can't coexist with --skip-azs
 	// (which suppresses that data). Reject the contradiction with a clear error
 	// rather than silently overriding either flag (#164).

@@ -2,8 +2,10 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
@@ -44,7 +46,20 @@ var (
 var rootCmd = &cobra.Command{
 	Use: "truffle",
 	// Short and Long will be set after i18n initialization
+
+	// Execute reports errors itself, once, and decides whether the usage text
+	// belongs with them (reportError). Left to cobra, every error was printed
+	// twice with the full usage block between the copies, even for runtime
+	// failures that have nothing to do with how the command was typed (#218).
+	SilenceErrors: true,
+	SilenceUsage:  true,
 }
+
+// commandStarted is set when the root PersistentPreRunE runs. cobra calls it
+// only after parsing flags and validating arguments and required flags, so an
+// error returned before it was set is a usage error (the usage text helps),
+// and one returned after it is a runtime error (it doesn't) (#218).
+var commandStarted bool
 
 var i18nInitialized = false
 
@@ -74,8 +89,7 @@ func Execute() {
 	// Start async update check (non-blocking, respects SPORE_NO_UPDATE_CHECK)
 	updateCh := startUpdateCheck(version())
 
-	if err := rootCmd.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+	if err := executeRoot(os.Stderr); err != nil {
 		os.Exit(1)
 	}
 
@@ -88,6 +102,34 @@ func Execute() {
 	default:
 		// Check didn't finish in time — skip silently
 	}
+}
+
+// executeRoot runs the command line in os.Args (or rootCmd.SetArgs) and, on
+// failure, reports the error to stderr through reportError.
+func executeRoot(stderr io.Writer) error {
+	commandStarted = false
+	cmd, err := rootCmd.ExecuteC()
+	if err != nil {
+		reportError(stderr, cmd, err, commandStarted)
+	}
+	return err
+}
+
+// reportError prints err once. A usage error — a bad flag, a wrong number of
+// arguments, a missing required flag, anything cobra rejects before the
+// command starts — is followed by the command's usage text, or for an unknown
+// subcommand by a pointer to --help, as cobra does. A runtime error (the
+// command started, then failed) is printed alone (#218).
+func reportError(w io.Writer, cmd *cobra.Command, err error, started bool) {
+	_, _ = fmt.Fprintln(w, "Error:", err)
+	if started || cmd == nil {
+		return
+	}
+	if strings.HasPrefix(err.Error(), "unknown command ") {
+		_, _ = fmt.Fprintf(w, "Run '%s --help' for usage.\n", cmd.CommandPath())
+		return
+	}
+	_, _ = fmt.Fprint(w, cmd.UsageString())
 }
 
 // startUpdateCheck kicks off the background release check for the resolved
@@ -110,6 +152,9 @@ func startUpdateCheck(current string) <-chan *update.Result {
 func init() {
 	// Set PersistentPreRunE to initialize i18n after flag parsing
 	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
+		// Flags and arguments are valid by now; any error from here on is a
+		// runtime error, not a usage error (#218).
+		commandStarted = true
 		ensureI18nInitialized()
 
 		// Make every fatih/color call — including ones that don't consult the
@@ -154,13 +199,9 @@ func init() {
 		awscfg.SetFlags(sharedProfile, "")
 
 		// --account: verify the resolved credentials belong to the named
-		// account before doing anything else (#199). A refusal is not a usage
-		// error, so don't follow it with the help text.
-		if err := runAccountGuard(); err != nil {
-			cmd.SilenceUsage = true
-			return err
-		}
-		return nil
+		// account before doing anything else (#199). A refusal is a runtime
+		// error, so it is reported without the usage text.
+		return runAccountGuard()
 	}
 
 	// Add i18n and accessibility flags

@@ -10,7 +10,6 @@ import (
 	"time"
 
 	sdkaws "github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/spf13/cobra"
 	"github.com/spore-host/truffle/pkg/aws"
 	"github.com/spore-host/truffle/pkg/find"
 )
@@ -161,14 +160,6 @@ func TestPricingTimeoutIsAnError(t *testing.T) {
 	err := reportPricing(o, 5*time.Minute)
 	if err == nil || !strings.Contains(err.Error(), "timed out after 5m0s") || !strings.Contains(err.Error(), "1 of 8 rows") {
 		t.Errorf("reportPricing = %v, want a timeout error naming 1 of 8 rows", err)
-	}
-
-	// It is a runtime failure after the results were printed, not a usage
-	// error: the help text must not follow it.
-	cmd := &cobra.Command{}
-	silenceUsageOnPricingTimeout(cmd, err)
-	if !cmd.SilenceUsage {
-		t.Error("a pricing timeout would be followed by the usage text")
 	}
 
 	o.timedOut = 0

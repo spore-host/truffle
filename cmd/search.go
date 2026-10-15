@@ -99,8 +99,6 @@ func init() {
 }
 
 func runSearch(cmd *cobra.Command, args []string) (err error) {
-	defer func() { silenceUsageOnPricingTimeout(cmd, err) }()
-
 	pattern := args[0]
 
 	service, err := validateServiceFlag(searchService)
