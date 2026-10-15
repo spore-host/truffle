@@ -113,6 +113,7 @@ depends on what the command is for:
 | `capacity` | all enabled regions | your reservations can be in any region |
 | `capacity-blocks` | all enabled regions | offerings vary by region |
 | `quotas`, `available` | your configured region (same lookup as `find`); `us-east-1` if none is set | quota headroom and obtainability are per-region answers; not multi-region by default, use `--regions` (`available` checks one region) |
+| `list` | your configured region (same lookup as `find`); `us-east-1` if none is set | one region per run (the first `--regions` entry); some instance types are region-limited |
 
 ### Global Flags
 
