@@ -7,7 +7,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/spf13/cobra"
 	"github.com/spore-host/libs/i18n"
 	"github.com/spore-host/truffle/pkg/aws"
 	"github.com/spore-host/truffle/pkg/find"
@@ -94,15 +93,6 @@ func reportPricing(o pricingOutcome, timeout time.Duration) error {
 type pricingTimeoutError struct{ msg string }
 
 func (e *pricingTimeoutError) Error() string { return e.msg }
-
-// silenceUsageOnPricingTimeout keeps cobra from following a pricing timeout
-// with the usage text. Deferred by the commands that price results.
-func silenceUsageOnPricingTimeout(cmd *cobra.Command, err error) {
-	var pe *pricingTimeoutError
-	if errors.As(err, &pe) {
-		cmd.SilenceUsage = true
-	}
-}
 
 // pickFirstPriceCandidates returns the instance types that can still come out
 // on top once prices are known, for --pick-first: price only those, not the

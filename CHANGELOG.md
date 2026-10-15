@@ -100,6 +100,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   --sort-by-price` when several AZs have the same price, and `capacity`
   reservations and blocks.
 
+- **An error is printed once, and the usage text only follows a usage
+  mistake** (#218). When a command failed at runtime (for example `find
+  --service bogus`, `--local-zones` with `--skip-azs`, a failed search or a
+  pricing timeout), truffle printed the error, then about 30 lines of usage,
+  then the error again. It now prints `Error: ...` once. A mistyped flag, a
+  wrong number of arguments or an unknown command still gets the error
+  followed by the usage text (or, for an unknown command, a pointer to
+  `--help`).
+
 - **`truffle find` no longer times out pricing a cross-region search, and a
   pricing timeout is now an error** (#210). `find` looked up the on-demand price
   one row at a time, so `find "graviton 8 cores 32gb" --all-regions` (3161 rows)
