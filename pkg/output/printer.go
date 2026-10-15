@@ -170,6 +170,14 @@ type TableOptions struct {
 	// with a "†" marker and trigger a footer legend. Nil/empty leaves every AZ
 	// unlabeled — the historical behavior.
 	LocalZoneAZs map[string]bool
+
+	// PreserveOrder renders rows in the order the caller passed them instead
+	// of re-sorting. Rows are still grouped by instance type: each group sits
+	// where its first row appears and keeps its rows' relative order.
+	// `truffle find` sets it after sorting by closest fit (truffle#187). The
+	// zero value keeps the historical order: largest vCPU/memory first, then
+	// price descending within a group.
+	PreserveOrder bool
 }
 
 // localZoneMarker flags an AZ name in the table as a Local/Wavelength zone.
@@ -273,28 +281,40 @@ func (p *Printer) printTable(results []aws.InstanceTypeResult, opts TableOptions
 
 	grouped := groupByInstanceType(deduped)
 
-	// Instance-type groups render largest-to-smallest by vCPU, then Memory
-	// (both descending), rather than Go's randomized map-iteration order.
-	// Within a group, rows sort by price descending — highest-priced
-	// region/AZ combination first.
 	instanceTypes := make([]string, 0, len(grouped))
-	for instanceType := range grouped {
-		instanceTypes = append(instanceTypes, instanceType)
-	}
-	sort.Slice(instanceTypes, func(i, j int) bool {
-		a, b := grouped[instanceTypes[i]][0], grouped[instanceTypes[j]][0]
-		if a.VCPUs != b.VCPUs {
-			return a.VCPUs > b.VCPUs
+	if opts.PreserveOrder {
+		// The caller already ordered the rows (truffle#187): emit groups in
+		// first-appearance order and keep each group's rows as given.
+		emitted := make(map[string]bool, len(grouped))
+		for _, r := range deduped {
+			if !emitted[r.InstanceType] {
+				emitted[r.InstanceType] = true
+				instanceTypes = append(instanceTypes, r.InstanceType)
+			}
 		}
-		if a.MemoryMiB != b.MemoryMiB {
-			return a.MemoryMiB > b.MemoryMiB
+	} else {
+		// Instance-type groups render largest-to-smallest by vCPU, then Memory
+		// (both descending), rather than Go's randomized map-iteration order.
+		// Within a group, rows sort by price descending — highest-priced
+		// region/AZ combination first.
+		for instanceType := range grouped {
+			instanceTypes = append(instanceTypes, instanceType)
 		}
-		return instanceTypes[i] < instanceTypes[j]
-	})
-	for _, regions := range grouped {
-		sort.SliceStable(regions, func(i, j int) bool {
-			return regions[i].OnDemandPrice > regions[j].OnDemandPrice
+		sort.Slice(instanceTypes, func(i, j int) bool {
+			a, b := grouped[instanceTypes[i]][0], grouped[instanceTypes[j]][0]
+			if a.VCPUs != b.VCPUs {
+				return a.VCPUs > b.VCPUs
+			}
+			if a.MemoryMiB != b.MemoryMiB {
+				return a.MemoryMiB > b.MemoryMiB
+			}
+			return instanceTypes[i] < instanceTypes[j]
 		})
+		for _, regions := range grouped {
+			sort.SliceStable(regions, func(i, j int) bool {
+				return regions[i].OnDemandPrice > regions[j].OnDemandPrice
+			})
+		}
 	}
 
 	// Track whether any row actually renders the real-cores / mem-per-cpu
