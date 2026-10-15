@@ -33,6 +33,7 @@ var capacityCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(capacityCmd)
 
+	addAllRegionsFlag(capacityCmd, capacityRegionDefault)
 	capacityCmd.Flags().StringSliceVar(&crInstanceTypes, "instance-types", []string{}, "Filter by instance types (comma-separated)")
 	capacityCmd.Flags().BoolVar(&crOnlyAvailable, "available-only", false, "Only show reservations with available capacity")
 	capacityCmd.Flags().BoolVar(&crOnlyActive, "active-only", true, "Only show active reservations (default: true)")
@@ -60,17 +61,11 @@ func runCapacity(cmd *cobra.Command, args []string) error {
 		return i18n.Te("error.aws_client_init", err)
 	}
 
-	// Get regions to search
-	// If no regions specified, auto-detect enabled regions (respects SCPs)
-	searchRegions := regions
-	if len(searchRegions) == 0 {
-		if verbose {
-			fmt.Fprintf(os.Stderr, "%s %s\n", i18n.Emoji("globe"), i18n.T("truffle.capacity.fetching_regions"))
-		}
-		searchRegions, err = awsClient.GetEnabledRegions(ctx)
-		if err != nil {
-			return i18n.Te("truffle.capacity.error.get_regions_failed", err)
-		}
+	// Resolve regions. capacity defaults to every enabled region: it is an
+	// inventory of reservations you own, which can live in any region (#194).
+	searchRegions, err := commandRegions(ctx, awsClient, capacityRegionDefault)
+	if err != nil {
+		return err
 	}
 
 	if verbose {

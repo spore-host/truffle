@@ -224,7 +224,7 @@ func updateCommandDescriptions() {
 	// Search command — Short/Long are set directly on searchCmd since they
 	// reference pattern syntax that must stay in sync with the code.
 	if cmd, _, err := rootCmd.Find([]string{"search"}); err == nil && cmd != nil {
-		cmd.Long = "Search for instance types across AWS regions.\n\nSupports glob patterns (m7i*, c7?) and regex (c[6-8]i\\.large, (p4d|p5)\\..*) for flexible matching."
+		cmd.Long = "Search for instance types by pattern.\n\nSearches your configured region by default (spore config region, AWS_REGION /\nAWS_DEFAULT_REGION, or the profile's region), like find. Use --regions to choose\nregions, or --all-regions to search every enabled region. With no region\nconfigured, search covers every enabled region.\n\nSupports glob patterns (m7i*, c7?) and regex (c[6-8]i\\.large, (p4d|p5)\\..*) for flexible matching."
 	}
 
 	// Capacity command

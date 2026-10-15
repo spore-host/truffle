@@ -4,6 +4,9 @@ Search for instance types with an availability zone-first perspective.
 This command prioritizes showing which specific AZs support each instance type,
 making it ideal for multi-AZ deployments and capacity planning.
 
+Searches every enabled region by default, since the point is to compare
+regions; use --regions (or --az, which implies its zones' regions) to narrow.
+
 Examples:
   # Find which AZs have m7i.large
   truffle az m7i.large
@@ -25,6 +28,7 @@ truffle az [instance-type-pattern] [flags]
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
+| `--all-regions` |  | bool |  | Search every enabled region (already the default here; useful to be explicit in scripts). Cannot be combined with --regions |
 | `--az` |  | stringSlice |  | Filter by specific availability zones (e.g., us-east-1a,us-west-2b) |
 | `--local-zones` |  | bool |  | Restrict results to Local Zones and Wavelength Zones (edge locations) |
 | `--min-az-count` |  | int |  | Minimum number of AZs required per region |
