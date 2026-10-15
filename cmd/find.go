@@ -35,12 +35,18 @@ var (
 	findShowMemPerCPU bool   // --show-mem-per-cpu flag: Memory column appends a per-physical-core figure (#137)
 	findPriceUnit     string // --price-unit flag: hour (default), minute, or second (#138)
 	findShowGPURatios bool   // --show-gpu-ratios flag: adds vCPU/GPU and RAM/GPU columns (#51)
+	findAllRegions    bool   // --all-regions flag: search every enabled region instead of the configured one (#188)
 )
 
 var findCmd = &cobra.Command{
 	Use:   "find <query>",
 	Short: "Find instances by natural language, pattern, or specs",
 	Long: `Find EC2 instance types using natural language, glob patterns, or regex.
+
+Searches your configured region by default (spore config region, AWS_REGION /
+AWS_DEFAULT_REGION, or the profile's region). Use --regions to choose regions,
+or --all-regions to search every enabled region. With no region configured,
+find searches every enabled region.
 
 Auto-detects query type:
   - Patterns: m7i*, c[6-8]i.large, g5.* → pattern matching
@@ -77,6 +83,7 @@ Understands:
 Examples:
   truffle find g5.2xlarge g5.4xlarge g5.12xlarge (multi-type comparison)
   truffle find "m7i*"                         (glob pattern)
+  truffle find "m7i*" --all-regions           (every enabled region)
   truffle find "c[6-8]i.large"                (regex pattern)
   truffle find graviton                       (vendor search)
   truffle find "turin 32 cores 64gb" --exact  (exact spec match)
@@ -96,6 +103,7 @@ Examples:
 func init() {
 	rootCmd.AddCommand(findCmd)
 
+	findCmd.Flags().BoolVar(&findAllRegions, "all-regions", false, "Search every enabled region (default: only your configured region, e.g. AWS_REGION or the profile's region)")
 	findCmd.Flags().BoolVar(&findSkipAZs, "skip-azs", false, "Skip availability zone lookup (faster)")
 	findCmd.Flags().BoolVar(&findLocalZones, "local-zones", false, "Restrict results to Local Zones and Wavelength Zones (edge locations); mutually exclusive with --skip-azs")
 	findCmd.Flags().BoolVar(&findShowQuery, "show-query", false, "Show parsed query details")
@@ -222,23 +230,10 @@ func runFind(cmd *cobra.Command, args []string) error {
 		return i18n.Te("error.aws_client_init", err)
 	}
 
-	// Resolve regions
-	searchRegions := regions
-	if len(searchRegions) == 0 {
-		if verbose {
-			fmt.Fprintf(os.Stderr, "%s %s\n", i18n.Emoji("globe"), i18n.T("truffle.search.fetching_regions"))
-		}
-		searchRegions, err = client.GetEnabledRegions(ctx)
-		if err != nil {
-			return i18n.Te("truffle.search.error.get_regions_failed", err)
-		}
-
-		// Warn about searching all regions (can be slow)
-		if len(searchRegions) > 10 && outputFormat == "table" {
-			fmt.Fprintf(os.Stderr, "%s Searching across all %d enabled regions (this may take a while)\n",
-				i18n.Emoji("warning"), len(searchRegions))
-			fmt.Fprintf(os.Stderr, "   Tip: Use --regions to limit search (e.g., --regions us-east-1,us-west-2)\n\n")
-		}
+	// Resolve regions: --regions > --all-regions > configured region > all (#188)
+	searchRegions, err := findSearchRegions(ctx, client)
+	if err != nil {
+		return err
 	}
 
 	// Show spinner for non-verbose mode
@@ -660,17 +655,9 @@ func runSearchWithPatternDisplay(regexPattern, display, service string) error {
 		return i18n.Te("error.aws_client_init", err)
 	}
 
-	searchRegions := regions
-	if len(searchRegions) == 0 {
-		searchRegions, err = awsClient.GetEnabledRegions(ctx)
-		if err != nil {
-			return i18n.Te("truffle.search.error.get_regions_failed", err)
-		}
-		if len(searchRegions) > 10 && outputFormat == "table" {
-			fmt.Fprintf(os.Stderr, "%s Searching across all %d enabled regions (this may take a while)\n",
-				i18n.Emoji("warning"), len(searchRegions))
-			fmt.Fprintf(os.Stderr, "   Tip: Use --regions to limit search (e.g., --regions us-east-1,us-west-2)\n\n")
-		}
+	searchRegions, err := findSearchRegions(ctx, awsClient)
+	if err != nil {
+		return err
 	}
 
 	var spinner *progress.Spinner

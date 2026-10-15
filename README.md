@@ -57,10 +57,12 @@ truffle search "c[6-8]i\.large"               # regex: c6i/c7i/c8i large
 truffle spot m7i.large --regions us-east-1 --show-savings
 truffle spot "c6a*" --sort-by-price --lookback-hours 24
 
-# Find by natural language
+# Find by natural language (searches your configured region by default —
+# AWS_REGION / AWS_DEFAULT_REGION / profile region; all regions if none is set)
 truffle find "h200 8gpu efa"
 truffle find "amd turin 32 cores 64gb" --exact
-truffle find graviton --regions us-east-1
+truffle find graviton --regions us-east-1,us-west-2
+truffle find graviton --all-regions           # every enabled region (slower)
 
 # Check EC2 quotas
 truffle quotas --regions us-east-1 --family P

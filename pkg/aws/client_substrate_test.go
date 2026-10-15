@@ -268,3 +268,78 @@ func TestGetSpotPricing_MaxPriceFilter(t *testing.T) {
 		}
 	}
 }
+
+// TestSearchInstanceTypes_IncludeAZs_Batched covers the batched AZ lookup
+// (#188): a multi-type match must still give every result its own AZ list,
+// with no cross-attribution between types.
+func TestSearchInstanceTypes_IncludeAZs_Batched(t *testing.T) {
+	env := testutil.SubstrateServer(t)
+	ctx := context.Background()
+
+	c := NewClientFromConfig(env.AWSConfig)
+
+	results, err := c.SearchInstanceTypes(ctx, []string{"us-east-1"}, regexp.MustCompile(".*"), FilterOptions{
+		IncludeAZs: true,
+	})
+	if err != nil {
+		t.Fatalf("SearchInstanceTypes() error = %v", err)
+	}
+	if len(results) < 2 {
+		t.Fatalf("want >= 2 results to exercise batching, got %d", len(results))
+	}
+	for _, r := range results {
+		if len(r.AvailableAZs) == 0 {
+			t.Errorf("%s: AvailableAZs is empty with IncludeAZs=true", r.InstanceType)
+			continue
+		}
+		// Each result's AZs must match the single-type lookup for that type.
+		want, err := c.getAvailabilityZones(ctx, "us-east-1", r.InstanceType)
+		if err != nil {
+			t.Fatalf("getAvailabilityZones(%s) error = %v", r.InstanceType, err)
+		}
+		if !sameStringSet(r.AvailableAZs, want) {
+			t.Errorf("%s: batched AZs %v, per-type AZs %v", r.InstanceType, r.AvailableAZs, want)
+		}
+	}
+}
+
+// TestGetEnabledRegions_NoConfiguredRegion: with no region configured, region
+// discovery must still work (falls back to us-east-1) rather than failing with
+// the SDK's missing-region error, and ConfiguredRegion reports "" (#188).
+func TestGetEnabledRegions_NoConfiguredRegion(t *testing.T) {
+	env := testutil.SubstrateServer(t)
+	cfg := env.AWSConfig
+	cfg.Region = ""
+	c := NewClientFromConfig(cfg)
+
+	if got := c.ConfiguredRegion(); got != "" {
+		t.Errorf("ConfiguredRegion() = %q, want empty", got)
+	}
+	regions, err := c.GetEnabledRegions(context.Background())
+	if err != nil {
+		t.Fatalf("GetEnabledRegions() with no region error = %v", err)
+	}
+	if len(regions) == 0 {
+		t.Error("GetEnabledRegions() returned 0 regions")
+	}
+	if got := NewClientFromConfig(env.AWSConfig).ConfiguredRegion(); got != env.AWSConfig.Region {
+		t.Errorf("ConfiguredRegion() = %q, want %q", got, env.AWSConfig.Region)
+	}
+}
+
+func sameStringSet(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	seen := make(map[string]int, len(a))
+	for _, s := range a {
+		seen[s]++
+	}
+	for _, s := range b {
+		seen[s]--
+		if seen[s] < 0 {
+			return false
+		}
+	}
+	return true
+}

@@ -2,6 +2,11 @@
 
 Find EC2 instance types using natural language, glob patterns, or regex.
 
+Searches your configured region by default (spore config region, AWS_REGION /
+AWS_DEFAULT_REGION, or the profile's region). Use --regions to choose regions,
+or --all-regions to search every enabled region. With no region configured,
+find searches every enabled region.
+
 Auto-detects query type:
   - Patterns: m7i*, c[6-8]i.large, g5.* → pattern matching
   - Natural language: "graviton 8 cores 32gb" → spec-based search
@@ -37,6 +42,7 @@ Understands:
 Examples:
   truffle find g5.2xlarge g5.4xlarge g5.12xlarge (multi-type comparison)
   truffle find "m7i*"                         (glob pattern)
+  truffle find "m7i*" --all-regions           (every enabled region)
   truffle find "c[6-8]i.large"                (regex pattern)
   truffle find graviton                       (vendor search)
   truffle find "turin 32 cores 64gb" --exact  (exact spec match)
@@ -58,6 +64,7 @@ truffle find <query> [flags]
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
+| `--all-regions` |  | bool |  | Search every enabled region (default: only your configured region, e.g. AWS_REGION or the profile's region) |
 | `--app` |  | string |  | Application name from catalog (e.g. paraview, igv) |
 | `--exact` |  | bool |  | Match exact vCPU and memory values instead of minimum |
 | `--local-zones` |  | bool |  | Restrict results to Local Zones and Wavelength Zones (edge locations); mutually exclusive with --skip-azs |
