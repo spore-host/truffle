@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.59.0] - 2026-10-15
+
 ### Added
 
 - **`truffle --version`** (#189). The conventional flag (and what package
@@ -56,6 +58,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reported for a GPU or accelerator family on 2026-10-15, where
   `metadata.GPUDatabase`'s `MemoryGB` is one figure per model (unchanged, and
   the database's shape is unchanged).
+
+- **`truffle find --all-regions`** searches every enabled region (the old
+  default). Passing it together with `--regions` is an error.
+
+- **`(*aws.Client).ConfiguredRegion()`** (library) returns the default region the
+  client's config resolved to, or `""` if none is set.
 
 ### Changed
 
@@ -382,10 +390,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Queries without size terms keep newest-generation-first.
   Library: `output.TableOptions` gains a `PreserveOrder` field (additive; the
   zero value keeps the historical largest-first table order).
-- **`truffle find --all-regions`** searches every enabled region (the old
-  default). Passing it together with `--regions` is an error.
-- **`(*aws.Client).ConfiguredRegion()`** (library) returns the default region the
-  client's config resolved to, or `""` if none is set.
 - **`truffle list` now honours `--regions` / `-r` and your configured region**
   (#202). It had its own `--region` flag, defaulting to us-east-1, which hid the
   global one: `truffle list --regions us-west-2` silently listed us-east-1, and
@@ -1457,7 +1461,8 @@ Initial tagged release from the standalone `spore-host/truffle` repository.
 Older releases are summarized in the
 [GitHub Releases](https://github.com/spore-host/truffle/releases) for this repo.
 
-[Unreleased]: https://github.com/spore-host/truffle/compare/v0.58.0...HEAD
+[Unreleased]: https://github.com/spore-host/truffle/compare/v0.59.0...HEAD
+[0.59.0]: https://github.com/spore-host/truffle/compare/v0.58.0...v0.59.0
 [0.58.0]: https://github.com/spore-host/truffle/compare/v0.57.2...v0.58.0
 [0.57.2]: https://github.com/spore-host/truffle/compare/v0.57.1...v0.57.2
 [0.57.1]: https://github.com/spore-host/truffle/compare/v0.57.0...v0.57.1
