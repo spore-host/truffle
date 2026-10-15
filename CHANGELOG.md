@@ -28,6 +28,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   order truffle uses for every AZ list (standard AZs, then Local and Wavelength
   Zones, each alphabetically), for library callers that build or merge AZ lists.
 
+- **`metadata.AcceleratorFamilies` and `metadata.GetFamiliesByUseCase`**
+  (#233): the sorted list of GPU and accelerator families, and the families of
+  the GPUs and accelerators filed under a use case ("training", "inference").
+
+- **A `trainium2` entry in `metadata.GPUDatabase`** (#233), for trn2, so
+  `find trainium2` and `find training` reach it.
+
 ### Changed
 
 - **`metadata.SizeCategory` is a size range, not a list** (#220). It now has
@@ -93,6 +100,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hide them. It still parses, prints a deprecation notice, and will be removed.
 
 ### Fixed
+
+- **`find` recognises `gpu`, `gpus`, `accelerator` and `accelerators`**
+  (#233). They used to be ignored, so `truffle find "amd gpu"` printed
+  `ignored unknown term: gpu` and, since #230, listed only CPU-only AMD
+  families. They now mean any GPU or accelerator family, and with a CPU word
+  they select the accelerator hosts with that CPU: `amd gpu` is g5, g6, g6e,
+  p5, inf2, ...; `graviton gpu` is g5g; `gpu 24gb` is every accelerator type
+  with at least 24 GiB of memory. `training` and `inference` are recognised
+  too, as the chips AWS positions for each: training is H100, H200, A100,
+  V100, B200, B300, Trainium and Trainium2; inference is A10G, T4, L4, L40S,
+  Inferentia and Inferentia2. Name a GPU to get one outside its usual use
+  case. Queries without these words are unchanged.
+
+- **p3dn is a V100 family** (#233). The V100 entry listed only p3, so
+  family-level matches such as `intel v100` left out p3dn.24xlarge.
 
 - **`find` with no recognised words is an error, not a search of everything**
   (#229). A query made only of words truffle doesn't know (`find zzqx`,

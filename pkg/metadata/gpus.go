@@ -1,5 +1,7 @@
 package metadata
 
+import "sort"
+
 // GPUInfo contains information about a GPU accelerator used in EC2 instances
 type GPUInfo struct {
 	Name            string   // "A100", "V100", "H100"
@@ -50,7 +52,9 @@ var GPUDatabase = map[string]GPUInfo{
 		Vendor:   "nvidia",
 		MemoryGB: 16,
 		UseCase:  "training",
-		Families: []string{"p3"},
+		// p3dn.24xlarge carries the 32 GB V100; listing only p3 left it out
+		// of family-level matches ("intel v100", "training").
+		Families: []string{"p3", "p3dn"},
 		InstanceTypes: []string{
 			"p3.2xlarge", "p3.8xlarge", "p3.16xlarge",
 			"p3dn.24xlarge",
@@ -183,7 +187,7 @@ var GPUDatabase = map[string]GPUInfo{
 		Vendor:   "nvidia",
 		MemoryGB: 0,
 		UseCase:  "any",
-		Families: []string{"p5e", "p5en", "p5", "p4d", "p4de", "p3", "p2", "g3", "g5", "g4dn", "g6", "gr6", "g6f", "gr6f", "g6e", "g7", "g7e", "p6-b200", "p6e-gb200", "p6-b300"},
+		Families: []string{"p5e", "p5en", "p5", "p4d", "p4de", "p3", "p3dn", "p2", "g3", "g5", "g4dn", "g6", "gr6", "g6f", "gr6f", "g6e", "g7", "g7e", "p6-b200", "p6e-gb200", "p6-b300"},
 	},
 
 	// AMD GPUs
@@ -227,6 +231,14 @@ var GPUDatabase = map[string]GPUInfo{
 			"trn1.2xlarge", "trn1.32xlarge",
 			"trn1n.32xlarge",
 		},
+	},
+	"trainium2": {
+		Name:          "Trainium2",
+		Vendor:        "aws",
+		MemoryGB:      96,
+		UseCase:       "training",
+		Families:      []string{"trn2"},
+		InstanceTypes: []string{"trn2.48xlarge"},
 	},
 }
 
@@ -280,6 +292,25 @@ func GetGPUsByUseCase(useCase string) []GPUInfo {
 		}
 	}
 	return gpus
+}
+
+// GetFamiliesByUseCase returns the instance families of every GPU or
+// accelerator in GPUDatabase whose UseCase is useCase ("training",
+// "inference", ...), sorted. find's "training" and "inference" words use it
+// (#233).
+func GetFamiliesByUseCase(useCase string) []string {
+	set := make(map[string]bool)
+	for _, info := range GetGPUsByUseCase(useCase) {
+		for _, f := range info.Families {
+			set[f] = true
+		}
+	}
+	families := make([]string, 0, len(set))
+	for f := range set {
+		families = append(families, f)
+	}
+	sort.Strings(families)
+	return families
 }
 
 // IsMIGSupported reports whether family supports NVIDIA Multi-Instance GPU

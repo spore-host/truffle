@@ -17,6 +17,13 @@ Understands:
   - CPU vendors: intel, amd, graviton, nvidia
   - Processors: emerald rapids, sapphire rapids, ice lake, genoa, turin, milan
   - GPUs: h200, h100, a100, b200, b300, l40s, l4, a10g, t4, rtx, inferentia, trainium
+  - Any accelerator: gpu, gpus, accelerator, accelerators (every GPU,
+    Inferentia, Trainium, FPGA and media-accelerator family; "amd gpu" is the
+    GPU hosts with an AMD CPU, e.g. g5 and g6, and "graviton gpu" is g5g)
+  - Accelerator use case: training (H100, H200, A100, V100, B200, B300,
+    Trainium, Trainium2) or inference (A10G, T4, L4, L40S, Inferentia,
+    Inferentia2), as AWS positions each chip; name a GPU to get one outside
+    its usual use case
     (hyphenated/suffixed spec strings also work, e.g. "RTX-PRO-6000",
     "A100-80GB", "H100!", "B200+" — Modal's documented GPU naming convention)
   - Instruction sets: avx2, avx-512, sve, sve2

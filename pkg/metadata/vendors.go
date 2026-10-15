@@ -1,5 +1,7 @@
 package metadata
 
+import "sort"
+
 // familyVendors maps each instance family to the maker of its host CPU, as
 // DescribeInstanceTypes reports it in ProcessorInfo.Manufacturer ("AMD" ->
 // "amd", "Intel" -> "intel", "AWS" -> "aws"). It is a snapshot of us-west-2,
@@ -112,4 +114,16 @@ var acceleratorFamilies = map[string]bool{
 // other accelerator (see acceleratorFamilies).
 func IsAcceleratorFamily(family string) bool {
 	return acceleratorFamilies[family]
+}
+
+// AcceleratorFamilies returns every GPU or accelerator family (see
+// acceleratorFamilies), sorted. It is what find's "gpu", "gpus",
+// "accelerator" and "accelerators" select (#233).
+func AcceleratorFamilies() []string {
+	families := make([]string, 0, len(acceleratorFamilies))
+	for f := range acceleratorFamilies {
+		families = append(families, f)
+	}
+	sort.Strings(families)
+	return families
 }
