@@ -47,6 +47,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **GPU memory is shown in GB as sold, matching the GPU-memory filter** (#238).
+  The `find`/`search` table's VRAM column is now `VRAM (GB)` and shows the
+  same nominal per-GPU figure that `truffle find "gpu 24gb"` compares, so an
+  A10G or L4 reads `24 (24/gpu)` instead of `22 (22/gpu)` GiB, and an L40S 48
+  instead of 44; binary-sized GPUs are unchanged (H100 `640 (80/gpu)`). CSV
+  output gains `gpus`, `gpu_model` and `vram_gb_per_gpu` columns when any
+  result has a GPU (CPU-only CSV is unchanged). JSON/YAML keep
+  `accelerator_memory_mib` and add `accelerator_memory_gb`, the nominal figure
+  (`InstanceTypeResult.AccelMemoryGB` for library callers). The "why it
+  matched" GPU line and `metadata.GPUDatabase` use the same figure (A10G and
+  L4 24 GB, L40S 48 GB), and the per-GPU memory note no longer says the VRAM
+  column is in GiB.
+
 - **`metadata.SizeCategory` is a size range, not a list** (#220). It now has
   `Min` and `Max` multipliers (xlarge = 1) instead of `Sizes`;
   `metadata.SizeMultiplier`, `SizeCategoryOf`, `InSizeCategory` and

@@ -118,3 +118,18 @@ func TestBuildResultFromEC2_AccelMemory(t *testing.T) {
 		t.Errorf("m7i AccelMemoryMiB = %d, want 0", got)
 	}
 }
+
+// TestBuildResultFromEC2_AccelMemoryGB checks the nominal GB recorded beside
+// the raw MiB (#238): the figure the filter compares, 24 for an A10G.
+func TestBuildResultFromEC2_AccelMemoryGB(t *testing.T) {
+	for _, tt := range []struct {
+		it   string
+		mib  int32
+		want float64
+	}{{"g5.xlarge", mibA10G, 24}, {"p5.48xlarge", mibH100, 80}} {
+		r := buildResultFromEC2(gpuTypeInfo(tt.it, tt.mib), tt.it, "us-east-1")
+		if r.AccelMemoryGB != tt.want || r.AccelMemoryMiB != int64(tt.mib) {
+			t.Errorf("%s: AccelMemoryGB = %v, AccelMemoryMiB = %d; want %v, %d", tt.it, r.AccelMemoryGB, r.AccelMemoryMiB, tt.want, tt.mib)
+		}
+	}
+}
