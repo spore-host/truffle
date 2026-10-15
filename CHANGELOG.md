@@ -54,6 +54,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   callers of `SearchInstanceTypes` that set `IncludeAZs`. A broad single-region
   `find` drops from ~10 s to ~5 s; the results are identical.
 
+### Deprecated
+
+- **`truffle spot --show-savings`** (#204). It has done nothing since spot began
+  always showing savings vs On-Demand (#21). It still parses, prints a
+  deprecation notice, and will be removed.
+- **`truffle capacity --odcr`** (#205). It never did anything: On-Demand Capacity
+  Reservations are shown unless `--blocks` is given, and `--odcr=false` did not
+  hide them. It still parses, prints a deprecation notice, and will be removed.
+
 ### Fixed
 
 - **No spinner frames when output isn't a terminal** (#189). Piping or
@@ -153,15 +162,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   everywhere — are held to a coverage floor plus a no-partial-ladder rule instead
   of a hardcoded region list, so a normal AWS rollout cannot turn the build red
   while a coverage regression still does.
-
-### Deprecated
-
-- **`truffle spot --show-savings`** (#204). It has done nothing since spot began
-  always showing savings vs On-Demand (#21). It still parses, prints a
-  deprecation notice, and will be removed.
-- **`truffle capacity --odcr`** (#205). It never did anything: On-Demand Capacity
-  Reservations are shown unless `--blocks` is given, and `--odcr=false` did not
-  hide them. It still parses, prints a deprecation notice, and will be removed.
 
 ### Security
 
