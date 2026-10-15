@@ -76,7 +76,7 @@ func TestNominalGPUMemoryGB_ThousandsOfMiB(t *testing.T) {
 // what the live catalog reports, for every family whose devices are one size
 // (#240). Families it leaves out on purpose are skipped.
 func TestLiveAcceleratorMemoryRecorded(t *testing.T) {
-	skip := map[string]bool{"g6f": true, "gr6f": true, "trn2": true}
+	skip := map[string]bool{"g6f": true, "gr6f": true}
 	sizes := make(map[string]map[int64]bool) // family -> device MiB seen
 	for _, it := range liveCatalog(t) {
 		mib := acceleratorMemoryPerDeviceMiB(it)

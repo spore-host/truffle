@@ -50,6 +50,7 @@ func TestNominalGPUMemoryGB(t *testing.T) {
 		{mibH100, 80},
 		{mibH200, 141},
 		{mibB200, 179},
+		{mibB300, 268},
 		{0, 0},
 	}
 	for _, tt := range tests {

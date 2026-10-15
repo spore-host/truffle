@@ -265,15 +265,15 @@ func TestBareP6FamilyFixed(t *testing.T) {
 }
 
 // TestAcceleratorMemoryMiB checks the per-family device memory (#240): the
-// V100 and A100 differ by family, and families whose devices vary in size or
-// whose EC2 record is wrong are left to GPUDatabase.
+// V100 and A100 differ by family, trn2 is its documented 96 GiB per chip
+// (#242), and families whose devices vary in size are left to GPUDatabase.
 func TestAcceleratorMemoryMiB(t *testing.T) {
-	for family, want := range map[string]int64{"p3dn": 32768, "p4d": 40960, "p4de": 81920, "inf2": 32768, "dl2q": 16000} {
+	for family, want := range map[string]int64{"p3dn": 32768, "p4d": 40960, "p4de": 81920, "inf2": 32768, "dl2q": 16000, "trn2": 98304} {
 		if got, ok := AcceleratorMemoryMiB(family); !ok || got != want {
 			t.Errorf("AcceleratorMemoryMiB(%q) = %d, %v; want %d", family, got, ok, want)
 		}
 	}
-	for _, family := range []string{"p3", "g6f", "gr6f", "trn2", "m7i"} {
+	for _, family := range []string{"p3", "g6f", "gr6f", "m7i"} {
 		if got, ok := AcceleratorMemoryMiB(family); ok {
 			t.Errorf("AcceleratorMemoryMiB(%q) = %d, want none", family, got)
 		}

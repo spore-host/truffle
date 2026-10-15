@@ -12,7 +12,8 @@ import (
 // fractional GPU such as g6f), else NeuronInfo.NeuronDevices[].MemoryInfo
 // for Inferentia and Trainium, else InferenceAcceleratorInfo for other
 // inference accelerators (dl2q). It is 0 when the type has none of these
-// (#236).
+// (#236). A Neuron device whose EC2 record is wrong reads as its documented
+// per-chip size instead (see neuronChipMemoryMiB; #242).
 func acceleratorMemoryPerDeviceMiB(it types.InstanceTypeInfo) int64 {
 	var best int64
 	consider := func(p *int32) {
@@ -29,7 +30,11 @@ func acceleratorMemoryPerDeviceMiB(it types.InstanceTypeInfo) int64 {
 	}
 	if best == 0 && it.NeuronInfo != nil {
 		for _, d := range it.NeuronInfo.NeuronDevices {
-			if d.MemoryInfo != nil {
+			if documented, ok := neuronChipMemoryMiB[valueOrZero(d.Name)]; ok {
+				if documented > best {
+					best = documented
+				}
+			} else if d.MemoryInfo != nil {
 				consider(d.MemoryInfo.SizeInMiB)
 			}
 		}
@@ -44,6 +49,35 @@ func acceleratorMemoryPerDeviceMiB(it types.InstanceTypeInfo) int64 {
 	return best
 }
 
+// neuronChipMemoryMiB is the documented memory of one chip of a Neuron
+// device model whose DescribeInstanceTypes record is wrong, keyed by the
+// NeuronInfo device name (#242). A NeuronInfo device is one chip: its
+// CoreInfo count is the chip's NeuronCores (2 for Inferentia2 and Trainium,
+// 4 for Inferentia, 8 for Trainium2), and its memory is the chip's for
+// inf1 (8 GiB), inf2 and trn1 (32 GiB), as the Neuron architecture docs
+// give them. For Trainium2, EC2 reports 524288 MiB (512 GiB) per device and
+// 8 TiB for trn2.48xlarge's 16, but a Trainium2 chip has 96 GiB of HBM
+// (https://awsdocs-neuron.readthedocs-hosted.com/en/latest/about-neuron/arch/neuron-hardware/trainium2.html)
+// and trn2.48xlarge 1.5 TB across its 16 chips
+// (https://aws.amazon.com/ec2/instance-types/trn2/).
+var neuronChipMemoryMiB = map[string]int64{
+	"Trainium2": 96 * 1024,
+}
+
+// nominalGBOverride is the size, in GB, a GPU model is sold as on EC2 where
+// the generic reading of its reported MiB below lands off it, keyed by the
+// exact per-GPU MiB that model reports (so only that model's record is
+// affected; the 185 GiB B200 of p6e-gb200 is not). The figures are AWS's
+// documented per-instance GPU memory divided by the GPU count (#242):
+// p6-b200.48xlarge 1,432 GB for 8 B200s and p6-b300.48xlarge 2,144 GB for
+// 8 B300s (https://aws.amazon.com/ec2/instance-types/p6/), which the EC2
+// instance-type specifications list as 8 x 179 GiB and 8 x 268 GiB
+// (https://docs.aws.amazon.com/ec2/latest/instancetypes/ac.html).
+var nominalGBOverride = map[int64]float64{
+	183359: 179, // NVIDIA B200, p6-b200 (EC2 reads 179.06 GiB)
+	275040: 268, // NVIDIA B300, p6-b300 (EC2 reads 268.59 GiB)
+}
+
 // NominalGPUMemoryGB converts a device's reported memory (MiB) to the size it
 // is sold as, in GB (#236). EC2 reports some GPUs in binary units (H100
 // 81920 MiB = 80 GiB, T4 16384 MiB = 16 GiB) and others as a decimal size
@@ -53,10 +87,14 @@ func acceleratorMemoryPerDeviceMiB(it types.InstanceTypeInfo) int64 {
 // the A10G and L4, which a plain GiB comparison (22.35 GiB) would miss. A
 // size that is a whole number of thousands of MiB and not of GiB is a GB
 // figure recorded as MiB, as for dl2q's 16 GB Qualcomm AI100 (16000 MiB),
-// and reads as that many GB (#240).
+// and reads as that many GB (#240). A model in nominalGBOverride (B200,
+// B300) reads as its AWS-documented size, which takes precedence (#242).
 func NominalGPUMemoryGB(mib int64) float64 {
 	if mib <= 0 {
 		return 0
+	}
+	if gb, ok := nominalGBOverride[mib]; ok {
+		return gb
 	}
 	gib := float64(mib) / 1024
 	if r := math.Round(gib); r > 0 && math.Abs(gib-r)/r <= 0.005 {
