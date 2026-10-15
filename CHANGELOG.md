@@ -109,6 +109,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   drops rows before pricing them. The pattern path (`find "m7i*" --show-price`)
   and `truffle search --show-price` use the same lookup, and `--pick-first`
   there no longer prices anything, since their order does not use price.
+- **Size words in `truffle find` now apply when the query names no vendor,
+  processor, GPU, instruction set or app** (#211). `find "arm64 large"` returned
+  every size, from medium to metal (403 types in us-west-2), even though
+  `--show-query` printed `Size: large`. It now returns only the 2xlarge and
+  4xlarge sizes that "large" means (82 types), the same as `find "graviton
+  large"` already did. `"x86_64 small"` drops from 942 types to the 19 small and
+  medium ones. Sizes are now also applied when the query names only a GPU:
+  `find "t4 medium"` returned all seven g4dn sizes and now returns g4dn.xlarge.
+  A GPU that isn't sold in the size you ask for (`"a100 small"`) now returns no
+  results, where before it returned every size of that GPU.
 
 - **No spinner frames when output isn't a terminal** (#189). Piping or
   redirecting `truffle find`/`search` (e.g. `2>&1 | cat`, a log file, CI) used

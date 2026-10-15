@@ -68,10 +68,18 @@ func (pq *ParsedQuery) buildInstanceTypePattern() string {
 	if len(pq.GPUs) > 0 && pq.Operator == OperatorAnd && !pq.hasOtherActiveDimensions() {
 		instances := pq.ResolveGPUInstances()
 		if len(instances) > 0 {
-			// Exact match on instance types
-			escaped := make([]string, len(instances))
-			for i, inst := range instances {
-				escaped[i] = regexp.QuoteMeta(inst)
+			// Exact match on instance types, keeping only the requested sizes
+			// when the query names any (#211).
+			var escaped []string
+			sized := regexp.MustCompile(pq.sizeOnlyPattern())
+			for _, inst := range instances {
+				if sized.MatchString(inst) {
+					escaped = append(escaped, regexp.QuoteMeta(inst))
+				}
+			}
+			if len(escaped) == 0 {
+				// No instance with this GPU comes in the requested size.
+				return `^$`
 			}
 			return "^(" + strings.Join(escaped, "|") + ")$"
 		}
@@ -86,8 +94,10 @@ func (pq *ParsedQuery) buildInstanceTypePattern() string {
 			// instance can satisfy both constraints. Return a never-match pattern.
 			return `^$`
 		}
-		// No specific criteria; match all
-		return ".*"
+		// No family constraint: any family, but still only the requested
+		// sizes. Returning ".*" here dropped the size words of queries such as
+		// "arm64 large" (#211).
+		return pq.sizeOnlyPattern()
 	}
 
 	// Build pattern with family and optional size constraints
@@ -113,4 +123,13 @@ func (sc *SearchCriteria) Matcher() func(string) bool {
 	return func(instanceType string) bool {
 		return sc.InstanceTypePattern.MatchString(instanceType)
 	}
+}
+
+// sizeOnlyPattern matches any instance type whose size is one the query asks
+// for (e.g. "large" -> 2xlarge or 4xlarge), or every type when it names none.
+func (pq *ParsedQuery) sizeOnlyPattern() string {
+	if len(pq.Sizes) == 0 {
+		return ".*"
+	}
+	return `^[^.]+\.` + pq.BuildSizePattern() + "$"
 }
