@@ -674,12 +674,23 @@ func unionAll(sets []map[string]bool) map[string]bool {
 func (pq *ParsedQuery) ResolveInstanceFamilies() []string {
 	var dimensions []map[string]bool
 
+	// CPU words (vendor, processor, instruction set) select CPU-only families
+	// unless the query also asks for a GPU or accelerator (#228): "amd 16
+	// cores 64gb" means an AMD CPU instance, not g5.4xlarge, while "amd a10g"
+	// still finds g5 by its AMD host CPU.
+	cpuOnly := !pq.wantsAccelerators()
+	addCPUFamily := func(set map[string]bool, family string) {
+		if !cpuOnly || !metadata.IsAcceleratorFamily(family) {
+			set[family] = true
+		}
+	}
+
 	if len(pq.Processors) > 0 {
 		set := make(map[string]bool)
 		for _, proc := range pq.Processors {
 			if info, ok := metadata.ProcessorDatabase[proc]; ok {
 				for _, family := range info.Families {
-					set[family] = true
+					addCPUFamily(set, family)
 				}
 			}
 		}
@@ -690,7 +701,7 @@ func (pq *ParsedQuery) ResolveInstanceFamilies() []string {
 		set := make(map[string]bool)
 		for _, vendor := range pq.Vendors {
 			for _, family := range metadata.GetFamiliesByVendor(vendor) {
-				set[family] = true
+				addCPUFamily(set, family)
 			}
 		}
 		dimensions = append(dimensions, set)
@@ -712,7 +723,7 @@ func (pq *ParsedQuery) ResolveInstanceFamilies() []string {
 		set := make(map[string]bool)
 		for _, is := range pq.InstructionSets {
 			for _, family := range metadata.GetFamiliesByInstructionSet(is) {
-				set[family] = true
+				addCPUFamily(set, family)
 			}
 		}
 		dimensions = append(dimensions, set)
@@ -776,6 +787,21 @@ func (pq *ParsedQuery) ResolveInstanceFamilies() []string {
 	}
 
 	return families
+}
+
+// wantsAccelerators reports whether the query asks for a GPU or accelerator:
+// a GPU or accelerator name (a10g, h100, nvidia, inferentia, trainium, ...), a
+// GPU count, MIG, or an accelerator family named directly (g5, p5).
+func (pq *ParsedQuery) wantsAccelerators() bool {
+	if len(pq.GPUs) > 0 || pq.GPUCount > 0 || pq.RequireMIG {
+		return true
+	}
+	for _, f := range pq.Families {
+		if metadata.IsAcceleratorFamily(f) {
+			return true
+		}
+	}
+	return false
 }
 
 // hasFamilyDimensions reports whether any query dimension that resolves to a

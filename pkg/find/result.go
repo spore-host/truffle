@@ -39,18 +39,11 @@ processorDone:
 
 	// Check vendor match
 	for _, vendor := range query.Vendors {
-		for _, info := range metadata.ProcessorDatabase {
-			if info.Vendor == vendor {
-				for _, f := range info.Families {
-					if f == family {
-						reasons = append(reasons, fmt.Sprintf("Vendor: %s", vendor))
-						goto vendorDone
-					}
-				}
-			}
+		if metadata.VendorOfFamily(family) == vendor {
+			reasons = append(reasons, fmt.Sprintf("Vendor: %s", vendor))
+			break
 		}
 	}
-vendorDone:
 
 	// Check GPU match
 	for _, gpu := range query.GPUs {

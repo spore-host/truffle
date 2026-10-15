@@ -20,7 +20,10 @@ type ProcessorInfo struct {
 // The Graviton lists were re-checked against us-west-2 and us-east-1 on
 // 2026-10-15 (#221): every family whose ProcessorInfo.Manufacturer is AWS is
 // in one of them (TestGravitonListsCoverEveryAWSFamily; set TRUFFLE_LIVE_AWS=1
-// to repeat the check live). Every AZ/storage/
+// to repeat the check live). The AMD and Intel lists were checked the same
+// way on 2026-10-15 against five regions (#228); vendor words no longer
+// depend on these lists (see familyVendors), and GPU/accelerator hosts are
+// listed under their host CPU's codename. Every AZ/storage/
 // network variant suffix (-d, -n, -dn, -a, -e, -flex, -b, -in, -ine, -zn, ...)
 // that shares its parent family's silicon is included explicitly — a prior
 // version of this table only listed the base family, which silently excluded
@@ -40,49 +43,49 @@ var ProcessorDatabase = map[string]ProcessorInfo{
 		Vendor:       "intel",
 		Architecture: "x86_64",
 		Generation:   "5th gen",
-		Families:     []string{"i7i", "i7ie"},
+		Families:     []string{"i7i", "i7ie", "p6-b200"},
 	},
 	"sapphire rapids": {
 		CodeName:     "Sapphire Rapids",
 		Vendor:       "intel",
 		Architecture: "x86_64",
 		Generation:   "4th gen",
-		Families:     []string{"m7i", "c7i", "r7i", "r7iz", "m7i-flex", "c7i-flex", "u7i-6tb", "u7i-8tb", "u7i-12tb", "u7in-16tb", "u7in-24tb", "u7in-32tb"},
+		Families:     []string{"m7i", "c7i", "r7i", "r7iz", "m7i-flex", "c7i-flex", "u7i-6tb", "u7i-8tb", "u7i-12tb", "u7in-16tb", "u7in-24tb", "u7in-32tb", "p5en", "trn2"},
 	},
 	"ice lake": {
 		CodeName:     "Ice Lake",
 		Vendor:       "intel",
 		Architecture: "x86_64",
 		Generation:   "3rd gen",
-		Families:     []string{"m6i", "m6id", "m6idn", "m6in", "c6i", "c6id", "c6in", "r6i", "r6id", "r6idn", "r6in", "x2idn", "x2iedn", "x2iezn"},
+		Families:     []string{"m6i", "m6id", "m6idn", "m6in", "c6i", "c6id", "c6in", "r6i", "r6id", "r6idn", "r6in", "x2idn", "x2iedn", "i4i", "hpc6id", "trn1", "trn1n"},
 	},
 	"cascade lake": {
 		CodeName:     "Cascade Lake",
 		Vendor:       "intel",
 		Architecture: "x86_64",
 		Generation:   "2nd gen",
-		Families:     []string{"m5", "c5", "r5", "m5n", "m5dn", "c5n", "r5n", "r5dn", "m5d", "c5d", "r5d", "r5b"},
+		Families:     []string{"m5", "c5", "r5", "m5n", "m5dn", "c5n", "r5n", "r5dn", "m5d", "c5d", "r5d", "r5b", "m5zn", "x2iezn", "d3", "d3en", "i3en", "t3", "g4dn", "p4d", "p4de", "inf1", "dl2q", "vt1"},
 	},
 	"skylake": {
 		CodeName:     "Skylake",
 		Vendor:       "intel",
 		Architecture: "x86_64",
 		Generation:   "1st gen",
-		Families:     []string{"m5", "c5", "r5", "z1d"},
+		Families:     []string{"m5", "c5", "r5", "z1d", "i3en", "t3", "u-3tb1", "u-6tb1", "p3dn"},
 	},
 	"haswell": {
 		CodeName:     "Haswell",
 		Vendor:       "intel",
 		Architecture: "x86_64",
 		Generation:   "legacy",
-		Families:     []string{"m4", "c4", "r4", "t2", "d2", "i2"},
+		Families:     []string{"m4", "c4", "r4", "t2", "d2", "i2", "x1", "x1e"},
 	},
 	"broadwell": {
 		CodeName:     "Broadwell",
 		Vendor:       "intel",
 		Architecture: "x86_64",
 		Generation:   "legacy",
-		Families:     []string{"m4", "c4", "t2", "d2"},
+		Families:     []string{"m4", "c4", "t2", "d2", "h1", "i3"},
 	},
 	"ivy bridge": {
 		CodeName:     "Ivy Bridge",
@@ -105,7 +108,7 @@ var ProcessorDatabase = map[string]ProcessorInfo{
 		Vendor:       "amd",
 		Architecture: "x86_64",
 		Generation:   "5th gen",
-		Families:     []string{"m8a", "m8azn", "c8a", "r8a"},
+		Families:     []string{"m8a", "m8azn", "c8a", "r8a", "x8aedz", "hpc8a"},
 	},
 	"genoa": {
 		CodeName:     "Genoa",
@@ -126,21 +129,21 @@ var ProcessorDatabase = map[string]ProcessorInfo{
 		Vendor:       "amd",
 		Architecture: "x86_64",
 		Generation:   "3rd gen",
-		Families:     []string{"m6a", "c6a", "r6a", "hpc6a"},
+		Families:     []string{"m6a", "c6a", "r6a", "hpc6a", "g6", "g6e", "g6f", "gr6", "gr6f", "p5", "p5e", "inf2", "f2"},
 	},
 	"rome": {
 		CodeName:     "Rome",
 		Vendor:       "amd",
 		Architecture: "x86_64",
 		Generation:   "2nd gen",
-		Families:     []string{"m5a", "c5a", "r5a", "m5ad", "c5ad", "r5ad"},
+		Families:     []string{"m5a", "c5a", "r5a", "m5ad", "c5ad", "r5ad", "g5"},
 	},
 	"zen 3": {
 		CodeName:     "Zen 3",
 		Vendor:       "amd",
 		Architecture: "x86_64",
 		Generation:   "3rd gen",
-		Families:     []string{"m6a", "c6a", "r6a", "hpc6a"},
+		Families:     []string{"m6a", "c6a", "r6a", "hpc6a", "g6", "g6e", "g6f", "gr6", "gr6f", "p5", "p5e", "inf2", "f2"},
 	},
 	"zen 4": {
 		CodeName:     "Zen 4",
@@ -154,7 +157,7 @@ var ProcessorDatabase = map[string]ProcessorInfo{
 		Vendor:       "amd",
 		Architecture: "x86_64",
 		Generation:   "5th gen",
-		Families:     []string{"m8a", "m8azn", "c8a", "r8a"},
+		Families:     []string{"m8a", "m8azn", "c8a", "r8a", "x8aedz", "hpc8a"},
 	},
 
 	// AWS Graviton processors
@@ -223,9 +226,17 @@ func GetProcessorsByVendor(vendor string) []ProcessorInfo {
 	return processors
 }
 
-// GetFamiliesByVendor returns all instance families for a given vendor
+// GetFamiliesByVendor returns all instance families for a given vendor: every
+// family whose host CPU that vendor makes, by ProcessorInfo.Manufacturer
+// (familyVendors, #228), plus any family a codename entry of that vendor
+// lists.
 func GetFamiliesByVendor(vendor string) []string {
 	familySet := make(map[string]bool)
+	for family, v := range familyVendors {
+		if v == vendor {
+			familySet[family] = true
+		}
+	}
 	for _, info := range ProcessorDatabase {
 		if info.Vendor == vendor {
 			for _, family := range info.Families {

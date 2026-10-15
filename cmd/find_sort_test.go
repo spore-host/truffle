@@ -128,3 +128,25 @@ func TestMinimumSpecHint(t *testing.T) {
 		t.Errorf("no size terms should suppress the hint, got %q", got)
 	}
 }
+
+// TestSortFindResults_TurinDemoClosestFitFirst: with x8aedz in the Turin
+// families (#228), the demo query `find "amd turin 16 cores 64gb"` still
+// leads with the exact fit; x8aedz.6xlarge (24 vCPU, 768 GiB, far from 64 GiB)
+// sorts below the close fits. Prices are us-west-2's on 2026-10-15.
+func TestSortFindResults_TurinDemoClosestFitFirst(t *testing.T) {
+	mk := func(it string, vcpu int32, memGiB int64, price float64) aws.InstanceTypeResult {
+		return aws.InstanceTypeResult{InstanceType: it, Region: "us-west-2", VCPUs: vcpu, MemoryMiB: memGiB * 1024, Architecture: "x86_64", OnDemandPrice: price}
+	}
+	rs := []aws.InstanceTypeResult{
+		mk("x8aedz.6xlarge", 24, 768, 6.9036),
+		mk("r8a.4xlarge", 16, 128, 1.2781),
+		mk("m8a.4xlarge", 16, 64, 0.9738),
+		mk("c8a.8xlarge", 32, 64, 1.7243),
+		mk("m8azn.6xlarge", 24, 96, 2.4775),
+	}
+	sortFindResults(rs, aws.FilterOptions{MinVCPUs: 16, MinMemory: 64}, find.SortDefault)
+	got := types(rs)
+	if got[0] != "m8a.4xlarge@us-west-2" || got[len(got)-1] != "x8aedz.6xlarge@us-west-2" {
+		t.Errorf("order = %v, want m8a.4xlarge first and x8aedz.6xlarge last", got)
+	}
+}

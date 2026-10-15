@@ -65,15 +65,22 @@ func TestLiveSizesHaveACategory(t *testing.T) {
 	}
 }
 
-// TestLiveGravitonFamiliesAreListed: every family whose processor AWS makes
-// is in a Graviton processor entry, and no listed Graviton family is made by
-// someone else (#221). The processor lists can't be derived from the API (it
-// reports the manufacturer, not the Graviton generation), so this is how a
-// new family such as r9g gets noticed.
-func TestLiveGravitonFamiliesAreListed(t *testing.T) {
-	listed := make(map[string]bool)
-	for _, f := range metadata.GetFamiliesByVendor("aws") {
-		listed[f] = true
+// TestLiveVendorFamiliesAreListed: every family whose processor AWS, AMD or
+// Intel makes is selected by that vendor's word, and no family a vendor word
+// selects is made by someone else (#221, #228). Vendor membership is a
+// recorded snapshot of ProcessorInfo.Manufacturer (the API has no codename to
+// derive the processor entries from), so this is how a new family such as
+// r9g or x8aedz gets noticed.
+func TestLiveVendorFamiliesAreListed(t *testing.T) {
+	vendorOf := map[string]string{"AWS": "aws", "AMD": "amd", "Intel": "intel"}
+	listed := make(map[string]string) // family -> vendor word that selects it
+	for _, v := range []string{"aws", "amd", "intel"} {
+		for _, f := range metadata.GetFamiliesByVendor(v) {
+			if prev, ok := listed[f]; ok {
+				t.Errorf("%s is selected by both %q and %q", f, prev, v)
+			}
+			listed[f] = v
+		}
 	}
 	live := make(map[string]string) // family -> manufacturer
 	for _, it := range liveCatalog(t) {
@@ -84,13 +91,17 @@ func TestLiveGravitonFamiliesAreListed(t *testing.T) {
 		}
 	}
 	for family, maker := range live {
-		if maker == "AWS" && !listed[family] {
-			t.Errorf("%s has an AWS (Graviton) processor but is in no Graviton processor entry", family)
+		want, ok := vendorOf[maker]
+		if !ok {
+			continue // e.g. Apple: no vendor word
+		}
+		if got := listed[family]; got != want {
+			t.Errorf("%s has a %s processor but is selected by %q, want %q", family, maker, got, want)
 		}
 	}
-	for family := range listed {
-		if maker, ok := live[family]; ok && maker != "AWS" {
-			t.Errorf("%s is listed as Graviton but its processor is made by %s", family, maker)
+	for family, v := range listed {
+		if maker, ok := live[family]; ok && vendorOf[maker] != v {
+			t.Errorf("%s is selected by %q but its processor is made by %s", family, v, maker)
 		}
 	}
 }
