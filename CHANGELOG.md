@@ -88,6 +88,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   simplifications) are fixed without changing output, and a new `Lint` CI job runs
   `make lint` with golangci-lint pinned to 2.14.0 and its download verified against a
   pinned SHA256. `make lint` warns if your local version differs from the pin.
+- **The inert-flag CI gate now sees flags registered through a local alias, and
+  fails instead of passing when it finds no flags at all** (#214).
+  Contributor-facing only: `f := cmd.Flags(); f.StringVar(...)` registrations
+  were invisible to the gate, so an unread flag registered that way would have
+  shipped unnoticed, and a parser regression that discovered nothing would have
+  reported the package clean. Ported from lagotto's copy of the gate. No
+  existing truffle flag was affected.
 - **`truffle find` lists the closest fit first, not the biggest box** (#187).
   Size terms like `16 cores 64gb` are minimums, and the table re-sorted every
   match largest-first, so `truffle find "amd turin 16 cores 64gb"` opened with a
