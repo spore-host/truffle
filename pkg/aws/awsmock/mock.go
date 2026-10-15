@@ -166,6 +166,9 @@ func (m *Finder) SearchInstanceTypes(_ context.Context, regions []string, matche
 		if opts.MinMemory > 0 && float64(inst.MemoryMiB)/1024.0 < opts.MinMemory {
 			continue
 		}
+		if opts.MinGPUMemory > 0 && !aws.MatchesGPUMemory(inst.AccelMemoryMiB, opts.MinGPUMemory, opts.ExactGPUMemory) {
+			continue
+		}
 		results = append(results, inst)
 	}
 	return results, nil

@@ -61,6 +61,7 @@ truffle spot "c6a*" --sort-by-price --lookback-hours 24
 # AWS_REGION / AWS_DEFAULT_REGION / profile region; all regions if none is set)
 truffle find "h200 8gpu efa"
 truffle find "amd turin 32 cores 64gb" --exact
+truffle find "gpu 24gb"                       # each GPU ≥24 GB; "64gb ram" means host memory
 truffle find graviton --regions us-east-1,us-west-2
 truffle find graviton --all-regions           # every enabled region (slower)
 

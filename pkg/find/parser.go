@@ -58,6 +58,8 @@ const (
 	TokenFamily         // Instance family name (e.g. "g5", "m7i-flex"), #229
 	TokenInstanceSize   // Instance size name that is not a size word (e.g. "xlarge", "2xlarge", "metal-24xl"), #229
 	TokenAccelerator    // Any GPU or accelerator ("gpu", "accelerators"), or one for a use case ("training", "inference"), #233
+	TokenHostMemory     // A memory size marked as host memory ("64gb ram", "64gb memory"), #236
+	TokenGPUMemory      // A memory size marked as per-GPU memory ("24gb vram", "24gb gpu memory"), #236
 )
 
 // Token represents a single classified word from a natural language query.
@@ -81,6 +83,8 @@ type ParsedQuery struct {
 	MinVCPU         int               // Minimum vCPU count; 0 means unconstrained
 	MinPhysCores    int               // Minimum physical core count; 0 means unconstrained
 	MinMemory       float64           // Minimum memory in GiB; 0 means unconstrained
+	MinGPUMemory    float64           // Minimum memory of each GPU or accelerator, in GB as the GPU is sold; 0 means unconstrained (#236)
+	GPUMemoryRead   string            // The bare size ("24gb") a GPU query read as per-GPU memory rather than host memory; empty if none (#236)
 	GPUCount        int               // Minimum number of GPUs; 0 means unconstrained
 	Architecture    string            // "x86_64" or "arm64"; empty means both
 	MinNetworkGbps  int               // Minimum network bandwidth in Gbps; 0 means unconstrained
@@ -192,6 +196,8 @@ func ParseQuery(query string) (*ParsedQuery, error) {
 
 	// Build ParsedQuery
 	pq := &ParsedQuery{RawTokens: tokens}
+	var bareMemory float64
+	var bareMemoryRaw string
 	for _, token := range tokens {
 		switch token.Type {
 		case TokenVendor:
@@ -219,8 +225,18 @@ func ParseQuery(query string) (*ParsedQuery, error) {
 				pq.MinPhysCores = v
 			}
 		case TokenMemory:
+			// A bare size: host memory, or per-GPU memory in a GPU query.
+			// Decided below, once the whole query is known (#236).
+			if v, err := parseMemory(token.Value); err == nil {
+				bareMemory, bareMemoryRaw = v, token.Raw
+			}
+		case TokenHostMemory:
 			if v, err := parseMemory(token.Value); err == nil {
 				pq.MinMemory = v
+			}
+		case TokenGPUMemory:
+			if v, err := parseMemory(token.Value); err == nil {
+				pq.MinGPUMemory = v
 			}
 		case TokenGPUCount:
 			if v, err := strconv.Atoi(token.Value); err == nil {
@@ -247,6 +263,8 @@ func ParseQuery(query string) (*ParsedQuery, error) {
 		}
 	}
 
+	pq.assignBareMemory(bareMemory, bareMemoryRaw)
+
 	// A query none of whose words constrain the search would search, and
 	// price, the whole catalog (#229). If it has words we didn't recognise,
 	// say so instead.
@@ -260,6 +278,37 @@ func ParseQuery(query string) (*ParsedQuery, error) {
 	}
 
 	return pq, nil
+}
+
+// assignBareMemory decides what a size with no "ram" or "vram" after it
+// means (#236). In a query for a GPU or accelerator ("gpu 24gb", "h100
+// 80gb") it is the memory of each GPU, since that is what a GPU's size
+// usually refers to; elsewhere it is host memory, as before. If the query
+// already gives per-GPU memory explicitly ("24gb vram 64gb") the bare size is
+// host memory, and if it already gives host memory ("a10g 64gb ram 24gb")
+// the bare size is per-GPU memory.
+func (pq *ParsedQuery) assignBareMemory(v float64, raw string) {
+	if v <= 0 {
+		return
+	}
+	switch {
+	case pq.MinGPUMemory == 0 && pq.wantsAccelerators():
+		pq.MinGPUMemory = v
+		pq.GPUMemoryRead = raw
+	case pq.MinMemory == 0:
+		pq.MinMemory = v
+	}
+}
+
+// MemoryReadingNote is the one-line note for a query whose bare size was
+// read as per-GPU memory, saying so and how to ask for host memory instead
+// (#236). It is empty otherwise.
+func (pq *ParsedQuery) MemoryReadingNote() string {
+	if pq == nil || pq.GPUMemoryRead == "" {
+		return ""
+	}
+	return fmt.Sprintf("Note: reading %q as memory per GPU (at least %s GB as sold; the VRAM column is in GiB); write \"%s ram\" for host memory",
+		pq.GPUMemoryRead, strconv.FormatFloat(pq.MinGPUMemory, 'f', -1, 64), pq.GPUMemoryRead)
 }
 
 // UnknownTerms returns the query words the parser did not recognise, in
@@ -283,7 +332,7 @@ func (pq *ParsedQuery) hasConstraints() bool {
 	return len(pq.Vendors) > 0 || len(pq.Processors) > 0 || len(pq.GPUs) > 0 ||
 		len(pq.Accelerators) > 0 || len(pq.InstructionSets) > 0 || len(pq.Sizes) > 0 || len(pq.Families) > 0 ||
 		len(pq.InstanceSizes) > 0 || len(pq.Apps) > 0 || pq.MinVCPU > 0 ||
-		pq.MinPhysCores > 0 || pq.MinMemory > 0 || pq.GPUCount > 0 ||
+		pq.MinPhysCores > 0 || pq.MinMemory > 0 || pq.MinGPUMemory > 0 || pq.GPUCount > 0 ||
 		pq.Architecture != "" || pq.MinNetworkGbps > 0 || pq.RequireEFA ||
 		pq.RequireMIG || pq.RequireNestedV
 }
@@ -366,8 +415,9 @@ func classifyTokens(words []string) []Token {
 					tokens = append(tokens, Token{Type: TokenGPUCount, Value: word, Raw: word + " " + next})
 					i++
 				} else if memoryRegex.MatchString(next) || strings.HasSuffix(next, "gb") || strings.HasSuffix(next, "gib") || strings.HasSuffix(next, "g") {
-					tokens = append(tokens, Token{Type: TokenMemory, Value: word + next, Raw: word + next})
-					i++
+					tok, consumed := memoryToken(word+next, words, i+2)
+					tokens = append(tokens, tok)
+					i += 1 + consumed
 				} else {
 					tokens = append(tokens, Token{Type: TokenUnknown, Value: word, Raw: word})
 				}
@@ -377,7 +427,9 @@ func classifyTokens(words []string) []Token {
 				tokens = append(tokens, Token{Type: TokenUnknown, Value: word, Raw: word})
 			}
 		} else if memoryRegex.MatchString(word) {
-			tokens = append(tokens, Token{Type: TokenMemory, Value: word, Raw: word})
+			tok, consumed := memoryToken(word, words, i+1)
+			tokens = append(tokens, tok)
+			i += consumed
 		} else if IsInstanceFamily(word) {
 			// Checked before the hyphen split below, since family names such
 			// as m7i-flex and p6-b200 contain hyphens (#229).
@@ -409,6 +461,34 @@ func classifyTokens(words []string) []Token {
 	}
 
 	return tokens
+}
+
+// memoryToken classifies the memory size by the words that follow it at
+// words[next:] (#236): "ram", "memory", "mem", "host memory" or "host ram"
+// mark host memory ([TokenHostMemory]); "vram", "gpu memory", "gpu mem",
+// "gpu ram" or "per gpu" mark per-GPU memory ([TokenGPUMemory]). With none
+// of these it is a bare [TokenMemory], whose meaning depends on the rest of
+// the query (see assignBareMemory). It returns the token and how many of the
+// following words it consumed.
+func memoryToken(size string, words []string, next int) (Token, int) {
+	at := func(k int) string {
+		if next+k < len(words) {
+			return words[next+k]
+		}
+		return ""
+	}
+	isMem := func(w string) bool { return w == "memory" || w == "mem" || w == "ram" }
+	switch first, second := at(0), at(1); {
+	case isMem(first):
+		return Token{Type: TokenHostMemory, Value: size, Raw: size + " " + first}, 1
+	case first == "host" && isMem(second):
+		return Token{Type: TokenHostMemory, Value: size, Raw: size + " host " + second}, 2
+	case first == "vram":
+		return Token{Type: TokenGPUMemory, Value: size, Raw: size + " vram"}, 1
+	case (first == "gpu" && isMem(second)) || (first == "per" && second == "gpu"):
+		return Token{Type: TokenGPUMemory, Value: size, Raw: size + " " + first + " " + second}, 2
+	}
+	return Token{Type: TokenMemory, Value: size, Raw: size}, 0
 }
 
 // acceleratorWords maps the generic accelerator words to a
@@ -842,9 +922,10 @@ func (pq *ParsedQuery) acceleratorFamilies() []string {
 // wantsAccelerators reports whether the query asks for a GPU or accelerator:
 // a GPU or accelerator name (a10g, h100, nvidia, inferentia, trainium, ...),
 // an accelerator word (gpu, accelerator, training, inference), a GPU count,
-// MIG, or an accelerator family named directly (g5, p5).
+// MIG, per-GPU memory ("24gb vram"), or an accelerator family named directly
+// (g5, p5).
 func (pq *ParsedQuery) wantsAccelerators() bool {
-	if len(pq.GPUs) > 0 || len(pq.Accelerators) > 0 || pq.GPUCount > 0 || pq.RequireMIG {
+	if len(pq.GPUs) > 0 || len(pq.Accelerators) > 0 || pq.GPUCount > 0 || pq.RequireMIG || pq.MinGPUMemory > 0 {
 		return true
 	}
 	for _, f := range pq.Families {

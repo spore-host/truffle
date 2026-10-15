@@ -36,6 +36,12 @@ Understands:
   - Specs: 8 cores, 8 physical cores, 32gb, 4 gpus
     (minimums: results are listed closest fit first, then cheapest — the
     request's exact size leads; add --exact to show only exact matches)
+  - Memory: a bare size is host memory ("amd 16 cores 64gb"), except in a
+    GPU or accelerator query, where it is the memory of each GPU, in GB as
+    the GPU is sold: "gpu 24gb" is A10G, L4 and larger, not the 16 GB T4.
+    Say which you mean with "64gb ram" / "64gb memory" (host) or
+    "24gb vram" / "24gb gpu memory" (per GPU); "a10g 24gb 64gb ram" gives
+    both. find prints a note when it reads a bare size as per-GPU memory.
   - Sizes: tiny, small, medium, large, huge
   - Families and exact sizes: g5, m7i-flex, xlarge, 2xlarge, metal-24xl
     ("g5 xlarge" is g5.xlarge; "g5" alone is every g5 size)
@@ -61,6 +67,8 @@ Examples:
   truffle find "8 physical cores 32gb"        (physical core count)
   truffle find "cheap graviton 8 cores"       (sorted by price)
   truffle find nvidia                         (all NVIDIA GPU instances)
+  truffle find "gpu 24gb"                     (GPUs with at least 24 GB each)
+  truffle find "a10g 64gb ram"                (A10G hosts with ≥64 GiB RAM)
   truffle find "h100 efa"                     (GPU AND network, by default)
   truffle find "h100 or efa"                  (GPU OR network, explicit)
   truffle find avx-512                        (instruction-set search)

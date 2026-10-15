@@ -2,6 +2,8 @@ package find
 
 import (
 	"fmt"
+	"math"
+	"strconv"
 	"strings"
 
 	"github.com/spore-host/truffle/pkg/aws"
@@ -117,6 +119,13 @@ instructionSetDone:
 			reasons = append(reasons,
 				fmt.Sprintf("Memory: %.0f GiB >= %.0f GiB", memGiB, query.MinMemory))
 		}
+	}
+
+	// Check per-GPU memory match (#236)
+	if query.MinGPUMemory > 0 && aws.MatchesGPUMemory(result.AccelMemoryMiB, query.MinGPUMemory, query.ExactMatch) {
+		reasons = append(reasons, fmt.Sprintf("GPU memory: %s GB >= %s GB",
+			strconv.FormatFloat(math.Round(aws.NominalGPUMemoryGB(result.AccelMemoryMiB)), 'f', -1, 64),
+			strconv.FormatFloat(query.MinGPUMemory, 'f', -1, 64)))
 	}
 
 	// Check architecture match

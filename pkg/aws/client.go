@@ -68,6 +68,7 @@ type InstanceTypeResult struct {
 	LogicalGPUs      int32    `json:"logical_gpus,omitempty" yaml:"logical_gpus,omitempty"`                     // Logical GPU devices exposed to the instance (GpuInfo.Gpus[].LogicalGpuCount); equals GPUs for whole-GPU types
 	GPUModel         string   `json:"gpu_model,omitempty" yaml:"gpu_model,omitempty"`                           // GPU model name, e.g. "A100"
 	GPUManufacturer  string   `json:"gpu_manufacturer,omitempty" yaml:"gpu_manufacturer,omitempty"`             // GPU vendor, e.g. "nvidia"
+	AccelMemoryMiB   int64    `json:"accelerator_memory_mib,omitempty" yaml:"accelerator_memory_mib,omitempty"` // Memory of ONE GPU or accelerator device in MiB: the GPU's (as GPUMemoryPerMiB), else a Neuron device's (Inferentia, Trainium), else an inference accelerator's (dl2q); used by the per-GPU memory filter and closest-fit sort (#236)
 	OnDemandPrice    float64  `json:"on_demand_price,omitempty" yaml:"on_demand_price,omitempty"`               // On-demand $/hr; 0 if not yet fetched
 	SpawnSupported   bool     `json:"spawn_supported,omitempty" yaml:"spawn_supported,omitempty"`               // True if spawn can launch instances in this region
 	NestedVirt       bool     `json:"nested_virtualization,omitempty" yaml:"nested_virtualization,omitempty"`   // True if the type supports nested virtualization (KVM/Hyper-V in-instance)
@@ -98,9 +99,11 @@ type FilterOptions struct {
 	MinVCPUs         int     // Minimum vCPU count; 0 disables this filter
 	MinMemory        float64 // Minimum memory in GiB; 0 disables this filter
 	MinPhysicalCores int     // Minimum physical core count; 0 disables this filter
+	MinGPUMemory     float64 // Minimum memory of one GPU or accelerator device, in nominal GB (see NominalGPUMemoryGB); 0 disables this filter (#236)
 	ExactVCPUs       bool    // If true, match exact vCPU count instead of minimum
 	ExactMemory      bool    // If true, match exact memory instead of minimum
 	ExactCores       bool    // If true, match exact physical core count instead of minimum
+	ExactGPUMemory   bool    // If true, match the per-GPU memory size exactly instead of as a minimum
 	InstanceFamily   string  // Restrict to a family prefix, e.g. "m6i"; empty matches all
 	NestedVirt       bool    // If true, only types supporting nested virtualization (KVM/Hyper-V in-instance)
 	Verbose          bool    // If true, log per-region progress to stderr
@@ -677,6 +680,8 @@ func buildResultFromEC2(it types.InstanceTypeInfo, displayType, region string) I
 		}
 	}
 
+	result.AccelMemoryMiB = acceleratorMemoryPerDeviceMiB(it)
+
 	return result
 }
 
@@ -775,6 +780,11 @@ func matchesFilters(it types.InstanceTypeInfo, opts FilterOptions) bool {
 				return false
 			}
 		}
+	}
+
+	// Per-GPU (or per-accelerator) memory filter (#236)
+	if opts.MinGPUMemory > 0 && !MatchesGPUMemory(acceleratorMemoryPerDeviceMiB(it), opts.MinGPUMemory, opts.ExactGPUMemory) {
+		return false
 	}
 
 	// Instance family filter
