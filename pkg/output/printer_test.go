@@ -242,6 +242,15 @@ func TestStripAnsiCodes(t *testing.T) {
 		{"checkmark with color", "us-east-1 \x1b[32m✓\x1b[0m", "us-east-1 ✓"},
 		{"only escape", "\x1b[0m", ""},
 		{"multibyte preserved", "café", "café"},
+		// The terminator scan is a letter-range test; pin both ends of both
+		// ranges and the non-letters just outside them (@ [ ` {), so a rewrite of
+		// the condition (#192) cannot shift a boundary unnoticed.
+		{"terminator A", "\x1b[1Ax", "x"},
+		{"terminator Z", "\x1b[1Zx", "x"},
+		{"terminator a", "\x1b[1ax", "x"},
+		{"terminator z", "\x1b[1zx", "x"},
+		{"non-letters before terminator", "\x1b[@[`{0;9Kx", "x"},
+		{"unterminated escape", "ok\x1b[12;", "ok"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

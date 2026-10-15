@@ -39,6 +39,37 @@ func TestCIGatesFormatting(t *testing.T) {
 	}
 }
 
+// TestCIGatesLint checks that CI runs `make lint` (so the repo's own golangci
+// config, not a CI-only invocation, is what gates) with a golangci-lint whose
+// version AND tarball hash are pinned. `make lint` existed for a long time with
+// nothing running it, and findings accumulated on main until every PR's local
+// run failed for unrelated reasons (#192).
+func TestCIGatesLint(t *testing.T) {
+	data, err := os.ReadFile("../../.github/workflows/ci.yml")
+	if err != nil {
+		t.Fatalf("read ci.yml: %v", err)
+	}
+	step, ok := workflowStep(string(data), "Lint gate")
+	if !ok {
+		t.Fatal("the CI workflow has no 'Lint gate' step; without it lint findings " +
+			"accumulate on main unnoticed (#192)")
+	}
+	if !strings.Contains(step, "make lint") {
+		t.Error("the Lint gate does not run 'make lint'")
+	}
+	install, ok := workflowStep(string(data), "Install golangci-lint")
+	if !ok {
+		t.Fatal("the CI workflow has no 'Install golangci-lint' step")
+	}
+	if !regexp.MustCompile(`VER=\d+\.\d+\.\d+`).MatchString(install) {
+		t.Error("golangci-lint is not pinned to an exact version (VER=X.Y.Z)")
+	}
+	if !regexp.MustCompile(`SHA256=[0-9a-f]{64}`).MatchString(install) ||
+		!strings.Contains(install, "sha256sum -c") {
+		t.Error("the golangci-lint download is not verified against a pinned SHA256")
+	}
+}
+
 // TestActionsArePinnedToSHAs: every `uses:` in a workflow must name a full
 // 40-hex commit SHA with an EXACT `# vX.Y.Z` comment, not a tag and not a bare
 // major.

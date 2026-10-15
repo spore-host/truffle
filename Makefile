@@ -104,9 +104,12 @@ vuln:
 	@echo "✓ No known vulnerabilities"
 
 ## lint: Run linter
+# Keep in step with the version pinned in .github/workflows/ci.yml (Lint job).
+GOLANGCI_LINT_VERSION=2.14.0
 lint:
 	@echo "Running linter..."
-	@which golangci-lint > /dev/null || (echo "golangci-lint not installed. Run: curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $$(go env GOPATH)/bin" && exit 1)
+	@which golangci-lint > /dev/null || (echo "golangci-lint not installed. Run: curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/v$(GOLANGCI_LINT_VERSION)/install.sh | sh -s -- -b $$(go env GOPATH)/bin v$(GOLANGCI_LINT_VERSION)" && exit 1)
+	@golangci-lint version 2>/dev/null | grep -q "version $(GOLANGCI_LINT_VERSION) " || echo "warning: CI pins golangci-lint $(GOLANGCI_LINT_VERSION); local $$(golangci-lint version 2>/dev/null | awk '{print $$4}') may report different findings"
 	golangci-lint run
 
 ## fmt: Format code (rewrites files)
