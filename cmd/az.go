@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"regexp"
@@ -22,12 +23,19 @@ var (
 	azLocalZones   bool // --local-zones flag: restrict results to Local/Wavelength AZs (#164)
 )
 
+// errAZAllRegionsConflict: --az already chooses the regions (those its AZs
+// belong to), so --all-regions contradicts it.
+var errAZAllRegionsConflict = errors.New("--all-regions cannot be combined with --az: --az already selects the regions its zones belong to")
+
 var azCmd = &cobra.Command{
 	Use:   "az [instance-type-pattern]",
 	Short: "Search by availability zone (AZ-first view)",
 	Long: `Search for instance types with an availability zone-first perspective.
 This command prioritizes showing which specific AZs support each instance type,
 making it ideal for multi-AZ deployments and capacity planning.
+
+Searches every enabled region by default, since the point is to compare
+regions; use --regions (or --az, which implies its zones' regions) to narrow.
 
 Examples:
   # Find which AZs have m7i.large
@@ -48,6 +56,7 @@ Examples:
 func init() {
 	rootCmd.AddCommand(azCmd)
 
+	addAllRegionsFlag(azCmd, azRegionDefault)
 	azCmd.Flags().StringSliceVar(&azFilter, "az", []string{}, "Filter by specific availability zones (e.g., us-east-1a,us-west-2b)")
 	azCmd.Flags().IntVar(&minAZCount, "min-az-count", 0, "Minimum number of AZs required per region")
 	azCmd.Flags().BoolVar(&showRegionOnly, "regions-only", false, "Show only regions that meet AZ count requirement")
@@ -87,21 +96,20 @@ func runAZSearch(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to initialize AWS client: %w", err)
 	}
 
-	// Get regions to search (extract from AZ filters if provided)
-	searchRegions := extractRegionsFromAZs(azFilter)
-	if len(searchRegions) == 0 {
-		searchRegions = regions
+	// Resolve regions. --az names the regions to search (its AZs' regions) and
+	// takes precedence over --regions, as before; neither combines with
+	// --all-regions. az defaults to every enabled region: it answers "which
+	// regions have this type in enough AZs?", a cross-region question (#194).
+	explicit := extractRegionsFromAZs(azFilter)
+	if len(explicit) > 0 && allRegions {
+		return errAZAllRegionsConflict
 	}
-
-	// If no regions specified, auto-detect enabled regions (respects SCPs)
-	if len(searchRegions) == 0 {
-		if verbose {
-			fmt.Fprintf(os.Stderr, "%s Fetching enabled AWS regions (respects SCPs)...\n", i18n.Emoji("globe"))
-		}
-		searchRegions, err = awsClient.GetEnabledRegions(ctx)
-		if err != nil {
-			return fmt.Errorf("failed to get regions: %w", err)
-		}
+	if len(explicit) == 0 {
+		explicit = regions
+	}
+	searchRegions, err := commandRegionsFrom(ctx, awsClient, azRegionDefault, explicit)
+	if err != nil {
+		return err
 	}
 
 	if verbose {

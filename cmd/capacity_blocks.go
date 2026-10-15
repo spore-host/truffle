@@ -44,6 +44,9 @@ then 7-day steps to 182). By default the search covers now → the soonest a blo
 of that duration could end; use --start-date / --start-after / --end-by to widen
 or shift the window (blocks can start up to 8 weeks out).
 
+Searches every enabled region by default, since offerings vary by region; use
+--regions to narrow.
+
 For Capacity Blocks you ALREADY own, use 'truffle capacity --blocks' instead.
 
 Examples:
@@ -57,6 +60,7 @@ Examples:
 func init() {
 	rootCmd.AddCommand(capacityBlocksCmd)
 
+	addAllRegionsFlag(capacityBlocksCmd, capacityBlocksRegionDefault)
 	capacityBlocksCmd.Flags().StringVar(&cboInstanceType, "instance-type", "", "Instance type to find offerings for (required, e.g. p5.48xlarge)")
 	capacityBlocksCmd.Flags().IntVar(&cboInstanceCount, "count", 1, "Number of instances in the block")
 	capacityBlocksCmd.Flags().IntVar(&cboDurationHours, "duration-hours", 0, "Capacity Block duration in hours (e.g. 24); use --days for whole days")
@@ -139,12 +143,12 @@ func runCapacityBlocksOfferings(cmd *cobra.Command, args []string) error {
 		return i18n.Te("error.aws_client_init", err)
 	}
 
-	searchRegions := regions
-	if len(searchRegions) == 0 {
-		searchRegions, err = awsClient.GetEnabledRegions(ctx)
-		if err != nil {
-			return i18n.Te("truffle.capacity.error.get_regions_failed", err)
-		}
+	// Resolve regions. capacity-blocks defaults to every enabled region:
+	// offerings are region-gated (#109 saw none in us-east-1 while us-west-2 had
+	// them), so the question is "which region has a block?" (#194).
+	searchRegions, err := commandRegions(ctx, awsClient, capacityBlocksRegionDefault)
+	if err != nil {
+		return err
 	}
 
 	results, err := awsClient.GetCapacityBlockOfferings(ctx, searchRegions, aws.CapacityBlockOfferingOptions{

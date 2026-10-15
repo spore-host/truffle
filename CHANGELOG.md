@@ -25,9 +25,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   finishes in ~4–5 s. A one-line note names the region and points at the new
   flag. `--regions` still overrides it. If no region is configured anywhere,
   `find` keeps the old behaviour and searches every enabled region, saying why.
-  Scripts that relied on the global default should add `--all-regions`. Other
-  commands (`search`, `spot`, `az`, `capacity`, `capacity-blocks`) are unchanged
-  and still default to every enabled region.
+  Scripts that relied on the global default should add `--all-regions`.
+- **`truffle search` now also searches your configured region by default** (#194),
+  matching `find` (it is `find`'s deprecated pattern-only predecessor). A note
+  names the region; `--all-regions` restores the old every-region search, and
+  with no region configured it still searches every enabled region. **This is a
+  behaviour change — release it in a minor version.**
+- **Every multi-region command now takes `--all-regions`, and combining it with
+  `--regions` is an error** (#194). `spot`, `az`, `capacity` and
+  `capacity-blocks` keep every enabled region as their default, because their
+  answer is a cross-region one (the cheapest region, AZ coverage per region,
+  reservations wherever you own them, which region has a block); for them
+  `--all-regions` just says so explicitly. `az --az … --all-regions` is also an
+  error, since `--az` already picks the regions. README has a table of each
+  command's default.
 - **Region searches that report availability zones are faster** (#188). AZ
   offerings are now fetched in one batched call per region instead of one call
   per matching instance type. This affects `find`, `search`, `spot`, and library

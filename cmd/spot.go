@@ -35,6 +35,7 @@ var spotCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(spotCmd)
 
+	addAllRegionsFlag(spotCmd, spotRegionDefault)
 	spotCmd.Flags().Float64Var(&spotMaxPrice, "max-price", 0, "Maximum Spot price per hour (USD)")
 	spotCmd.Flags().BoolVar(&spotShowSavings, "show-savings", false, "Show savings vs On-Demand pricing")
 	spotCmd.Flags().BoolVar(&spotSortByPrice, "sort-by-price", false, "Sort by price (cheapest first)")
@@ -82,17 +83,11 @@ func runSpot(cmd *cobra.Command, args []string) error {
 		return i18n.Te("error.aws_client_init", err)
 	}
 
-	// Get regions to search
-	// If no regions specified, auto-detect enabled regions (respects SCPs)
-	searchRegions := regions
-	if len(searchRegions) == 0 {
-		if verbose {
-			fmt.Fprintf(os.Stderr, "%s %s\n", i18n.Emoji("globe"), i18n.T("truffle.spot.fetching_regions"))
-		}
-		searchRegions, err = awsClient.GetEnabledRegions(ctx)
-		if err != nil {
-			return i18n.Te("truffle.spot.error.get_regions_failed", err)
-		}
+	// Resolve regions. spot defaults to every enabled region: its job is to find
+	// the cheapest region/AZ, and a single region can't answer that (#194).
+	searchRegions, err := commandRegions(ctx, awsClient, spotRegionDefault)
+	if err != nil {
+		return err
 	}
 
 	if verbose {

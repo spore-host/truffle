@@ -73,6 +73,7 @@ var searchCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(searchCmd)
 
+	addAllRegionsFlag(searchCmd, searchRegionDefault)
 	searchCmd.Flags().BoolVar(&skipAZs, "skip-azs", false, "Skip availability zone lookup (faster but less detailed)")
 	searchCmd.Flags().StringVar(&architecture, "architecture", "", "Filter by architecture (x86_64, arm64, i386)")
 	searchCmd.Flags().IntVar(&minVCPUs, "min-vcpu", 0, "Minimum number of vCPUs")
@@ -139,24 +140,11 @@ func runSearch(cmd *cobra.Command, args []string) error {
 		return i18n.Te("error.aws_client_init", err)
 	}
 
-	// Get regions to search
-	// If no regions specified, auto-detect enabled regions (respects SCPs)
-	searchRegions := regions
-	if len(searchRegions) == 0 {
-		if verbose {
-			fmt.Fprintf(os.Stderr, "%s %s\n", i18n.Emoji("globe"), i18n.T("truffle.search.fetching_regions"))
-		}
-		searchRegions, err = awsClient.GetEnabledRegions(ctx)
-		if err != nil {
-			return i18n.Te("truffle.search.error.get_regions_failed", err)
-		}
-
-		// Warn about searching all regions (can be slow)
-		if len(searchRegions) > 10 && outputFormat == "table" {
-			fmt.Fprintf(os.Stderr, "%s Searching across all %d enabled regions (this may take a while)\n",
-				i18n.Emoji("warning"), len(searchRegions))
-			fmt.Fprintf(os.Stderr, "   Tip: Use --regions to limit search (e.g., --regions us-east-1,us-west-2)\n\n")
-		}
+	// Resolve regions: --regions > --all-regions > configured region > all.
+	// search is find's pattern-only predecessor, so it shares find's default (#194).
+	searchRegions, err := commandRegions(ctx, awsClient, searchRegionDefault)
+	if err != nil {
+		return err
 	}
 
 	// Show spinner for non-verbose mode

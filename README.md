@@ -49,11 +49,11 @@ cd truffle && make build && sudo make install
 ## Quick Start
 
 ```bash
-# Search instance types (glob or regex)
+# Search instance types (glob or regex; configured region by default, like find)
 truffle search "m7i*"                         # glob: all m7i sizes
 truffle search "c[6-8]i\.large"               # regex: c6i/c7i/c8i large
 
-# Compare spot prices
+# Compare spot prices (every enabled region by default: the point is the cheapest one)
 truffle spot m7i.large --regions us-east-1 --show-savings
 truffle spot "c6a*" --sort-by-price --lookback-hours 24
 
@@ -99,12 +99,27 @@ truffle find "intel 8 vcpu" -o csv
 | `app list` | Browse application catalog (no credentials needed) |
 | `version` | Show version, build info, and project URL |
 
+### Region scope
+
+Every multi-region command takes `--regions` (pick regions) and `--all-regions`
+(every enabled region); giving both is an error. With neither, the default
+depends on what the command is for:
+
+| Command | Default scope | Why |
+|---------|---------------|-----|
+| `find`, `search` | your configured region (spore config, `AWS_REGION` / `AWS_DEFAULT_REGION`, profile region); all enabled regions if none is set | describing instance types; most people launch in one region |
+| `spot` | all enabled regions | finding the cheapest region/AZ |
+| `az` | all enabled regions (or the regions of `--az` zones) | comparing AZ coverage across regions |
+| `capacity` | all enabled regions | your reservations can be in any region |
+| `capacity-blocks` | all enabled regions | offerings vary by region |
+| `quotas`, `available` | `us-east-1` (single region) | not multi-region by default; use `--regions` |
+
 ### Global Flags
 
 | Flag | Description |
 |------|-------------|
 | `-o, --output` | Output format: `table`, `json`, `yaml`, `csv` |
-| `-r, --regions` | Filter by regions (comma-separated) |
+| `-r, --regions` | Filter by regions (comma-separated); see [Region scope](#region-scope) |
 | `--no-emoji` | Disable emoji in output |
 | `--no-color` | Disable colorized output |
 | `--lang` | Language: `en`, `es`, `fr`, `de`, `ja`, `pt` |

@@ -2,7 +2,12 @@
 
 > **Deprecated:** use 'find' instead — it auto-detects patterns vs natural language queries
 
-Search for instance types across AWS regions.
+Search for instance types by pattern.
+
+Searches your configured region by default (spore config region, AWS_REGION /
+AWS_DEFAULT_REGION, or the profile's region), like find. Use --regions to choose
+regions, or --all-regions to search every enabled region. With no region
+configured, search covers every enabled region.
 
 Supports glob patterns (m7i*, c7?) and regex (c[6-8]i\.large, (p4d|p5)\..*) for flexible matching.
 
@@ -14,6 +19,7 @@ truffle search [instance-type-pattern] [flags]
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
+| `--all-regions` |  | bool |  | Search every enabled region (default: only your configured region, e.g. AWS_REGION or the profile's region) |
 | `--architecture` |  | string |  | Filter by architecture (x86_64, arm64, i386) |
 | `--family` |  | string |  | Filter by instance family (e.g., m5, c5) |
 | `--min-memory` |  | float64 |  | Minimum memory in GiB |
