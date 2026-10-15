@@ -15,13 +15,12 @@ package metadata
 // #228, vendor queries used only the codename lists, so a family nobody had
 // researched (t3a, t3, i4i, m5zn, d3, x8aedz, ...) matched no vendor word.
 //
-// GPU and accelerator hosts are included under their host CPU's maker, by
-// decision: "amd" means "AMD host CPU", which is what AWS reports, so g5, g6
-// and p5 are AMD and p4d, p5en and trn1 are Intel. A vendor query combined
-// with a GPU ("intel h100", "amd a10g") then finds the hosts that have both,
-// and a plain vendor query lists GPU hosts after the cheaper CPU-only types of
-// the same size, since results sort closest fit first, then cheapest. Apple
-// (mac2, mac-m4, ...) has no vendor word and is left out; mac1 is Intel.
+// GPU and accelerator hosts are listed under their host CPU's maker, which is
+// what AWS reports: g5, g6 and p5 are AMD, p4d, p5en and trn1 are Intel. find
+// uses that only when the query also names a GPU or accelerator ("amd a10g"
+// finds g5); a bare vendor word selects CPU-only families (see
+// acceleratorFamilies). Apple (mac2, mac-m4, ...) has no vendor word and is
+// left out; mac1 is Intel.
 var familyVendors = map[string]string{
 	// AMD
 	"c5a": "amd", "c5ad": "amd", "c6a": "amd", "c7a": "amd", "c8a": "amd",
@@ -88,4 +87,29 @@ func VendorOfFamily(family string) string {
 		}
 	}
 	return ""
+}
+
+// acceleratorFamilies is every instance family with a GPU, inference
+// accelerator, Neuron device, FPGA or media accelerator: the families whose
+// DescribeInstanceTypes entry had GpuInfo, InferenceAcceleratorInfo,
+// NeuronInfo, FpgaInfo or MediaAcceleratorInfo in the same five-region
+// snapshot as familyVendors (2026-10-15). TRUFFLE_LIVE_AWS=1 compares it with
+// the live catalog (TestLiveAcceleratorFamilies in pkg/aws).
+//
+// CPU words (vendor, processor codename, instruction set) leave these
+// families out unless the query also names a GPU or accelerator, so
+// `amd 16 cores 64gb` lists CPU-only types while `amd a10g` still finds g5
+// (#228).
+var acceleratorFamilies = map[string]bool{
+	"dl2q": true, "f2": true, "g4dn": true, "g5": true, "g5g": true, "g6": true,
+	"g6e": true, "g6f": true, "g7": true, "g7e": true, "gr6": true, "gr6f": true,
+	"inf1": true, "inf2": true, "p3dn": true, "p4d": true, "p4de": true,
+	"p5": true, "p5e": true, "p5en": true, "p6-b200": true, "p6-b300": true,
+	"trn1": true, "trn1n": true, "trn2": true, "vt1": true,
+}
+
+// IsAcceleratorFamily reports whether family's instances carry a GPU or
+// other accelerator (see acceleratorFamilies).
+func IsAcceleratorFamily(family string) bool {
+	return acceleratorFamilies[family]
 }

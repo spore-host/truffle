@@ -131,11 +131,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Intel families, so `find "amd ..."` never returned t3a, x8aedz or hpc8a and
   `find "intel ..."` never returned t3, i4i, m5zn, d3, h1, i3, x1 and others.
   Vendor membership now comes from DescribeInstanceTypes'
-  `ProcessorInfo.Manufacturer` (recorded across five regions), and GPU and
-  accelerator hosts count under their host CPU's maker: g5, g6 and p5 are AMD,
-  p4d, p5en and trn1 are Intel. So `find "amd a10g"` returns g5, and plain
-  `amd`/`intel` queries list GPU hosts alongside CPU-only types (closest fit
-  first, then cheapest). The codename words gained the families whose CPU is
+  `ProcessorInfo.Manufacturer` (recorded across five regions). CPU words
+  (`amd`, `intel`, `graviton`, codenames such as `milan`, and instruction sets)
+  select CPU-only families: `find "amd 16 cores 64gb"` lists no GPU hosts.
+  When the query also names a GPU or accelerator (`a10g`, `h100`, `nvidia`,
+  `inferentia`, `trainium`, a GPU count, `mig`, or a GPU family such as `g5`),
+  GPU and accelerator hosts count under their host CPU's maker: g5, g6 and p5
+  are AMD, p4d, p5en and trn1 are Intel. So `find "amd a10g"` returns g5 and
+  `find "intel h200"` returns p5en. The accelerator families are those with
+  GPU, inference-accelerator, Neuron, FPGA or media-accelerator info in the
+  same recorded catalog snapshot. The codename words gained the families whose CPU is
   documented: `turin` adds x8aedz and hpc8a (so `find "amd turin 16 cores
   64gb"` also lists x8aedz.6xlarge and up, below the closer fits), `ice lake`
   adds i4i, trn1 and hpc6id, `cascade lake` adds m5zn, d3, g4dn and p4d, and so

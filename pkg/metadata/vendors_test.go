@@ -34,3 +34,21 @@ func TestFamilyVendorsCoverCodenameFamilies(t *testing.T) {
 		}
 	}
 }
+
+func TestIsAcceleratorFamily(t *testing.T) {
+	for f, want := range map[string]bool{
+		"g5": true, "p5en": true, "trn1": true, "inf2": true, "f2": true, "vt1": true, "g5g": true,
+		"m8a": false, "x8aedz": false, "t3": false, "nosuch": false,
+	} {
+		if got := IsAcceleratorFamily(f); got != want {
+			t.Errorf("IsAcceleratorFamily(%q) = %v, want %v", f, got, want)
+		}
+	}
+	// Every accelerator family has a host-CPU vendor, so "amd a10g" style
+	// queries can reach it.
+	for f := range acceleratorFamilies {
+		if familyVendors[f] == "" {
+			t.Errorf("accelerator family %s has no vendor", f)
+		}
+	}
+}
