@@ -418,50 +418,29 @@ func (c *Client) searchInRegion(ctx context.Context, region string, matcher *reg
 	cfg.Region = region
 	client := ec2.NewFromConfig(cfg)
 
-	var results []InstanceTypeResult
-
-	// Optimize: if pattern matches specific instance type(s), use API filter
-	input := &ec2.DescribeInstanceTypesInput{}
-	if specificTypes := extractSpecificTypes(matcher); len(specificTypes) > 0 {
-		input.InstanceTypes = specificTypes
+	describe := func(ctx context.Context, input *ec2.DescribeInstanceTypesInput) ([]types.InstanceTypeInfo, error) {
+		var out []types.InstanceTypeInfo
+		paginator := ec2.NewDescribeInstanceTypesPaginator(client, input)
+		for paginator.HasMorePages() {
+			page, err := paginator.NextPage(ctx)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, page.InstanceTypes...)
+		}
+		return out, nil
 	}
 
-	paginator := ec2.NewDescribeInstanceTypesPaginator(client, input)
+	matched, err := matchingInstanceTypes(ctx, describe, matcher, opts)
+	if err != nil {
+		return nil, err
+	}
 
-	for paginator.HasMorePages() {
-		output, err := paginator.NextPage(ctx)
-		if err != nil {
-			// When the caller searched for specific instance type(s) via the API
-			// filter, a type that simply isn't offered in this region comes back
-			// as InvalidInstanceType / InvalidParameterValue. That's a legitimate
-			// "no match here", not a region failure — returning it as an error
-			// would (post-#63) turn an unavailable-type search into a hard failure
-			// when every searched region lacks the type.
-			if len(input.InstanceTypes) > 0 && isInstanceTypeNotOffered(err) {
-				return nil, nil
-			}
-			return nil, err
-		}
-
-		for _, it := range output.InstanceTypes {
-			instanceType := string(it.InstanceType)
-
-			// Check if matches pattern. A nil matcher means "no pattern
-			// constraint" — every type is eligible (#106).
-			if matcher != nil && !matcher.MatchString(instanceType) {
-				continue
-			}
-
-			// Apply filters
-			if !matchesFilters(it, opts) {
-				continue
-			}
-
-			result := buildResultFromEC2(it, instanceType, region)
-			result.SpawnSupported = spawn.IsSpawnSupported(region)
-
-			results = append(results, result)
-		}
+	results := make([]InstanceTypeResult, 0, len(matched))
+	for _, it := range matched {
+		result := buildResultFromEC2(it, string(it.InstanceType), region)
+		result.SpawnSupported = spawn.IsSpawnSupported(region)
+		results = append(results, result)
 	}
 
 	// Get availability zones if requested — batched, one
@@ -482,6 +461,65 @@ func (c *Client) searchInRegion(ctx context.Context, region string, matcher *reg
 	}
 
 	return results, nil
+}
+
+// describeInstanceTypesFunc fetches every page of one DescribeInstanceTypes
+// request. It is a seam so tests can stand in for EC2.
+type describeInstanceTypesFunc func(ctx context.Context, input *ec2.DescribeInstanceTypesInput) ([]types.InstanceTypeInfo, error)
+
+// matchingInstanceTypes returns the instance types in one region that match
+// matcher and opts, in catalog order.
+//
+// It narrows the DescribeInstanceTypes calls server-side where it can — exact
+// type names, or the filters from describeInputsFor (#195) — but the
+// client-side matcher and matchesFilters checks below are the source of truth
+// and run on every type returned, so server-side narrowing can only save
+// pages, never change the result.
+func matchingInstanceTypes(ctx context.Context, describe describeInstanceTypesFunc, matcher *regexp.Regexp, opts FilterOptions) ([]types.InstanceTypeInfo, error) {
+	var inputs []*ec2.DescribeInstanceTypesInput
+	specificTypes := extractSpecificTypes(matcher)
+	if len(specificTypes) > 0 {
+		// Optimize: if pattern matches specific instance type(s), use API filter
+		inputs = []*ec2.DescribeInstanceTypesInput{{InstanceTypes: specificTypes}}
+	} else {
+		inputs = describeInputsFor(matcher, opts)
+	}
+
+	var matched []types.InstanceTypeInfo
+	seen := make(map[types.InstanceType]bool)
+	for _, input := range inputs {
+		page, err := describe(ctx, input)
+		if err != nil {
+			// When the caller searched for specific instance type(s) via the API
+			// filter, a type that simply isn't offered in this region comes back
+			// as InvalidInstanceType / InvalidParameterValue. That's a legitimate
+			// "no match here", not a region failure — returning it as an error
+			// would (post-#63) turn an unavailable-type search into a hard failure
+			// when every searched region lacks the type.
+			if len(specificTypes) > 0 && isInstanceTypeNotOffered(err) {
+				return nil, nil
+			}
+			return nil, err
+		}
+
+		for _, it := range page {
+			// Inputs split by filter-value limits can't overlap, but be safe.
+			if seen[it.InstanceType] {
+				continue
+			}
+			// Check if matches pattern. A nil matcher means "no pattern
+			// constraint" — every type is eligible (#106).
+			if matcher != nil && !matcher.MatchString(string(it.InstanceType)) {
+				continue
+			}
+			if !matchesFilters(it, opts) {
+				continue
+			}
+			seen[it.InstanceType] = true
+			matched = append(matched, it)
+		}
+	}
+	return matched, nil
 }
 
 // azBatchSize bounds how many instance types go into one
