@@ -17,6 +17,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`truffle quotas` and `truffle available` now check your configured region by
+  default, not us-east-1** (#200). Both answers are per-region, so a user working
+  in us-west-2 was shown quota headroom and obtainability for a region they don't
+  launch in. They now use the same lookup as `find`: the spore.host config
+  region, then `AWS_REGION` / `AWS_DEFAULT_REGION`, then your AWS profile's
+  region. `--region` / `--regions` still override it. us-east-1 is used only when
+  no region is configured anywhere, and a note on stderr says so. (The on-demand
+  price in `available` still comes from the Price List API's us-east-1 endpoint,
+  which it always did; it prices the region being checked.)
 - **`truffle find` now searches your configured region by default, not every
   enabled region** (#188). Previously a bare `truffle find "amd turin 16 cores
   64gb"` fanned out to all 18 enabled regions and took ~42 s; it now searches

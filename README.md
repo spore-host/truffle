@@ -112,7 +112,7 @@ depends on what the command is for:
 | `az` | all enabled regions (or the regions of `--az` zones) | comparing AZ coverage across regions |
 | `capacity` | all enabled regions | your reservations can be in any region |
 | `capacity-blocks` | all enabled regions | offerings vary by region |
-| `quotas`, `available` | `us-east-1` (single region) | not multi-region by default; use `--regions` |
+| `quotas`, `available` | your configured region (same lookup as `find`); `us-east-1` if none is set | quota headroom and obtainability are per-region answers; not multi-region by default, use `--regions` (`available` checks one region) |
 
 ### Global Flags
 

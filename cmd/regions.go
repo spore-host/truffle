@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spore-host/libs/i18n"
+	"github.com/spore-host/truffle/pkg/awscfg"
 )
 
 // Region resolution shared by every multi-region command (#188, #194).
@@ -188,4 +189,46 @@ func commandRegionsFrom(ctx context.Context, client regionClient, def regionDefa
 	}
 	printRegionScope(os.Stderr, def, scope, searchRegions)
 	return searchRegions, nil
+}
+
+// singleRegionFallback is the region quotas and available check when no region
+// flag is given and none is configured anywhere (#200). They query regional
+// APIs (Service Quotas, EC2), so they need some real region; us-east-1 is the
+// documented last resort, never a default that overrides configuration.
+const singleRegionFallback = "us-east-1"
+
+// configuredOrFallbackRegions resolves the regions for commands that check one
+// region by default rather than fanning out (quotas, available; #200):
+//
+//   - explicit regions (--regions / --region) always win;
+//   - otherwise the configured region (spore config, AWS_REGION /
+//     AWS_DEFAULT_REGION, profile region), as find and search use;
+//   - otherwise us-east-1, with fellBack reporting that nothing was configured.
+func configuredOrFallbackRegions(explicit []string, configured string) (searchRegions []string, fellBack bool) {
+	if len(explicit) > 0 {
+		return explicit, false
+	}
+	if configured != "" {
+		return []string{configured}, false
+	}
+	return []string{singleRegionFallback}, true
+}
+
+// printRegionFallback tells the user (on stderr) that no region is configured
+// and the us-east-1 fallback is in use, so a quota or obtainability answer is
+// never silently about a region they don't launch in.
+func printRegionFallback(w io.Writer) {
+	_, _ = fmt.Fprintf(w, "%s No default AWS region configured; using %s. Set AWS_REGION (or a profile/spore config region), or pass --region.\n",
+		i18n.Emoji("warning"), singleRegionFallback)
+}
+
+// configuredRegion returns the default region the shared spore.host / AWS
+// config resolves to, or "" when none is set: the same lookup
+// (*aws.Client).ConfiguredRegion uses.
+func configuredRegion(ctx context.Context) (string, error) {
+	cfg, err := awscfg.Load(ctx, "")
+	if err != nil {
+		return "", err
+	}
+	return cfg.Region, nil
 }

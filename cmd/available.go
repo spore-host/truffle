@@ -36,7 +36,16 @@ Each signal is best-effort: one being unavailable (commonly GetSpotPlacementScor
 which SCPs often deny) is reported as a warning, not a failure — an absent signal is
 never presented as a good one.
 
+Checks one region per run: --region if given, else your configured region (the
+spore config region, then AWS_REGION / AWS_DEFAULT_REGION, then the AWS
+profile's region). Only when no region is configured anywhere does it fall back
+to us-east-1 (and says so). Every signal is regional; the on-demand price comes
+from the AWS Price List API, which is only served from us-east-1 and ap-south-1,
+so that one lookup always goes to us-east-1, but it still prices the region
+being checked.
+
 Examples:
+  truffle available p6-b200.48xlarge
   truffle available p6-b200.48xlarge --region us-east-1
   truffle available p5.48xlarge --region us-west-2 --output json`,
 	Args: cobra.ExactArgs(1),
@@ -53,19 +62,6 @@ func init() {
 func runAvailable(cmd *cobra.Command, args []string) error {
 	instanceType := args[0]
 
-	// One region per invocation: every signal here is region-specific, and the
-	// answer for us-east-1 says nothing about us-west-2 (#109 records us-east-1 with
-	// zero capacity-block offerings while us-west-2 had them for the same type).
-	// Defaults to us-east-1 rather than fanning out across every region, since this
-	// makes several API calls per region.
-	region := "us-east-1"
-	if len(regions) > 0 {
-		region = regions[0]
-		if len(regions) > 1 {
-			fmt.Fprintf(os.Stderr, "Note: 'available' reports one region at a time; using %s.\n", region)
-		}
-	}
-
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
@@ -73,6 +69,8 @@ func runAvailable(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to initialize AWS client: %w", err)
 	}
+
+	region := availableRegion(os.Stderr, regions, awsClient.ConfiguredRegion())
 
 	obt, err := awsClient.Obtainability(ctx, instanceType, region)
 	if err != nil {
@@ -100,6 +98,25 @@ func runAvailable(cmd *cobra.Command, args []string) error {
 	default:
 		return printObtainability(os.Stdout, obt)
 	}
+}
+
+// availableRegion picks the one region `truffle available` reports on (#200).
+// Every signal is region-specific, and the answer for us-east-1 says nothing
+// about us-west-2 (#109 records us-east-1 with zero capacity-block offerings
+// while us-west-2 had them for the same type), so it checks a single region:
+// the first --region given, else the configured region, else us-east-1 as a
+// last resort. It doesn't fan out, since it makes several API calls per region.
+// Notes about the choice go to w (stderr).
+func availableRegion(w io.Writer, explicit []string, configured string) string {
+	candidates, fellBack := configuredOrFallbackRegions(explicit, configured)
+	region := candidates[0]
+	if len(candidates) > 1 {
+		_, _ = fmt.Fprintf(w, "Note: 'available' reports one region at a time; using %s.\n", region)
+	}
+	if fellBack {
+		printRegionFallback(w)
+	}
+	return region
 }
 
 // printObtainability renders the human-facing report. Each line states the signal
