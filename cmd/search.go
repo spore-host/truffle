@@ -98,7 +98,9 @@ func init() {
 	_ = searchCmd.RegisterFlagCompletionFunc("family", completeInstanceFamily)
 }
 
-func runSearch(cmd *cobra.Command, args []string) error {
+func runSearch(cmd *cobra.Command, args []string) (err error) {
+	defer func() { silenceUsageOnPricingTimeout(cmd, err) }()
+
 	pattern := args[0]
 
 	service, err := validateServiceFlag(searchService)
@@ -198,36 +200,32 @@ func runSearch(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Populate on-demand pricing if requested. SageMaker ml.* types are priced
-	// under a distinct offer (AmazonSageMaker) with a management premium, so they
-	// use a separate pricer keyed on the ml.*-prefixed name.
-	if searchShowPrice {
-		for idx := range results {
-			var price float64
-			if service == "sagemaker" {
-				price, _ = awsClient.SageMakerPrice(ctx, results[idx].InstanceType, results[idx].Region)
-			} else {
-				price, _ = awsClient.OnDemandPrice(ctx, results[idx].InstanceType, results[idx].Region)
-			}
-			results[idx].OnDemandPrice = price
-		}
-	}
-
-	// --pick-first: output just the instance type of the top result and exit
+	// --pick-first: output just the instance type of the top result and exit.
+	// The order above does not involve price, so no prices are needed.
 	if searchPickFirst {
 		fmt.Println(results[0].InstanceType)
 		return nil
 	}
 
+	// Populate on-demand pricing if requested: deduped and concurrent
+	// (truffle#210). SageMaker ml.* types are priced under a distinct offer
+	// (AmazonSageMaker) with a management premium, so they use a separate
+	// pricer keyed on the ml.*-prefixed name.
+	var pricingErr error
+	if searchShowPrice {
+		pricingErr = reportPricing(priceResults(ctx, awsClient, results, nil, service), timeout)
+	}
+
 	// Output results
 	printer := output.NewPrinter(useColor())
+	var printErr error
 	switch outputFormat {
 	case "json":
-		return printer.PrintJSON(results)
+		printErr = printer.PrintJSON(results)
 	case "yaml":
-		return printer.PrintYAML(results)
+		printErr = printer.PrintYAML(results)
 	case "csv":
-		return printer.PrintCSV(results)
+		printErr = printer.PrintCSV(results)
 	case "table":
 		opts := output.TableOptions{
 			IncludeAZs:    !skipAZs,
@@ -241,12 +239,16 @@ func runSearch(cmd *cobra.Command, args []string) error {
 		if !skipAZs {
 			opts.LocalZoneAZs = classifyLocalZoneAZs(ctx, awsClient, results)
 		}
-		return printer.PrintTableWithOptions(results, opts)
+		printErr = printer.PrintTableWithOptions(results, opts)
 	default:
 		return i18n.Te("truffle.search.error.unsupported_format", nil, map[string]interface{}{
 			"Format": outputFormat,
 		})
 	}
+	if printErr != nil {
+		return printErr
+	}
+	return pricingErr
 }
 
 // patternToRegex converts a user pattern to a regex. If the pattern contains

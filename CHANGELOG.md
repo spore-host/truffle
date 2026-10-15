@@ -15,6 +15,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   commit and build date, without the network update check, so it is safe in
   scripts.
 
+- **`Client.OnDemandPrices` and `Client.SageMakerPrices`** (#210), for library
+  callers that price a whole result set: they take a list of
+  `PriceKey{InstanceType, Region}`, look each distinct key up once, run at most
+  `PriceLookupConcurrency` (4) Price List requests at a time, and return a
+  `PriceQuote` (price, source, error) per key. With the default pricer a type
+  wanted in several regions costs one Price List request for all of them. A key
+  left unpriced because the context ended carries the context error and is not
+  filled from the static table.
+
 ### Changed
 
 - **`truffle quotas` and `truffle available` now check your configured region by
@@ -74,6 +83,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hide them. It still parses, prints a deprecation notice, and will be removed.
 
 ### Fixed
+
+- **`truffle find` no longer times out pricing a cross-region search, and a
+  pricing timeout is now an error** (#210). `find` looked up the on-demand price
+  one row at a time, so `find "graviton 8 cores 32gb" --all-regions` (3161 rows)
+  ran into the 5-minute `--timeout`, exited 0, and left 516 rows without a price,
+  some described only as "may be out of date". Prices are now looked up once per
+  type and region, a few at a time, with one Price List request per type across
+  every region. Measured against real AWS (us-west-2 configured, 18 regions):
+
+  | query | rows | before | after |
+  |---|---|---|---|
+  | `amd turin 16 cores 64gb` (configured region) | 28 | 4.9 s | 2.7 s |
+  | `amd turin 16 cores 64gb --all-regions` | 184 | 29.6 s | 8.7 s |
+  | `nvidia --all-regions` | 641 | 83.7 s | 19.6 s |
+  | `graviton 8 cores 32gb --all-regions` | 3161 | 300 s (timed out, 516 unpriced) | ~45–50 s (all priced) |
+
+  The rows and their order are unchanged for the queries that used to finish.
+  If the deadline does expire while pricing, `find` still prints the results,
+  shows N/A for the rows it never priced (rather than a static-table price), and
+  exits 1 with `on-demand pricing timed out after …: no price for N of M rows`.
+  Rows AWS publishes no price for get a one-line note instead of nothing.
+  `--pick-first` now prices only the types that can still come first once price
+  breaks a tie (the graviton query above: 300 s to 16 s), and `--local-zones`
+  drops rows before pricing them. The pattern path (`find "m7i*" --show-price`)
+  and `truffle search --show-price` use the same lookup, and `--pick-first`
+  there no longer prices anything, since their order does not use price.
 
 - **No spinner frames when output isn't a terminal** (#189). Piping or
   redirecting `truffle find`/`search` (e.g. `2>&1 | cat`, a log file, CI) used

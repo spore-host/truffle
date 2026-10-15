@@ -119,7 +119,9 @@ func init() {
 	findCmd.Flags().BoolVar(&findShowGPURatios, "show-gpu-ratios", false, "Add vCPU/GPU and RAM/GPU columns for GPU instance types (decisive for CPU/IO-bound ML workloads)")
 }
 
-func runFind(cmd *cobra.Command, args []string) error {
+func runFind(cmd *cobra.Command, args []string) (err error) {
+	defer func() { silenceUsageOnPricingTimeout(cmd, err) }()
+
 	// --local-zones filters on AZ data, so it can't coexist with --skip-azs
 	// (which suppresses that data). Reject the contradiction with a clear error
 	// rather than silently overriding either flag (#164).
@@ -253,39 +255,42 @@ func runFind(cmd *cobra.Command, args []string) error {
 		results, err = client.SearchInstanceTypes(ctx, searchRegions, criteria.InstanceTypePattern, criteria.FilterOptions)
 	}
 
-	if spinner != nil {
-		spinner.Stop()
-	}
-
 	if err != nil {
+		if spinner != nil {
+			spinner.Stop()
+		}
 		return i18n.Te("truffle.search.error.search_failed", err)
 	}
 
-	// Populate on-demand pricing. SageMaker ml.* types are priced under a
-	// distinct offer (AmazonSageMaker) with a management premium, so they use a
-	// separate pricer keyed on the ml.*-prefixed name.
-	//
-	// A rate that came from the embedded fallback table instead of the live Price
-	// List is flagged once below rather than per row: it is a real published rate
-	// but may be stale, and a reader comparing costs should know which numbers are
-	// current (#114).
-	staticPriced := 0
-	for idx := range results {
-		var price float64
-		if service == "sagemaker" {
-			price, _ = client.SageMakerPrice(ctx, results[idx].InstanceType, results[idx].Region)
-		} else {
-			var src aws.PriceSource
-			price, src, _ = client.OnDemandPriceWithSource(ctx, results[idx].InstanceType, results[idx].Region)
-			if src == aws.PriceSourceStatic {
-				staticPriced++
-			}
-		}
-		results[idx].OnDemandPrice = price
+	// Classify Local/Wavelength zones so the AZ column can label them (#164).
+	// Skipped implicitly when --skip-azs left results without AZ data.
+	localZones := classifyLocalZoneAZs(ctx, client, results)
+
+	// --local-zones: restrict results to Local/Wavelength AZs, dropping any type
+	// with no edge-zone availability (#164). Applied before pricing, so dropped
+	// rows are not priced, and before --pick-first so the top result reflects
+	// the filter. Filtering keeps the order, so doing it before the sort below
+	// gives the same rows in the same order as doing it after.
+	searched := len(results)
+	if findLocalZones {
+		results = filterToLocalZones(results, localZones)
 	}
-	if staticPriced > 0 {
-		fmt.Fprintf(os.Stderr, "%s On-demand price for %d of %d %s from truffle's built-in table, not the live AWS Price List — it may be out of date.\n",
-			i18n.Symbol("warning"), staticPriced, len(results), pluralize(staticPriced, "type is", "types are"))
+
+	// Populate on-demand pricing. The table and the machine formats show a
+	// price on every row, and closest-fit and price sorts use it, so every row
+	// is priced — except under --pick-first, which prints one type and needs
+	// prices only for the types that can still win once price breaks the tie.
+	// Lookups are deduped and run concurrently, one Price List request per
+	// type across regions (truffle#210). SageMaker ml.* types are priced under
+	// a distinct offer (AmazonSageMaker) with a management premium.
+	var want map[string]bool
+	if findPickFirst {
+		want = pickFirstPriceCandidates(results, criteria.FilterOptions, sortPref)
+	}
+	priced := priceResults(ctx, client, results, want, service)
+
+	if spinner != nil {
+		spinner.Stop()
 	}
 
 	// Order results closest-fit first (truffle#187), or by the qualitative
@@ -297,28 +302,24 @@ func runFind(cmd *cobra.Command, args []string) error {
 		if ctx.Err() != nil {
 			fmt.Fprintf(os.Stderr, "%s Request timed out after %s. Results may be incomplete.\n    Try increasing --timeout or narrowing --regions.\n", i18n.Symbol("warning"), findTimeout)
 		}
+		if searched > 0 {
+			fmt.Fprintln(os.Stderr, "No instances match your query in any Local or Wavelength zone")
+			return nil
+		}
 		fmt.Fprintln(os.Stderr, "No instances match your query")
 		printSuggestions(query)
 		return nil
 	}
 
-	// Classify Local/Wavelength zones so the AZ column can label them (#164).
-	// Skipped implicitly when --skip-azs left results without AZ data.
-	localZones := classifyLocalZoneAZs(ctx, client, results)
-
-	// --local-zones: restrict results to Local/Wavelength AZs, dropping any type
-	// with no edge-zone availability (#164). Applied before --pick-first so the
-	// top result reflects the filter.
-	if findLocalZones {
-		results = filterToLocalZones(results, localZones)
-		if len(results) == 0 {
-			fmt.Fprintln(os.Stderr, "No instances match your query in any Local or Wavelength zone")
-			return nil
-		}
-	}
+	// A pricing timeout is an error, reported after the results so the rows
+	// that were priced are still shown (their missing prices read N/A).
+	pricingErr := reportPricing(priced, findTimeout)
 
 	// --pick-first: output just the instance type of the top result and exit
 	if findPickFirst {
+		if pricingErr != nil {
+			return pricingErr
+		}
 		fmt.Println(results[0].InstanceType)
 		return nil
 	}
@@ -343,7 +344,7 @@ func runFind(cmd *cobra.Command, args []string) error {
 			fmt.Fprintln(os.Stderr, hint)
 		}
 	}
-	return nil
+	return pricingErr
 }
 
 func printParsedQuery(query *find.ParsedQuery) {
@@ -716,36 +717,32 @@ func runSearchWithPatternDisplay(regexPattern, display, service string) error {
 		}
 	}
 
-	// Show the $/hr column when the user asks (--show-price), and always for
-	// SageMaker ml.* types — those are priced under a distinct offer
-	// (AmazonSageMaker) with a management premium, so the pattern path shows that
-	// rate rather than a bare EC2 price.
-	showPrice := findShowPrice || service == "sagemaker"
-	if showPrice {
-		for idx := range results {
-			var price float64
-			if service == "sagemaker" {
-				price, _ = awsClient.SageMakerPrice(ctx, results[idx].InstanceType, results[idx].Region)
-			} else {
-				price, _ = awsClient.OnDemandPrice(ctx, results[idx].InstanceType, results[idx].Region)
-			}
-			results[idx].OnDemandPrice = price
-		}
-	}
-
+	// --pick-first prints only a type name, and this path orders by generation
+	// and name, not price, so it needs no prices at all.
 	if findPickFirst {
 		fmt.Println(results[0].InstanceType)
 		return nil
 	}
 
+	// Show the $/hr column when the user asks (--show-price), and always for
+	// SageMaker ml.* types — those are priced under a distinct offer
+	// (AmazonSageMaker) with a management premium, so the pattern path shows that
+	// rate rather than a bare EC2 price. Lookups are deduped and concurrent (#210).
+	showPrice := findShowPrice || service == "sagemaker"
+	var pricingErr error
+	if showPrice {
+		pricingErr = reportPricing(priceResults(ctx, awsClient, results, nil, service), findTimeout)
+	}
+
 	printer := output.NewPrinter(useColor())
+	var printErr error
 	switch outputFormat {
 	case "json":
-		return printer.PrintJSON(results)
+		printErr = printer.PrintJSON(results)
 	case "yaml":
-		return printer.PrintYAML(results)
+		printErr = printer.PrintYAML(results)
 	case "csv":
-		return printer.PrintCSV(results)
+		printErr = printer.PrintCSV(results)
 	case "table":
 		// findPriceUnit is validated in runFind before this path is reached.
 		priceUnit, _ := validatePriceUnitFlag(findPriceUnit)
@@ -759,10 +756,14 @@ func runSearchWithPatternDisplay(regexPattern, display, service string) error {
 			PriceUnit:     priceUnit,
 			LocalZoneAZs:  localZones,
 		}
-		return printer.PrintTableWithOptions(results, opts)
+		printErr = printer.PrintTableWithOptions(results, opts)
 	default:
 		return fmt.Errorf("unsupported output format: %s", outputFormat)
 	}
+	if printErr != nil {
+		return printErr
+	}
+	return pricingErr
 }
 
 // fitDistance scores how far an instance type overshoots the requested
