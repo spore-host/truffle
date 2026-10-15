@@ -11,6 +11,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/servicequotas v1.43.0
 	github.com/aws/smithy-go v1.28.2
 	github.com/fatih/color v1.19.0
+	github.com/mattn/go-isatty v0.0.24
 	github.com/olekukonko/tablewriter v1.1.5
 	github.com/scttfrdmn/substrate v0.120.0
 	github.com/spf13/cobra v1.10.2
@@ -45,7 +46,6 @@ require (
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.30.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
-	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/mattn/go-runewidth v0.0.19 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/nicksnyder/go-i18n/v2 v2.4.1 // indirect

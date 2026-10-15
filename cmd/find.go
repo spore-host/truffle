@@ -510,7 +510,7 @@ func printSuggestions(query *find.ParsedQuery) {
 }
 
 func printFindResults(results []find.FindResult, localZones map[string]bool) error {
-	printer := output.NewPrinter(!noColor)
+	printer := output.NewPrinter(useColor())
 
 	switch outputFormat {
 	case "json":
@@ -780,7 +780,7 @@ func runSearchWithPatternDisplay(regexPattern, display, service string) error {
 		return nil
 	}
 
-	printer := output.NewPrinter(!noColor)
+	printer := output.NewPrinter(useColor())
 	switch outputFormat {
 	case "json":
 		return printer.PrintJSON(results)

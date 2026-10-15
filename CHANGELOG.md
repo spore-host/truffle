@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`truffle --version`** (#189). The conventional flag (and what package
+  managers' test blocks try) used to fail with `unknown flag: --version`; only
+  the `truffle version` subcommand worked. It now prints the same version, git
+  commit and build date, without the network update check, so it is safe in
+  scripts.
+
 ### Security
 
 - **Rebuilt against Go 1.26.9 and `golang.org/x/net` v0.60.0** for the Go
@@ -16,6 +24,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Go pin moves 1.26.8 → 1.26.9 in all workflows.
 
 ### Fixed
+
+- **No spinner frames when output isn't a terminal** (#189). Piping or
+  redirecting `truffle find`/`search` (e.g. `2>&1 | cat`, a log file, CI) used
+  to write every animation frame — hundreds of `⠋ Finding … ⠙ …` updates ahead
+  of the table. Off a terminal, or with `TERM=dumb`, the progress message is now
+  printed once as a single plain line. Colour in tables and `truffle quotas` is
+  likewise off when stdout isn't a terminal, when `NO_COLOR` is set, or with
+  `TERM=dumb`, as well as with `--no-color`.
 
 - **A throttled Price List no longer refuses a Graviton launch that carries a cost
   limit** (#175). The static fallback required an exact `(region, instanceType)`

@@ -213,7 +213,7 @@ func runSpot(cmd *cobra.Command, args []string) error {
 	}
 
 	// Output results
-	printer := output.NewPrinter(!noColor)
+	printer := output.NewPrinter(useColor())
 	switch outputFormat {
 	case "json":
 		return printer.PrintSpotJSON(spotResults)

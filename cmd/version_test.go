@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"os"
 	"strings"
 	"testing"
@@ -160,4 +161,27 @@ func TestGoreleaserInjectsTheVersionVariables(t *testing.T) {
 // original so cleanup happens even if the test fails partway through.
 func restore(field *string, original string) func() {
 	return func() { *field = original }
+}
+
+// TestRootVersionFlag is the regression test for #189: `truffle --version`
+// returned "unknown flag: --version". It must work and report the same version
+// string as `truffle version`, offline.
+func TestRootVersionFlag(t *testing.T) {
+	var buf bytes.Buffer
+	rootCmd.SetOut(&buf)
+	rootCmd.SetArgs([]string{"--version"})
+	t.Cleanup(func() {
+		rootCmd.SetOut(nil)
+		rootCmd.SetArgs(nil)
+	})
+
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("truffle --version: %v", err)
+	}
+	got := buf.String()
+	commit, date := versionDetail()
+	want := "truffle " + version() + "\nGit Commit: " + commit + "\nBuild Date: " + date + "\n"
+	if got != want {
+		t.Errorf("truffle --version printed %q, want %q", got, want)
+	}
 }

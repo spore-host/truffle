@@ -237,7 +237,7 @@ func displayRegionQuotas(region string, info *quotas.QuotaInfo, filterFamily str
 	}
 
 	var applyGreen, applyYellow, applyRed func(a ...interface{}) string
-	if noColor {
+	if !useColor() {
 		id := func(a ...interface{}) string {
 			if len(a) > 0 {
 				return fmt.Sprint(a[0])

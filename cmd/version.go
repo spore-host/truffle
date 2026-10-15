@@ -42,6 +42,16 @@ func versionDetail() (commit, date string) {
 	return commit, date
 }
 
+// versionTemplate is the cobra template for `truffle --version`. It carries the
+// same Version / Git Commit / Build Date as `truffle version`, but stays offline
+// (no update check) so it is safe in package-manager test blocks and scripts.
+// The commit and date are baked in as literals; they are hex/RFC 3339 strings,
+// so they never contain template delimiters.
+func versionTemplate() string {
+	commit, date := versionDetail()
+	return fmt.Sprintf("truffle {{.Version}}\nGit Commit: %s\nBuild Date: %s\n", commit, date)
+}
+
 func firstNonEmpty(vals ...string) string {
 	for _, v := range vals {
 		if s := strings.TrimSpace(v); s != "" {

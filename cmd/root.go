@@ -5,12 +5,21 @@ import (
 	"log"
 	"os"
 
+	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 	"github.com/spore-host/libs/i18n"
 	"github.com/spore-host/libs/update"
 	"github.com/spore-host/truffle/pkg/awscfg"
 	"github.com/spore-host/truffle/pkg/buildinfo"
+	"github.com/spore-host/truffle/pkg/progress"
 )
+
+// useColor reports whether table/text output on stdout may be colourised:
+// not when --no-color is given, NO_COLOR is set, TERM=dumb, or stdout is not a
+// terminal (piped, redirected, CI) (#189).
+func useColor() bool {
+	return !noColor && progress.ColorAllowed(os.Stdout)
+}
 
 var (
 	// Global flags
@@ -101,6 +110,10 @@ func init() {
 	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
 		ensureI18nInitialized()
 
+		// Make every fatih/color call — including ones that don't consult the
+		// Printer's useColor — obey --no-color / NO_COLOR / TERM=dumb / non-TTY.
+		color.NoColor = !useColor()
+
 		// Merge --region (singular alias) into --regions for backward compatibility
 		regionFlag := rootCmd.PersistentFlags().Lookup("region")
 		if regionFlag != nil && regionFlag.Changed {
@@ -157,6 +170,12 @@ func init() {
 	// (Region is truffle's per-request --regions, not a single default here.)
 	rootCmd.PersistentFlags().StringVar(&sharedProfile, "profile", "", "AWS named profile (overrides SPORE_PROFILE/AWS_PROFILE and the shared config)")
 	rootCmd.PersistentFlags().StringVar(&sharedAccount, "account", "", "Expected AWS account ID (optional guard)")
+
+	// `truffle --version`, the conventional spelling, alongside `truffle version`
+	// (#189). Same version string; the template mirrors the subcommand's first
+	// line without the network update check.
+	rootCmd.Version = version()
+	rootCmd.SetVersionTemplate(versionTemplate())
 
 	// Enable shell completion for all supported shells
 	rootCmd.CompletionOptions.DisableDefaultCmd = false
