@@ -1,12 +1,12 @@
 package aws
 
 import (
-	"os"
-	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/aws/retry"
+	"github.com/aws/aws-sdk-go-v2/service/pricing"
+	"github.com/aws/smithy-go"
 )
 
 // TestPricingClientRetriesThrottlingHarderThanTheSDKDefault is truffle#175.
@@ -59,39 +59,35 @@ func TestPricingClientRetriesThrottlingHarderThanTheSDKDefault(t *testing.T) {
 }
 
 // TestPricingRetryerIsInstalledOnTheClientConfig: the constant is inert unless
-// ensureClient actually applies it. Asserted at the source level because the
-// built *pricing.Client does not expose its retryer.
+// the clients actually use it. Both Price List pricers — EC2 on-demand and
+// SageMaker — must build a client whose retryer allows pricingMaxAttempts and
+// that talks to a Price List endpoint, whatever region the caller's config
+// names (#175, #219: the SageMaker pricer used the SDK's 3-attempt default).
 func TestPricingRetryerIsInstalledOnTheClientConfig(t *testing.T) {
-	src := readSourceForTest(t, "pricing.go")
-	i := strings.Index(src, "func (p *awsOnDemandPricer) ensureClient()")
-	if i < 0 {
-		t.Fatal("ensureClient not found; this gate would pass vacuously")
+	for _, region := range []string{"", "us-east-1", "us-west-2", "ap-south-1"} {
+		clients := map[string]*pricing.Client{
+			"ec2":       newAWSOnDemandPricer(aws.Config{Region: region}).ensureClient(),
+			"sagemaker": newAWSSageMakerPricer(aws.Config{Region: region}).ensureClient(),
+		}
+		wantRegion := "us-east-1"
+		if region == "ap-south-1" {
+			wantRegion = region
+		}
+		for name, c := range clients {
+			o := c.Options()
+			if o.Retryer == nil {
+				t.Fatalf("%s pricer (region %q): client has no retryer", name, region)
+			}
+			if got := o.Retryer.MaxAttempts(); got != pricingMaxAttempts {
+				t.Errorf("%s pricer (region %q): retryer allows %d attempts, want pricingMaxAttempts (%d)",
+					name, region, got, pricingMaxAttempts)
+			}
+			if !o.Retryer.IsErrorRetryable(&smithy.GenericAPIError{Code: "ThrottlingException"}) {
+				t.Errorf("%s pricer: retryer does not retry ThrottlingException", name)
+			}
+			if o.Region != wantRegion {
+				t.Errorf("%s pricer (region %q): Price List endpoint region %q, want %q", name, region, o.Region, wantRegion)
+			}
+		}
 	}
-	j := strings.Index(src[i:], "\n}\n")
-	body := src[i : i+j]
-
-	if !strings.Contains(body, "cfg.Retryer") {
-		t.Error("ensureClient does not set cfg.Retryer, so pricingMaxAttempts is never " +
-			"applied and the SDK's 3-attempt default still governs (#175)")
-	}
-	if !strings.Contains(body, "pricingMaxAttempts") {
-		t.Error("ensureClient does not reference pricingMaxAttempts")
-	}
-	// Order matters: the retryer must be set BEFORE NewFromConfig copies the config.
-	if strings.Index(body, "cfg.Retryer") > strings.Index(body, "pricing.NewFromConfig") {
-		t.Error("cfg.Retryer is set after pricing.NewFromConfig, so the client is built " +
-			"with the default retryer and the setting has no effect")
-	}
-}
-
-// readSourceForTest reads a file in this package so a gate can assert on source
-// structure the built type does not expose (here: whether a retryer is wired
-// onto the client config at all).
-func readSourceForTest(t *testing.T, name string) string {
-	t.Helper()
-	b, err := os.ReadFile(name)
-	if err != nil {
-		t.Fatalf("read %s: %v", name, err)
-	}
-	return string(b)
 }

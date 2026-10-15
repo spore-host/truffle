@@ -224,23 +224,32 @@ const pricingMaxAttempts = 8
 
 func (p *awsOnDemandPricer) ensureClient() *pricing.Client {
 	if p.client == nil {
-		cfg := p.cfg
-		// The Price List API has only two endpoints; us-east-1 is the canonical one.
-		if cfg.Region == "" || (cfg.Region != "us-east-1" && cfg.Region != "ap-south-1") {
-			cfg.Region = "us-east-1"
-		}
-		// Retry ThrottlingException harder than the SDK default (truffle#175).
-		// retry.NewStandard already treats throttling as retryable and applies
-		// exponential backoff with jitter; the default attempt budget is simply too
-		// small for a concurrently-launched fan-out.
-		cfg.Retryer = func() aws.Retryer {
-			return retry.NewStandard(func(o *retry.StandardOptions) {
-				o.MaxAttempts = pricingMaxAttempts
-			})
-		}
-		p.client = pricing.NewFromConfig(cfg)
+		p.client = newPriceListClient(p.cfg)
 	}
 	return p.client
+}
+
+// newPriceListClient builds the Price List API client both pricers use (EC2
+// on-demand and SageMaker), so they share one endpoint choice and one retry
+// policy (#219).
+//
+// The Price List API has only two endpoints; us-east-1 is the canonical one,
+// and it prices every region. Throttling is retried harder than the SDK
+// default (truffle#175): retry.NewStandard already treats throttling as
+// retryable and applies exponential backoff with jitter, but the default
+// attempt budget of 3 is too small for a concurrently-launched fan-out, or for
+// find pricing PriceLookupConcurrency types at once. The retryer is set on the
+// config before NewFromConfig copies it.
+func newPriceListClient(cfg aws.Config) *pricing.Client {
+	if cfg.Region == "" || (cfg.Region != "us-east-1" && cfg.Region != "ap-south-1") {
+		cfg.Region = "us-east-1"
+	}
+	cfg.Retryer = func() aws.Retryer {
+		return retry.NewStandard(func(o *retry.StandardOptions) {
+			o.MaxAttempts = pricingMaxAttempts
+		})
+	}
+	return pricing.NewFromConfig(cfg)
 }
 
 func (p *awsOnDemandPricer) OnDemandPrice(ctx context.Context, instanceType, region string) (float64, error) {
