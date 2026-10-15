@@ -198,7 +198,8 @@ func commandRegionsFrom(ctx context.Context, client regionClient, def regionDefa
 const singleRegionFallback = "us-east-1"
 
 // configuredOrFallbackRegions resolves the regions for commands that check one
-// region by default rather than fanning out (quotas, available; #200):
+// region by default rather than fanning out (quotas, available, list; #200,
+// #202):
 //
 //   - explicit regions (--regions / --region) always win;
 //   - otherwise the configured region (spore config, AWS_REGION /
@@ -212,6 +213,22 @@ func configuredOrFallbackRegions(explicit []string, configured string) (searchRe
 		return []string{configured}, false
 	}
 	return []string{singleRegionFallback}, true
+}
+
+// singleRegion picks the one region a single-region command (available, list)
+// queries: the first explicit region, else the configured region, else the
+// us-east-1 fallback (#200, #202). Notes go to w (stderr): which region is used
+// when several were given, and that the fallback is in use.
+func singleRegion(w io.Writer, command string, explicit []string, configured string) string {
+	candidates, fellBack := configuredOrFallbackRegions(explicit, configured)
+	region := candidates[0]
+	if len(candidates) > 1 {
+		_, _ = fmt.Fprintf(w, "Note: '%s' reports one region at a time; using %s.\n", command, region)
+	}
+	if fellBack {
+		printRegionFallback(w)
+	}
+	return region
 }
 
 // printRegionFallback tells the user (on stderr) that no region is configured

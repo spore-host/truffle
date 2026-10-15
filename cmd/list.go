@@ -5,6 +5,7 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"sort"
 	"strings"
@@ -19,7 +20,6 @@ import (
 var (
 	showFamilies bool
 	showSizes    bool
-	regionFilter string
 )
 
 var listCmd = &cobra.Command{
@@ -27,10 +27,18 @@ var listCmd = &cobra.Command{
 	Short: "List instance types and families",
 	Long: `List available EC2 instance types, families, or sizes.
 
+Queries one region: the first --region / --regions given, else your
+configured region (the spore config region, then AWS_REGION /
+AWS_DEFAULT_REGION, then the AWS profile's region). Only when no region is
+configured anywhere does it fall back to us-east-1 (and says so). Most types
+are offered everywhere, but some are region-limited, so the list is what you
+can launch in that region.
+
 Examples:
+  truffle list
   truffle list --family
   truffle list --sizes
-  truffle list --region us-east-1`,
+  truffle list --region us-west-2`,
 	RunE: runList,
 }
 
@@ -39,16 +47,23 @@ func init() {
 
 	listCmd.Flags().BoolVar(&showFamilies, "family", false, "List instance families (e.g., m5, c5, r5)")
 	listCmd.Flags().BoolVar(&showSizes, "sizes", false, "List available sizes (e.g., large, xlarge, 2xlarge)")
-	listCmd.Flags().StringVar(&regionFilter, "region", "us-east-1", "Region to query for listing (default: us-east-1)")
+	// NOTE: list has no local --region. It used to declare one (default
+	// us-east-1) that shadowed the root persistent --region alias, while the
+	// shared --regions / -r was never read, so `list --regions X` was silently
+	// ignored and the configured region never consulted (#202). It now reads
+	// the shared flags (root merges --region into regions) via listRegion.
+}
+
+// listRegion picks the one region `truffle list` queries (#202): the first
+// --region / --regions given, else the configured region, else us-east-1 as a
+// last resort. Notes about the choice go to w (stderr).
+func listRegion(w io.Writer, explicit []string, configured string) string {
+	return singleRegion(w, "list", explicit, configured)
 }
 
 func runList(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-
-	if verbose {
-		fmt.Fprintf(os.Stderr, "%s Querying region: %s\n", i18n.Emoji("magnifying_glass"), regionFilter)
-	}
 
 	// Initialize AWS client
 	awsClient, err := aws.NewClient(ctx)
@@ -56,8 +71,13 @@ func runList(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to initialize AWS client: %w", err)
 	}
 
+	region := listRegion(os.Stderr, regions, awsClient.ConfiguredRegion())
+	if verbose {
+		fmt.Fprintf(os.Stderr, "%s Querying region: %s\n", i18n.Emoji("magnifying_glass"), region)
+	}
+
 	// Get instance types from one region
-	types, err := awsClient.GetInstanceTypes(ctx, regionFilter)
+	types, err := awsClient.GetInstanceTypes(ctx, region)
 	if err != nil {
 		return fmt.Errorf("failed to get instance types: %w", err)
 	}

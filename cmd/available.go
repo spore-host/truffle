@@ -108,15 +108,7 @@ func runAvailable(cmd *cobra.Command, args []string) error {
 // last resort. It doesn't fan out, since it makes several API calls per region.
 // Notes about the choice go to w (stderr).
 func availableRegion(w io.Writer, explicit []string, configured string) string {
-	candidates, fellBack := configuredOrFallbackRegions(explicit, configured)
-	region := candidates[0]
-	if len(candidates) > 1 {
-		_, _ = fmt.Fprintf(w, "Note: 'available' reports one region at a time; using %s.\n", region)
-	}
-	if fellBack {
-		printRegionFallback(w)
-	}
-	return region
+	return singleRegion(w, "available", explicit, configured)
 }
 
 // printObtainability renders the human-facing report. Each line states the signal

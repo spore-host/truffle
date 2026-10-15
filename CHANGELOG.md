@@ -91,6 +91,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   default). Passing it together with `--regions` is an error.
 - **`(*aws.Client).ConfiguredRegion()`** (library) returns the default region the
   client's config resolved to, or `""` if none is set.
+- **`truffle list` now honours `--regions` / `-r` and your configured region**
+  (#202). It had its own `--region` flag, defaulting to us-east-1, which hid the
+  global one: `truffle list --regions us-west-2` silently listed us-east-1, and
+  with no flag it always listed us-east-1 whatever region you had configured.
+  Some instance types are region-limited, so the list could include types you
+  can't launch where you work. `list` now uses the same region lookup as
+  `quotas` and `available`: the first `--region` / `--regions` given, else the
+  spore.host config region, then `AWS_REGION` / `AWS_DEFAULT_REGION`, then your
+  AWS profile's region, and us-east-1 only when nothing is configured (a note
+  on stderr says so). `--region X` still works, now through the global alias.
+  A new test fails any command that calls a regional AWS API without reading
+  the shared region flag.
 
 - **`truffle find` no longer fails with `Missing Region` when no AWS region is
   configured** (#188). Enabled-region discovery (`GetEnabledRegions`) now falls
