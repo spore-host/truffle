@@ -4,6 +4,7 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"sort"
 	"strconv"
@@ -240,7 +241,7 @@ func (p *Printer) printTable(results []aws.InstanceTypeResult, opts TableOptions
 	// vCPUs and Memory are always present and always numeric.
 	rightAlignCols := []int{2, 3}
 	if hasGPU {
-		headers = append(headers, "GPUs", "GPU Model", "VRAM (GiB)")
+		headers = append(headers, "GPUs", "GPU Model", "VRAM (GB)")
 		rightAlignCols = append(rightAlignCols, len(headers)-3, len(headers)-1) // GPUs, VRAM — not GPU Model
 		if opts.ShowGPURatios {
 			headers = append(headers, "vCPU/GPU", "RAM/GPU (GiB)")
@@ -374,11 +375,20 @@ func (p *Printer) printTable(results []aws.InstanceTypeResult, opts TableOptions
 					if result.GPUManufacturer != "" {
 						gpuModel = result.GPUManufacturer + " " + gpuModel
 					}
-					vramGiB := fmt.Sprintf("%.0f", float64(result.GPUMemoryMiB)/1024.0)
-					vramDisplay := vramGiB
+					// VRAM in nominal GB, the size the GPU is sold as and the
+					// figure the per-GPU memory filter compares (#238), so a
+					// "gpu 24gb" query lists the A10G as 24, not 22 (GiB). The
+					// total is the per-GPU size times the count, not the
+					// nominal reading of the total MiB, which can land near a
+					// whole GiB by chance (4 x A10G = 91552 MiB = 89.4 GiB).
+					vramDisplay := formatGB(aws.NominalGPUMemoryGB(result.GPUMemoryMiB))
 					if result.GPUMemoryPerMiB > 0 {
-						perGPUGiB := float64(result.GPUMemoryPerMiB) / 1024.0
-						vramDisplay = fmt.Sprintf("%s (%.0f/gpu)", vramGiB, perGPUGiB)
+						perGB := aws.NominalGPUMemoryGB(result.GPUMemoryPerMiB)
+						totalGB := perGB
+						if result.GPUs > 0 {
+							totalGB = perGB * float64(result.GPUs)
+						}
+						vramDisplay = fmt.Sprintf("%s (%s/gpu)", formatGB(totalGB), formatGB(perGB))
 					}
 					gpuCountDisplay := strconv.Itoa(int(result.GPUs))
 					if result.GPUs == 0 && result.GPUPartitionSize > 0 {
@@ -612,6 +622,12 @@ func formatPrice(hourlyRate float64, u PriceUnit) string {
 	}
 }
 
+// formatGB renders a nominal GB figure to at most one decimal place:
+// "24", "80", "2.8" — never "24.0" (#238).
+func formatGB(gb float64) string {
+	return strconv.FormatFloat(math.Round(gb*10)/10, 'f', -1, 64)
+}
+
 // PrintJSON outputs results as JSON
 func (p *Printer) PrintJSON(results []aws.InstanceTypeResult) error {
 	encoder := json.NewEncoder(os.Stdout)
@@ -671,7 +687,21 @@ func (p *Printer) PrintCSV(results []aws.InstanceTypeResult) error {
 		}
 	}
 
+	// GPU columns only when some result has a GPU (as in the table), so the
+	// CSV for a CPU-only query is unchanged. vram_gb_per_gpu is the nominal
+	// figure the per-GPU memory filter compares (#238).
+	hasGPU := false
+	for _, r := range results {
+		if r.GPUs > 0 || r.GPUMemoryPerMiB > 0 {
+			hasGPU = true
+			break
+		}
+	}
+
 	header := []string{"instance_type", "region", "vcpus", "memory_gib", "architecture"}
+	if hasGPU {
+		header = append(header, "gpus", "gpu_model", "vram_gb_per_gpu")
+	}
 	if hasPrice {
 		header = append(header, "on_demand_price")
 	}
@@ -688,6 +718,23 @@ func (p *Printer) PrintCSV(results []aws.InstanceTypeResult) error {
 			strconv.Itoa(int(result.VCPUs)),
 			memGiB,
 			result.Architecture,
+		}
+		if hasGPU {
+			gpus, model, vram := "", "", ""
+			if result.GPUs > 0 || result.GPUMemoryPerMiB > 0 {
+				gpus = strconv.Itoa(int(result.GPUs))
+				if result.GPUs == 0 && result.GPUPartitionSize > 0 {
+					gpus = strconv.FormatFloat(result.GPUPartitionSize, 'f', -1, 64)
+				}
+				model = result.GPUModel
+				if result.GPUManufacturer != "" {
+					model = result.GPUManufacturer + " " + model
+				}
+				if result.GPUMemoryPerMiB > 0 {
+					vram = formatGB(aws.NominalGPUMemoryGB(result.GPUMemoryPerMiB))
+				}
+			}
+			row = append(row, gpus, model, vram)
 		}
 		if hasPrice {
 			row = append(row, fmt.Sprintf("%.4f", result.OnDemandPrice))

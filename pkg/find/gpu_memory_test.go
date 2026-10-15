@@ -79,6 +79,10 @@ func TestMemoryReadingNote(t *testing.T) {
 	if strings.Contains(got, "\n") {
 		t.Errorf("note is more than one line: %q", got)
 	}
+	// The VRAM column now shows the same GB, so no GiB caveat (#238).
+	if strings.Contains(got, "GiB") {
+		t.Errorf("note still carries the GiB caveat: %q", got)
+	}
 }
 
 // gpuCatalog is one size of each accelerator family, with the per-device
@@ -178,5 +182,22 @@ func TestExplainGPUMemory(t *testing.T) {
 	reasons := ExplainMatch(r, mustParse(t, "gpu 24gb"))
 	if !slices.Contains(reasons, "GPU memory: 24 GB >= 24 GB") {
 		t.Errorf("reasons = %v, want GPU memory: 24 GB >= 24 GB", reasons)
+	}
+}
+
+// TestExplainMatch_GPUMemoryNominal checks the "why it matched" line quotes
+// the GPU's memory in the same nominal GB as the VRAM column and the filter
+// (#238): an A10G or L4 is 24 GB and an L40S 48 GB, not their GiB sizes.
+func TestExplainMatch_GPUMemoryNominal(t *testing.T) {
+	for _, tt := range []struct{ query, it, want string }{
+		{"a10g", "g5.xlarge", "GPU: A10G (24 GB"},
+		{"l4", "g6.xlarge", "GPU: L4 (24 GB"},
+		{"l40s", "g6e.xlarge", "GPU: L40S (48 GB"},
+		{"h100", "p5.48xlarge", "GPU: H100 (80 GB"},
+	} {
+		got := strings.Join(ExplainMatch(aws.InstanceTypeResult{InstanceType: tt.it}, mustParse(t, tt.query)), "; ")
+		if !strings.Contains(got, tt.want) {
+			t.Errorf("%q on %s: reasons %q, want %q", tt.query, tt.it, got, tt.want)
+		}
 	}
 }

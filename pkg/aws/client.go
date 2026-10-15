@@ -14,6 +14,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"regexp"
 	"sort"
@@ -69,6 +70,7 @@ type InstanceTypeResult struct {
 	GPUModel         string   `json:"gpu_model,omitempty" yaml:"gpu_model,omitempty"`                           // GPU model name, e.g. "A100"
 	GPUManufacturer  string   `json:"gpu_manufacturer,omitempty" yaml:"gpu_manufacturer,omitempty"`             // GPU vendor, e.g. "nvidia"
 	AccelMemoryMiB   int64    `json:"accelerator_memory_mib,omitempty" yaml:"accelerator_memory_mib,omitempty"` // Memory of ONE GPU or accelerator device in MiB: the GPU's (as GPUMemoryPerMiB), else a Neuron device's (Inferentia, Trainium), else an inference accelerator's (dl2q); used by the per-GPU memory filter and closest-fit sort (#236)
+	AccelMemoryGB    float64  `json:"accelerator_memory_gb,omitempty" yaml:"accelerator_memory_gb,omitempty"`   // AccelMemoryMiB as the size the device is sold as, in GB (see NominalGPUMemoryGB): the figure the per-GPU memory filter compares and the table's VRAM column shows, e.g. 24 for an A10G (#238)
 	OnDemandPrice    float64  `json:"on_demand_price,omitempty" yaml:"on_demand_price,omitempty"`               // On-demand $/hr; 0 if not yet fetched
 	SpawnSupported   bool     `json:"spawn_supported,omitempty" yaml:"spawn_supported,omitempty"`               // True if spawn can launch instances in this region
 	NestedVirt       bool     `json:"nested_virtualization,omitempty" yaml:"nested_virtualization,omitempty"`   // True if the type supports nested virtualization (KVM/Hyper-V in-instance)
@@ -681,6 +683,7 @@ func buildResultFromEC2(it types.InstanceTypeInfo, displayType, region string) I
 	}
 
 	result.AccelMemoryMiB = acceleratorMemoryPerDeviceMiB(it)
+	result.AccelMemoryGB = math.Round(NominalGPUMemoryGB(result.AccelMemoryMiB)*10) / 10
 
 	return result
 }

@@ -6,7 +6,7 @@ import "sort"
 type GPUInfo struct {
 	Name            string   // "A100", "V100", "H100"
 	Vendor          string   // "nvidia", "amd", "aws"
-	MemoryGB        int      // GPU memory per GPU
+	MemoryGB        int      // GPU memory per GPU, in GB as sold (the aws.NominalGPUMemoryGB figure: A10G 24, not 22 GiB; #238)
 	UseCase         string   // "training", "inference", "graphics"
 	Families        []string // Instance families (for fuzzy matching)
 	InstanceTypes   []string // Exact instance types (for precise matching)
@@ -83,7 +83,7 @@ var GPUDatabase = map[string]GPUInfo{
 	"a10g": {
 		Name:     "A10G",
 		Vendor:   "nvidia",
-		MemoryGB: 22,
+		MemoryGB: 24,
 		UseCase:  "inference",
 		Families: []string{"g5"},
 		InstanceTypes: []string{
@@ -105,7 +105,7 @@ var GPUDatabase = map[string]GPUInfo{
 	"l4": {
 		Name:     "L4",
 		Vendor:   "nvidia",
-		MemoryGB: 22,
+		MemoryGB: 24,
 		UseCase:  "inference",
 		// g6f/gr6f are time-sliced/fractional L4 partitions (AWS reports
 		// Count==0 for these; see aws.InstanceTypeResult.GPUPartitionSize,
@@ -123,7 +123,7 @@ var GPUDatabase = map[string]GPUInfo{
 	"l40s": {
 		Name:     "L40S",
 		Vendor:   "nvidia",
-		MemoryGB: 44,
+		MemoryGB: 48,
 		UseCase:  "inference",
 		Families: []string{"g6e"},
 		InstanceTypes: []string{

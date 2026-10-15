@@ -82,6 +82,7 @@ Understands:
     Say which you mean with "64gb ram" / "64gb memory" (host) or
     "24gb vram" / "24gb gpu memory" (per GPU); "a10g 24gb 64gb ram" gives
     both. find prints a note when it reads a bare size as per-GPU memory.
+    The VRAM column is in the same GB, so an A10G shows 24 (24/gpu).
   - Sizes: tiny, small, medium, large, huge
   - Families and exact sizes: g5, m7i-flex, xlarge, 2xlarge, metal-24xl
     ("g5 xlarge" is g5.xlarge; "g5" alone is every g5 size)

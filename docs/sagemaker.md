@@ -22,12 +22,12 @@ truffle find "ml.g5.*" --service sagemaker --show-quota --regions us-east-1
 Example output:
 
 ```
-┌────────────────┬───────────┬───────┬──────────────┬──────────────┬──────┬─────────────┬────────────┬───────────────┬──────────┬─────────────┐
-│ Instance Type  │ Region    │ vCPUs │ Memory (GiB) │ Architecture │ GPUs │ GPU Model   │ VRAM (GiB) │ Spot-Eligible │ $/hr     │ Train Quota │
-├────────────────┼───────────┼───────┼──────────────┼──────────────┼──────┼─────────────┼────────────┼───────────────┼──────────┼─────────────┤
-│ ml.g5.2xlarge  │ us-east-1 │ 8     │ 32.0         │ x86_64       │ 1    │ NVIDIA A10G │ 22         │ ✓             │ $1.5150  │ 1           │
-│ ml.g5.24xlarge │ us-east-1 │ 96    │ 384.0        │ x86_64       │ 4    │ NVIDIA A10G │ 89         │ ✓             │ $10.1800 │ 0           │
-└────────────────┴───────────┴───────┴──────────────┴──────────────┴──────┴─────────────┴────────────┴───────────────┴──────────┴─────────────┘
+┌────────────────┬───────────┬───────┬──────────────┬──────────────┬──────┬─────────────┬─────────────┬───────────────┬──────────┬─────────────┐
+│ Instance Type  │ Region    │ vCPUs │ Memory (GiB) │ Architecture │ GPUs │ GPU Model   │ VRAM (GB)   │ Spot-Eligible │ $/hr     │ Train Quota │
+├────────────────┼───────────┼───────┼──────────────┼──────────────┼──────┼─────────────┼─────────────┼───────────────┼──────────┼─────────────┤
+│ ml.g5.2xlarge  │ us-east-1 │ 8     │ 32.0         │ x86_64       │ 1    │ NVIDIA A10G │ 24 (24/gpu) │ ✓             │ $1.5150  │ 1           │
+│ ml.g5.24xlarge │ us-east-1 │ 96    │ 384.0        │ x86_64       │ 4    │ NVIDIA A10G │ 96 (24/gpu) │ ✓             │ $10.1800 │ 0           │
+└────────────────┴───────────┴───────┴──────────────┴──────────────┴──────┴─────────────┴─────────────┴───────────────┴──────────┴─────────────┘
 
   🤖 SageMaker ml.* types: specs from the underlying EC2 type; $/hr is the SageMaker rate (includes the management premium)
   ✓ Spot-Eligible: usable with managed spot training — a billed-time discount of up to 90% (no separate spot price; savings depend on your job)

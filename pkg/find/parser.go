@@ -307,7 +307,7 @@ func (pq *ParsedQuery) MemoryReadingNote() string {
 	if pq == nil || pq.GPUMemoryRead == "" {
 		return ""
 	}
-	return fmt.Sprintf("Note: reading %q as memory per GPU (at least %s GB as sold; the VRAM column is in GiB); write \"%s ram\" for host memory",
+	return fmt.Sprintf("Note: reading %q as memory per GPU (at least %s GB as sold); write \"%s ram\" for host memory",
 		pq.GPUMemoryRead, strconv.FormatFloat(pq.MinGPUMemory, 'f', -1, 64), pq.GPUMemoryRead)
 }
 
