@@ -94,6 +94,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`find` with no recognised words is an error, not a search of everything**
+  (#229). A query made only of words truffle doesn't know (`find zzqx`,
+  `find "gravitn xlrage"`, a bare number such as `find 8`) used to search
+  every instance type in the region and price them all: 1354 rows and over
+  two minutes. It now fails at once, names the unknown words, suggests the
+  closest known word for each (`"gravitn" (did you mean "graviton"?)`) and
+  lists the kinds of term it understands. A query that has some recognised
+  words still runs, but now says which words it ignored before the results
+  (`Note: ignored unknown term: "zzqx"`), not only when nothing matched.
+  `find.ParseQuery` returns the new `*find.UnrecognizedQueryError` for such
+  a query; `ParsedQuery.UnknownTerms` and `find.SuggestTerms` are also new.
+
+- **Family and size names are query words** (#229). `find "g5 xlarge"` parsed
+  to nothing, since `g5` is a family and `xlarge` a size rather than a size
+  word, and so it searched everything. A family name now selects that family
+  and a size name that size, so `find "g5 xlarge"` returns g5.xlarge,
+  `find "m7i-flex 2xlarge"` returns m7i-flex.2xlarge, and `find "amd m7a"` or
+  `find "g5 a10g"` combine as usual. The size words keep their ranges
+  (`large` is still 2xlarge to 6xlarge, so `g5 large` is not g5.large; use
+  the pattern `g5.large` for that). A bare `find g5` used to match nothing
+  (the pattern `^g5$`); it now lists every g5 size. Families are recognised
+  from a 2026-10-15 snapshot of DescribeInstanceTypes across five regions plus
+  the Nitro table (`TRUFFLE_LIVE_AWS=1` checks it is complete), and
+  `ParsedQuery` gains `Families` and `InstanceSizes`.
+
+- **Constraints that no family satisfies together match nothing** (#229).
+  `find "intel h100"` (every H100 host has an AMD CPU) or `find "g5 graviton"`
+  resolved to an empty family set, which was treated as "any family", so they
+  also searched the whole catalog. They now return no results, with a note
+  that the constraints exclude each other and that `or` matches any of them.
+  `ParsedQuery.HasNoMatchingFamily` reports this case.
+
 - **`graviton` queries include r9g and r9gd** (#221). The Graviton5 list had
   m9g, m9gd, c9g and c9gd but not the memory-optimised r9g and r9gd, so
   `find "graviton large"` (and any vendor or processor query that should match

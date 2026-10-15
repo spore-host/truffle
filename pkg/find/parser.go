@@ -55,6 +55,8 @@ const (
 	TokenMIG            // NVIDIA Multi-Instance GPU capability (e.g. "mig")
 	TokenAnd            // Explicit "and" keyword — combine dimensions with intersection (default)
 	TokenOr             // Explicit "or" keyword — combine dimensions with union
+	TokenFamily         // Instance family name (e.g. "g5", "m7i-flex"), #229
+	TokenInstanceSize   // Instance size name that is not a size word (e.g. "xlarge", "2xlarge", "metal-24xl"), #229
 )
 
 // Token represents a single classified word from a natural language query.
@@ -71,7 +73,9 @@ type ParsedQuery struct {
 	Processors      []string          // Processor code names, e.g. ["genoa", "sapphire rapids"]
 	GPUs            []string          // GPU model names, e.g. ["h100", "a100"]
 	InstructionSets []string          // CPU instruction-set extensions, e.g. ["avx-512", "sve2"]
-	Sizes           []string          // Size-category filters, e.g. ["large", "xlarge"]
+	Sizes           []string          // Size-category filters, e.g. ["large", "huge"]
+	Families        []string          // Instance families named directly, e.g. ["g5"] (#229)
+	InstanceSizes   []string          // Exact instance sizes named directly, e.g. ["xlarge", "2xlarge"] (#229)
 	MinVCPU         int               // Minimum vCPU count; 0 means unconstrained
 	MinPhysCores    int               // Minimum physical core count; 0 means unconstrained
 	MinMemory       float64           // Minimum memory in GiB; 0 means unconstrained
@@ -198,6 +202,10 @@ func ParseQuery(query string) (*ParsedQuery, error) {
 			pq.InstructionSets = append(pq.InstructionSets, token.Value)
 		case TokenSize:
 			pq.Sizes = append(pq.Sizes, token.Value)
+		case TokenFamily:
+			pq.Families = append(pq.Families, token.Value)
+		case TokenInstanceSize:
+			pq.InstanceSizes = append(pq.InstanceSizes, token.Value)
 		case TokenVCPU:
 			if v, err := strconv.Atoi(token.Value); err == nil {
 				pq.MinVCPU = v
@@ -235,12 +243,45 @@ func ParseQuery(query string) (*ParsedQuery, error) {
 		}
 	}
 
+	// A query none of whose words constrain the search would search, and
+	// price, the whole catalog (#229). If it has words we didn't recognise,
+	// say so instead.
+	if unknown := pq.UnknownTerms(); len(unknown) > 0 && !pq.hasConstraints() {
+		return nil, newUnrecognizedQueryError(unknown)
+	}
+
 	// Validate
 	if err := pq.Validate(); err != nil {
 		return nil, err
 	}
 
 	return pq, nil
+}
+
+// UnknownTerms returns the query words the parser did not recognise, in
+// query order.
+func (pq *ParsedQuery) UnknownTerms() []string {
+	if pq == nil {
+		return nil
+	}
+	var out []string
+	for _, t := range pq.RawTokens {
+		if t.Type == TokenUnknown {
+			out = append(out, t.Raw)
+		}
+	}
+	return out
+}
+
+// hasConstraints reports whether the query narrows the search at all.
+// Qualitative words, "and" and "or" only sort or combine.
+func (pq *ParsedQuery) hasConstraints() bool {
+	return len(pq.Vendors) > 0 || len(pq.Processors) > 0 || len(pq.GPUs) > 0 ||
+		len(pq.InstructionSets) > 0 || len(pq.Sizes) > 0 || len(pq.Families) > 0 ||
+		len(pq.InstanceSizes) > 0 || len(pq.Apps) > 0 || pq.MinVCPU > 0 ||
+		pq.MinPhysCores > 0 || pq.MinMemory > 0 || pq.GPUCount > 0 ||
+		pq.Architecture != "" || pq.MinNetworkGbps > 0 || pq.RequireEFA ||
+		pq.RequireMIG || pq.RequireNestedV
 }
 
 func classifyTokens(words []string) []Token {
@@ -321,10 +362,24 @@ func classifyTokens(words []string) []Token {
 				} else if memoryRegex.MatchString(next) || strings.HasSuffix(next, "gb") || strings.HasSuffix(next, "gib") || strings.HasSuffix(next, "g") {
 					tokens = append(tokens, Token{Type: TokenMemory, Value: word + next, Raw: word + next})
 					i++
+				} else {
+					tokens = append(tokens, Token{Type: TokenUnknown, Value: word, Raw: word})
 				}
+			} else {
+				// A number with no unit after it says nothing; dropping it
+				// silently hid that (#229).
+				tokens = append(tokens, Token{Type: TokenUnknown, Value: word, Raw: word})
 			}
 		} else if memoryRegex.MatchString(word) {
 			tokens = append(tokens, Token{Type: TokenMemory, Value: word, Raw: word})
+		} else if IsInstanceFamily(word) {
+			// Checked before the hyphen split below, since family names such
+			// as m7i-flex and p6-b200 contain hyphens (#229).
+			tokens = append(tokens, Token{Type: TokenFamily, Value: word, Raw: word})
+		} else if _, ok := metadata.SizeMultiplier(word); ok {
+			// An instance size that isn't a size word ("xlarge", "2xlarge",
+			// "metal-24xl"); size words such as "large" matched above (#229).
+			tokens = append(tokens, Token{Type: TokenInstanceSize, Value: word, Raw: word})
 		} else if isQualitativeKeyword(word) {
 			tokens = append(tokens, Token{Type: TokenQualitative, Value: word, Raw: word})
 		} else if subwords, ok := normalizeHyphenatedToken(word); ok {
@@ -372,7 +427,9 @@ func IsRecognizedTerm(word string) bool {
 		return false
 	}
 	for _, t := range toks {
-		if t.Type == TokenUnknown {
+		// A bare family name ("c6i", "m7i-flex") is left to the caller's
+		// pattern path, which matches the whole family (#229).
+		if t.Type == TokenUnknown || t.Type == TokenFamily {
 			return false
 		}
 	}
@@ -661,6 +718,10 @@ func (pq *ParsedQuery) ResolveInstanceFamilies() []string {
 		dimensions = append(dimensions, set)
 	}
 
+	if len(pq.Families) > 0 {
+		dimensions = append(dimensions, familySet(pq.Families))
+	}
+
 	if pq.RequireEFA {
 		dimensions = append(dimensions, familySet(metadata.GetFamiliesByEFA()))
 	}
@@ -717,19 +778,18 @@ func (pq *ParsedQuery) ResolveInstanceFamilies() []string {
 	return families
 }
 
-// hasConflictingFamilyConstraints reports whether both app families and query
-// families are specified but their intersection is empty — meaning no instance
-// can satisfy both constraints simultaneously.
-func (pq *ParsedQuery) hasConflictingFamilyConstraints() bool {
-	if len(pq.Apps) == 0 {
-		return false
-	}
-	hasQueryFamilies := len(pq.Vendors) > 0 || len(pq.Processors) > 0 || len(pq.GPUs) > 0 || len(pq.InstructionSets) > 0 || pq.RequireEFA || pq.RequireMIG || pq.MinNetworkGbps > 0
-	if !hasQueryFamilies {
-		return false
-	}
-	// Both are present — if ResolveInstanceFamilies returned empty, they conflict
-	return len(pq.ResolveInstanceFamilies()) == 0
+// hasFamilyDimensions reports whether any query dimension that resolves to a
+// family set is present.
+func (pq *ParsedQuery) hasFamilyDimensions() bool {
+	return len(pq.GPUs) > 0 || pq.hasOtherActiveDimensions()
+}
+
+// HasNoMatchingFamily reports whether the query names family constraints
+// (vendor, processor, GPU, family, ...) that no instance family satisfies
+// together, e.g. "intel h100": every H100 host has an AMD CPU (#229). Such a
+// query matches nothing.
+func (pq *ParsedQuery) HasNoMatchingFamily() bool {
+	return (pq.hasFamilyDimensions() || len(pq.Apps) > 0) && len(pq.ResolveInstanceFamilies()) == 0
 }
 
 // hasOtherActiveDimensions reports whether any family-contributing dimension
@@ -738,7 +798,7 @@ func (pq *ParsedQuery) hasConflictingFamilyConstraints() bool {
 // whether the GPU-exact-instance-type shortcut is safe to take (#144) — it
 // isn't, once another dimension also needs to constrain the result.
 func (pq *ParsedQuery) hasOtherActiveDimensions() bool {
-	return len(pq.Vendors) > 0 || len(pq.Processors) > 0 || len(pq.InstructionSets) > 0 || pq.RequireEFA || pq.RequireMIG || pq.MinNetworkGbps > 0
+	return len(pq.Vendors) > 0 || len(pq.Processors) > 0 || len(pq.InstructionSets) > 0 || len(pq.Families) > 0 || pq.RequireEFA || pq.RequireMIG || pq.MinNetworkGbps > 0
 }
 
 // ResolveGPUInstances returns exact instance types for GPU queries
@@ -811,6 +871,12 @@ func (pq *ParsedQuery) BuildSizePattern() string {
 	var patterns []string
 	for _, sizeCategory := range pq.Sizes {
 		if p := metadata.SizePattern(sizeCategory); p != "" && !seen[p] {
+			seen[p] = true
+			patterns = append(patterns, p)
+		}
+	}
+	for _, size := range pq.InstanceSizes {
+		if p := regexp.QuoteMeta(size); !seen[p] {
 			seen[p] = true
 			patterns = append(patterns, p)
 		}

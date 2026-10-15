@@ -532,7 +532,7 @@ func TestParseQuery_AppToken(t *testing.T) {
 		{"app by alias imagej", "imagej", []string{"fiji"}},
 		{"app case insensitive", "ParaView", []string{"paraview"}},
 		{"non-app word is not app", "nvidia", nil},
-		{"unknown word is not app", "notarealapplication", nil},
+		{"unknown word is not app", "notarealapplication graviton", nil},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

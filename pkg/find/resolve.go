@@ -29,6 +29,9 @@ var ErrNoMatch = errors.New("truffle: no instance types match card")
 // use ParseQuery for compound queries.
 func ResolveCard(card string) ([]string, error) {
 	pq, err := ParseQuery(card)
+	if uq := (*UnrecognizedQueryError)(nil); errors.As(err, &uq) {
+		return nil, fmt.Errorf("%w: %q resolved to no GPU (unknown: %s)", ErrNoMatch, card, strings.Join(uq.Terms, ", "))
+	}
 	if err != nil {
 		return nil, err // empty / unparseable input
 	}
