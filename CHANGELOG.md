@@ -54,6 +54,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   callers of `SearchInstanceTypes` that set `IncludeAZs`. A broad single-region
   `find` drops from ~10 s to ~5 s; the results are identical.
 
+### Deprecated
+
+- **`truffle spot --show-savings`** (#204). It has done nothing since spot began
+  always showing savings vs On-Demand (#21). It still parses, prints a
+  deprecation notice, and will be removed.
+- **`truffle capacity --odcr`** (#205). It never did anything: On-Demand Capacity
+  Reservations are shown unless `--blocks` is given, and `--odcr=false` did not
+  hide them. It still parses, prints a deprecation notice, and will be removed.
+
 ### Fixed
 
 - **No spinner frames when output isn't a terminal** (#189). Piping or
@@ -103,6 +112,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   on stderr says so). `--region X` still works, now through the global alias.
   A new test fails any command that calls a regional AWS API without reading
   the shared region flag.
+- **`truffle az --regions-only` now does what it says** (#199). The flag was
+  accepted but ignored, so it printed the same per-instance-type table as
+  without it. It now shows only the regions that meet the AZ requirement, one
+  row per region with its AZ count, the AZs, and the matching instance types
+  (e.g. `truffle az m7i.large --min-az-count 3 --regions-only`). With
+  `-o json`/`yaml`/`csv` it emits that region list (`region`, `az_count`,
+  `availability_zones`, `instance_types`) instead of per-type records.
+
+- **`truffle --account <id>` now actually guards the account** (#206). The flag
+  ("Expected AWS account ID (optional guard)") was parsed and ignored, so a
+  command ran against whatever account your credentials belonged to. Now, when
+  you pass it, truffle checks the resolved credentials with STS
+  `GetCallerIdentity` before doing anything else, and refuses on a mismatch or
+  if the account can't be determined. Only the explicit flag is enforced;
+  `SPORE_ACCOUNT` and the shared config's `account` are not (see #206).
 
 - **`truffle find` no longer fails with `Missing Region` when no AWS region is
   configured** (#188). Enabled-region discovery (`GetEnabledRegions`) now falls

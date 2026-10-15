@@ -17,6 +17,9 @@ Examples:
   # Find instances available in at least 3 AZs per region
   truffle az "m8g.*" --min-az-count 3
 
+  # Just the regions that offer m7i.large in at least 3 AZs
+  truffle az m7i.large --min-az-count 3 --regions-only
+
   # Show AZ availability summary
   truffle az "c7i.xlarge" --output json
 
@@ -32,6 +35,6 @@ truffle az [instance-type-pattern] [flags]
 | `--az` |  | stringSlice |  | Filter by specific availability zones (e.g., us-east-1a,us-west-2b) |
 | `--local-zones` |  | bool |  | Restrict results to Local Zones and Wavelength Zones (edge locations) |
 | `--min-az-count` |  | int |  | Minimum number of AZs required per region |
-| `--regions-only` |  | bool |  | Show only regions that meet AZ count requirement |
+| `--regions-only` |  | bool |  | Show only the regions that meet the AZ requirement (--min-az-count): one row per region with its AZ count, AZs and matching types, instead of one per instance type |
 | `--timeout` |  | duration | `5m0s` | Timeout for AWS API calls |
 

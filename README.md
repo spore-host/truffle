@@ -54,7 +54,7 @@ truffle search "m7i*"                         # glob: all m7i sizes
 truffle search "c[6-8]i\.large"               # regex: c6i/c7i/c8i large
 
 # Compare spot prices (every enabled region by default: the point is the cheapest one)
-truffle spot m7i.large --regions us-east-1 --show-savings
+truffle spot m7i.large --regions us-east-1
 truffle spot "c6a*" --sort-by-price --lookback-hours 24
 
 # Find by natural language (searches your configured region by default —

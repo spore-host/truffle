@@ -2,18 +2,23 @@ package cmd
 
 import (
 	"context"
+	"encoding/csv"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
+	"text/tabwriter"
 	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spore-host/libs/i18n"
 	"github.com/spore-host/truffle/pkg/aws"
 	"github.com/spore-host/truffle/pkg/output"
+	"gopkg.in/yaml.v3"
 )
 
 var (
@@ -47,6 +52,9 @@ Examples:
   # Find instances available in at least 3 AZs per region
   truffle az "m8g.*" --min-az-count 3
 
+  # Just the regions that offer m7i.large in at least 3 AZs
+  truffle az m7i.large --min-az-count 3 --regions-only
+
   # Show AZ availability summary
   truffle az "c7i.xlarge" --output json`,
 	Args: cobra.ExactArgs(1),
@@ -59,7 +67,7 @@ func init() {
 	addAllRegionsFlag(azCmd, azRegionDefault)
 	azCmd.Flags().StringSliceVar(&azFilter, "az", []string{}, "Filter by specific availability zones (e.g., us-east-1a,us-west-2b)")
 	azCmd.Flags().IntVar(&minAZCount, "min-az-count", 0, "Minimum number of AZs required per region")
-	azCmd.Flags().BoolVar(&showRegionOnly, "regions-only", false, "Show only regions that meet AZ count requirement")
+	azCmd.Flags().BoolVar(&showRegionOnly, "regions-only", false, "Show only the regions that meet the AZ requirement (--min-az-count): one row per region with its AZ count, AZs and matching types, instead of one per instance type")
 	azCmd.Flags().BoolVar(&azLocalZones, "local-zones", false, "Restrict results to Local Zones and Wavelength Zones (edge locations)")
 	azCmd.Flags().DurationVar(&timeout, "timeout", 5*time.Minute, "Timeout for AWS API calls")
 
@@ -167,13 +175,24 @@ func runAZSearch(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	return printAZResults(results, localZones)
+}
+
+// printAZResults writes az's output in the selected --output format: the
+// per-type, per-region table by default, or with --regions-only one row per
+// qualifying region (#199).
+func printAZResults(results []aws.InstanceTypeResult, localZones map[string]bool) error {
+	printer := output.NewPrinter(useColor())
+
+	if showRegionOnly {
+		return printAZRegions(summarizeAZRegions(results))
+	}
+
 	// Print summary (table output only — keeps stdout clean for json/csv/yaml)
 	if outputFormat == "table" {
 		printAZSummary(results)
 	}
 
-	// Output results
-	printer := output.NewPrinter(useColor())
 	switch outputFormat {
 	case "json":
 		return printer.PrintJSON(results)
@@ -188,6 +207,105 @@ func runAZSearch(cmd *cobra.Command, args []string) error {
 			IncludeAZs:   true,
 			LocalZoneAZs: localZones,
 		})
+	default:
+		return fmt.Errorf("unsupported output format: %s", outputFormat)
+	}
+}
+
+// azRegionSummary is one row of `az --regions-only`: a region where at least
+// one matching instance type passed every filter (--min-az-count, --az,
+// --local-zones), with the AZs those types are offered in.
+type azRegionSummary struct {
+	Region string `json:"region" yaml:"region"`
+	// AZCount is len(AvailabilityZones).
+	AZCount int `json:"az_count" yaml:"az_count"`
+	// AvailabilityZones is the union, across the region's qualifying instance
+	// types, of the AZs each is offered in. Each type on its own meets
+	// --min-az-count, so AZCount does too.
+	AvailabilityZones []string `json:"availability_zones" yaml:"availability_zones"`
+	// InstanceTypes are the matching types that qualified in this region.
+	InstanceTypes []string `json:"instance_types" yaml:"instance_types"`
+}
+
+// summarizeAZRegions collapses az's per-type results (already filtered) into
+// one entry per region, most AZs first, then by region name.
+func summarizeAZRegions(results []aws.InstanceTypeResult) []azRegionSummary {
+	azs := make(map[string]map[string]bool)
+	types := make(map[string]map[string]bool)
+	for _, r := range results {
+		if azs[r.Region] == nil {
+			azs[r.Region] = make(map[string]bool)
+			types[r.Region] = make(map[string]bool)
+		}
+		for _, az := range r.AvailableAZs {
+			azs[r.Region][az] = true
+		}
+		types[r.Region][r.InstanceType] = true
+	}
+
+	summaries := make([]azRegionSummary, 0, len(azs))
+	for region := range azs {
+		s := azRegionSummary{
+			Region:            region,
+			AvailabilityZones: sortedKeys(azs[region]),
+			InstanceTypes:     sortedKeys(types[region]),
+		}
+		s.AZCount = len(s.AvailabilityZones)
+		summaries = append(summaries, s)
+	}
+	sort.Slice(summaries, func(i, j int) bool {
+		if summaries[i].AZCount != summaries[j].AZCount {
+			return summaries[i].AZCount > summaries[j].AZCount
+		}
+		return summaries[i].Region < summaries[j].Region
+	})
+	return summaries
+}
+
+func sortedKeys(m map[string]bool) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// printAZRegions writes the --regions-only view to stdout.
+func printAZRegions(summaries []azRegionSummary) error {
+	switch outputFormat {
+	case "json":
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(summaries)
+	case "yaml":
+		enc := yaml.NewEncoder(os.Stdout)
+		enc.SetIndent(2)
+		defer func() { _ = enc.Close() }()
+		return enc.Encode(summaries)
+	case "csv":
+		w := csv.NewWriter(os.Stdout)
+		_ = w.Write([]string{"region", "az_count", "availability_zones", "instance_types"})
+		for _, s := range summaries {
+			_ = w.Write([]string{s.Region, strconv.Itoa(s.AZCount), strings.Join(s.AvailabilityZones, ";"), strings.Join(s.InstanceTypes, ";")})
+		}
+		w.Flush()
+		return w.Error()
+	case "table":
+		tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+		_, _ = fmt.Fprintln(tw, "REGION\tAZS\tAVAILABILITY ZONES\tINSTANCE TYPES")
+		for _, s := range summaries {
+			_, _ = fmt.Fprintf(tw, "%s\t%d\t%s\t%s\n", s.Region, s.AZCount, strings.Join(s.AvailabilityZones, ", "), strings.Join(s.InstanceTypes, ", "))
+		}
+		if err := tw.Flush(); err != nil {
+			return err
+		}
+		noun := "regions"
+		if len(summaries) == 1 {
+			noun = "region"
+		}
+		_, err := fmt.Printf("\n%d %s\n", len(summaries), noun)
+		return err
 	default:
 		return fmt.Errorf("unsupported output format: %s", outputFormat)
 	}
