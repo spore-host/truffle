@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -543,7 +544,7 @@ func (c *Client) getAvailabilityZonesBatch(ctx context.Context, region string, i
 		if end > len(instanceTypes) {
 			end = len(instanceTypes)
 		}
-		chunk := make(map[string][]string, end-start)
+		var offerings []types.InstanceTypeOffering
 		paginator := ec2.NewDescribeInstanceTypeOfferingsPaginator(client, &ec2.DescribeInstanceTypeOfferingsInput{
 			LocationType: types.LocationTypeAvailabilityZone,
 			Filters: []types.Filter{
@@ -560,22 +561,62 @@ func (c *Client) getAvailabilityZonesBatch(ctx context.Context, region string, i
 				ok = false
 				break
 			}
-			for _, offering := range page.InstanceTypeOfferings {
-				if offering.Location == nil {
-					continue
-				}
-				t := string(offering.InstanceType)
-				chunk[t] = append(chunk[t], *offering.Location)
-			}
+			offerings = append(offerings, page.InstanceTypeOfferings...)
 		}
 		if !ok {
 			continue
 		}
-		for t, azs := range chunk {
+		for t, azs := range azsByInstanceType(offerings) {
 			out[t] = azs
 		}
 	}
 	return out
+}
+
+// azsByInstanceType groups offerings by instance type. Each type's AZ list is
+// deduplicated and sorted: DescribeInstanceTypeOfferings returns offerings in
+// no particular order, and without the sort the same query listed its AZs in
+// a different order on every run — which, with the table truncating the AZ
+// column, showed a different subset of AZs each time (#217).
+func azsByInstanceType(offerings []types.InstanceTypeOffering) map[string][]string {
+	grouped := make(map[string][]string)
+	for _, offering := range offerings {
+		if offering.Location == nil {
+			continue
+		}
+		t := string(offering.InstanceType)
+		grouped[t] = append(grouped[t], *offering.Location)
+	}
+	for t, azs := range grouped {
+		azs = uniqueSorted(azs)
+		SortZoneNames(azs)
+		grouped[t] = azs
+	}
+	return grouped
+}
+
+// SortZoneNames sorts zone names into truffle's display order: a region's
+// standard AZs first (us-west-2a, us-west-2b, ...), then its Local and
+// Wavelength Zones (us-west-2-lax-1a, ...), each group alphabetically. A
+// plain sort would put us-west-2-lax-1a ahead of us-west-2a, and the table,
+// which shows only the first few AZs, would lead with an edge zone. Every AZ
+// list truffle returns or prints is in this order (#217).
+func SortZoneNames(zones []string) {
+	sort.SliceStable(zones, func(i, j int) bool { return zoneNameLess(zones[i], zones[j]) })
+}
+
+// ZoneNamesSorted reports whether zones is in [SortZoneNames] order.
+func ZoneNamesSorted(zones []string) bool {
+	return sort.SliceIsSorted(zones, func(i, j int) bool { return zoneNameLess(zones[i], zones[j]) })
+}
+
+// zoneNameLess orders by the number of hyphens (a standard AZ name has fewer
+// than an edge zone in the same region), then alphabetically.
+func zoneNameLess(a, b string) bool {
+	if ha, hb := strings.Count(a, "-"), strings.Count(b, "-"); ha != hb {
+		return ha < hb
+	}
+	return a < b
 }
 
 // buildResultFromEC2 maps an EC2 DescribeInstanceTypes record into an
@@ -657,13 +698,12 @@ func (c *Client) getAvailabilityZones(ctx context.Context, region, instanceType 
 		return nil, err
 	}
 
-	azs := make([]string, 0, len(output.InstanceTypeOfferings))
-	for _, offering := range output.InstanceTypeOfferings {
-		if offering.Location != nil {
-			azs = append(azs, *offering.Location)
-		}
+	// Grouped the same way as the batched lookup, so the list is sorted and
+	// deduplicated (#217).
+	azs := azsByInstanceType(output.InstanceTypeOfferings)[instanceType]
+	if azs == nil {
+		azs = []string{}
 	}
-
 	return azs, nil
 }
 

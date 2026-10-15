@@ -205,6 +205,7 @@ func (p *Printer) PrintTableWithOptions(results []aws.InstanceTypeResult, opts T
 }
 
 func (p *Printer) printTable(results []aws.InstanceTypeResult, opts TableOptions) error {
+	results = withSortedAZs(results)
 	includeAZs, showPrice, showQuota := opts.IncludeAZs, opts.ShowPrice, opts.ShowQuota
 
 	// Check if any results have GPU info. A fractional GPU (e.g. g6f.large)
@@ -615,7 +616,7 @@ func formatPrice(hourlyRate float64, u PriceUnit) string {
 func (p *Printer) PrintJSON(results []aws.InstanceTypeResult) error {
 	encoder := json.NewEncoder(os.Stdout)
 	encoder.SetIndent("", "  ")
-	return encoder.Encode(results)
+	return encoder.Encode(withSortedAZs(results))
 }
 
 // PrintYAML outputs results as YAML
@@ -623,11 +624,41 @@ func (p *Printer) PrintYAML(results []aws.InstanceTypeResult) error {
 	encoder := yaml.NewEncoder(os.Stdout)
 	encoder.SetIndent(2)
 	defer func() { _ = encoder.Close() }()
-	return encoder.Encode(results)
+	return encoder.Encode(withSortedAZs(results))
+}
+
+// withSortedAZs returns results with every AvailableAZs list in
+// [aws.SortZoneNames] order,
+// so each output format lists AZs the same way on every run whatever order
+// the caller built them in (#217). The lookups already sort; this keeps the
+// output deterministic for results assembled elsewhere. The caller's slices
+// are never modified: when any list needs sorting, results is copied.
+func withSortedAZs(results []aws.InstanceTypeResult) []aws.InstanceTypeResult {
+	sorted := true
+	for _, r := range results {
+		if !aws.ZoneNamesSorted(r.AvailableAZs) {
+			sorted = false
+			break
+		}
+	}
+	if sorted {
+		return results
+	}
+	out := make([]aws.InstanceTypeResult, len(results))
+	copy(out, results)
+	for i := range out {
+		if !aws.ZoneNamesSorted(out[i].AvailableAZs) {
+			azs := append([]string(nil), out[i].AvailableAZs...)
+			aws.SortZoneNames(azs)
+			out[i].AvailableAZs = azs
+		}
+	}
+	return out
 }
 
 // PrintCSV outputs results as CSV
 func (p *Printer) PrintCSV(results []aws.InstanceTypeResult) error {
+	results = withSortedAZs(results)
 	writer := csv.NewWriter(os.Stdout)
 	defer writer.Flush()
 
