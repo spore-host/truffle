@@ -69,7 +69,16 @@ func TestPrintTable_B200NotLabelledGB(t *testing.T) {
 	csv := captureStdout(t, func() {
 		_ = NewPrinter(false).PrintCSV(rows)
 	})
-	if !strings.Contains(csv, ",accelerator_memory_gb,accelerator_memory_gib,") || !strings.Contains(csv, ",NVIDIA B200,179,179.1,") {
-		t.Errorf("B200 CSV should carry nominal 179 and exact 179.1 GiB:\n%s", csv)
+	// accelerator_memory_gib is the LAST column, so the columns before it keep
+	// the positions they had before #244 for readers that index by position.
+	lines := strings.Split(strings.TrimSpace(csv), "\n")
+	if len(lines) < 2 {
+		t.Fatalf("CSV has no data row:\n%s", csv)
+	}
+	if !strings.HasSuffix(lines[0], ",accelerator_memory_gb,availability_zones,accelerator_memory_gib") {
+		t.Errorf("accelerator_memory_gib must be appended after the existing columns:\n%s", lines[0])
+	}
+	if !strings.Contains(lines[1], ",NVIDIA B200,179,") || !strings.HasSuffix(lines[1], ",179.1") {
+		t.Errorf("B200 CSV should carry nominal 179 and, last, exact 179.1 GiB:\n%s", csv)
 	}
 }

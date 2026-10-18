@@ -115,11 +115,11 @@ func TestPrintCSV_NeuronAccelerators(t *testing.T) {
 	out := captureStdout(t, func() {
 		_ = NewPrinter(false).PrintCSV(accelRows())
 	})
-	want := "instance_type,region,vcpus,memory_gib,architecture,accelerator_count,accelerator_model,accelerator_memory_gb,accelerator_memory_gib,availability_zones\n" +
-		"inf2.xlarge,us-east-1,4,16.0,x86_64,1,Inferentia2,32,32,\n" +
-		"inf2.48xlarge,us-east-1,192,768.0,x86_64,12,Inferentia2,32,32,\n" +
-		"dl2q.24xlarge,us-east-1,96,768.0,x86_64,8,Qualcomm AI100,16,15.6,\n" +
-		"g5.xlarge,us-east-1,4,16.0,x86_64,1,NVIDIA A10G,24,22.4,\n"
+	want := "instance_type,region,vcpus,memory_gib,architecture,accelerator_count,accelerator_model,accelerator_memory_gb,availability_zones,accelerator_memory_gib\n" +
+		"inf2.xlarge,us-east-1,4,16.0,x86_64,1,Inferentia2,32,,32\n" +
+		"inf2.48xlarge,us-east-1,192,768.0,x86_64,12,Inferentia2,32,,32\n" +
+		"dl2q.24xlarge,us-east-1,96,768.0,x86_64,8,Qualcomm AI100,16,,15.6\n" +
+		"g5.xlarge,us-east-1,4,16.0,x86_64,1,NVIDIA A10G,24,,22.4\n"
 	if out != want {
 		t.Errorf("CSV mismatch\n got: %q\nwant: %q", out, want)
 	}

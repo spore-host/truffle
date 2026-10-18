@@ -12,7 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`accelerator_memory_gib`** (#244): JSON/YAML (`InstanceTypeResult.AccelMemoryGiB`)
   and CSV now carry the per-device GPU or accelerator memory as MiB/1024, to
   0.1 GiB (179.1 for a B200, 22.4 for an A10G), beside the nominal
-  `accelerator_memory_gb`. In CSV the column follows `accelerator_memory_gb`.
+  `accelerator_memory_gb`. In CSV it is appended as the last column, so every
+  existing column keeps its position.
   For library callers, `aws.NominalGPUMemoryUnit` says which unit
   `aws.NominalGPUMemoryGB` is in (`aws.UnitGiB` or `aws.UnitGB`), and
   `aws.FormatGPUMemory` renders it with that unit ("179 GiB", "24 GB").

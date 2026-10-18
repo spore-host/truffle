@@ -774,9 +774,11 @@ func (p *Printer) PrintCSV(results []aws.InstanceTypeResult) error {
 	// unchanged. They are named for the JSON fields they mirror
 	// (accelerator_count, accelerator_model, accelerator_memory_gb, the
 	// nominal per-device figure the per-GPU memory filter compares; #238,
-	// #240; GiB or GB as the device is sold, despite the name, and
-	// accelerator_memory_gib, always MiB/1024; #244), and carry Neuron and
-	// inference accelerators as well as GPUs.
+	// #240; GiB or GB as the device is sold, despite the name), and carry
+	// Neuron and inference accelerators as well as GPUs.
+	// accelerator_memory_gib (always MiB/1024; #244) is appended LAST, after
+	// availability_zones, so a reader that indexes columns by position sees
+	// every existing column where it was.
 	hasGPU := false
 	for _, r := range results {
 		if hasAccelerator(r) {
@@ -787,12 +789,15 @@ func (p *Printer) PrintCSV(results []aws.InstanceTypeResult) error {
 
 	header := []string{"instance_type", "region", "vcpus", "memory_gib", "architecture"}
 	if hasGPU {
-		header = append(header, "accelerator_count", "accelerator_model", "accelerator_memory_gb", "accelerator_memory_gib")
+		header = append(header, "accelerator_count", "accelerator_model", "accelerator_memory_gb")
 	}
 	if hasPrice {
 		header = append(header, "on_demand_price")
 	}
 	header = append(header, "availability_zones")
+	if hasGPU {
+		header = append(header, "accelerator_memory_gib")
+	}
 	if err := writer.Write(header); err != nil {
 		return err
 	}
@@ -806,8 +811,9 @@ func (p *Printer) PrintCSV(results []aws.InstanceTypeResult) error {
 			memGiB,
 			result.Architecture,
 		}
+		vramGiB := ""
 		if hasGPU {
-			gpus, model, vram, vramGiB := "", "", "", ""
+			gpus, model, vram := "", "", ""
 			if count, m, perDevMiB, ok := acceleratorCells(result); ok {
 				gpus, model = count, m
 				if perDevMiB > 0 {
@@ -815,12 +821,15 @@ func (p *Printer) PrintCSV(results []aws.InstanceTypeResult) error {
 					vramGiB = aws.FormatSize(float64(perDevMiB) / 1024)
 				}
 			}
-			row = append(row, gpus, model, vram, vramGiB)
+			row = append(row, gpus, model, vram)
 		}
 		if hasPrice {
 			row = append(row, fmt.Sprintf("%.4f", result.OnDemandPrice))
 		}
 		row = append(row, azs)
+		if hasGPU {
+			row = append(row, vramGiB)
+		}
 		if err := writer.Write(row); err != nil {
 			return err
 		}

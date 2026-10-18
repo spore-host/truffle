@@ -78,10 +78,10 @@ func TestPrintCSV_VRAMNominalGB(t *testing.T) {
 	out := captureStdout(t, func() {
 		_ = NewPrinter(false).PrintCSV(vramRows())
 	})
-	want := "instance_type,region,vcpus,memory_gib,architecture,accelerator_count,accelerator_model,accelerator_memory_gb,accelerator_memory_gib,availability_zones\n" +
-		"g5.xlarge,us-east-1,4,16.0,x86_64,1,NVIDIA A10G,24,22.4,\n" +
-		"g5.12xlarge,us-east-1,48,192.0,x86_64,4,NVIDIA A10G,24,22.4,\n" +
-		"p5.48xlarge,us-east-1,192,2048.0,x86_64,8,NVIDIA H100,80,80,\n"
+	want := "instance_type,region,vcpus,memory_gib,architecture,accelerator_count,accelerator_model,accelerator_memory_gb,availability_zones,accelerator_memory_gib\n" +
+		"g5.xlarge,us-east-1,4,16.0,x86_64,1,NVIDIA A10G,24,,22.4\n" +
+		"g5.12xlarge,us-east-1,48,192.0,x86_64,4,NVIDIA A10G,24,,22.4\n" +
+		"p5.48xlarge,us-east-1,192,2048.0,x86_64,8,NVIDIA H100,80,,80\n"
 	if out != want {
 		t.Errorf("CSV mismatch\n got: %q\nwant: %q", out, want)
 	}
