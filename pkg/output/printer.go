@@ -170,6 +170,10 @@ type TableOptions struct {
 	// with a "†" marker and trigger a footer legend. Nil/empty leaves every AZ
 	// unlabeled — the historical behavior.
 	LocalZoneAZs map[string]bool
+	// TotalTypes is how many instance types matched before a --limit cut the
+	// list (truffle#250), so the "Found N" line counts every match rather than
+	// the rows shown. 0 means the list wasn't cut.
+	TotalTypes int
 
 	// PreserveOrder renders rows in the order the caller passed them instead
 	// of re-sorting. Rows are still grouped by instance type: each group sits
@@ -477,8 +481,12 @@ func (p *Printer) printTable(results []aws.InstanceTypeResult, opts TableOptions
 		}
 	}
 
+	found := len(grouped)
+	if opts.TotalTypes > found {
+		found = opts.TotalTypes
+	}
 	summaryMsg := i18n.Tf("truffle.output.summary.found", map[string]interface{}{
-		"Count":   len(grouped),
+		"Count":   found,
 		"Regions": countUniqueRegions(deduped),
 	})
 	if p.useColor {

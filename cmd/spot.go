@@ -18,6 +18,7 @@ import (
 var (
 	spotMaxPrice      float64
 	spotSortByPrice   bool
+	spotLimit         int
 	spotOnlyActive    bool
 	spotLookbackHours int
 	spotPickFirst     bool
@@ -45,6 +46,7 @@ func init() {
 	spotCmd.Flags().BoolVar(&spotOnlyActive, "active-only", false, "Only show AZs with active Spot capacity")
 	spotCmd.Flags().IntVar(&spotLookbackHours, "lookback-hours", 1, "Hours to look back for price history (1-720)")
 	spotCmd.Flags().BoolVar(&spotPickFirst, "pick-first", false, "Output only the top result's instance type (useful for piping to spawn)")
+	spotCmd.Flags().IntVar(&spotLimit, "limit", 0, "List only the first N rows, in result order (0 = all). The table keeps its border and footer, unlike | head")
 	spotCmd.Flags().BoolVar(&spotLocalZones, "local-zones", false, "Include local zones in results (excluded by default)")
 	spotCmd.Flags().DurationVar(&timeout, "timeout", 5*time.Minute, "Timeout for AWS API calls")
 
@@ -195,9 +197,18 @@ func runSpot(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Print summary (table output only — keeps stdout clean for json/csv/yaml)
+	// Print summary (table output only — keeps stdout clean for json/csv/yaml).
+	// It summarises every row, before --limit cuts the list.
 	if outputFormat == "table" {
 		printSpotSummary(spotResults)
+	}
+	// --limit (truffle#250): one row per region and AZ, so the cut is by row.
+	totalRows := len(spotResults)
+	if spotLimit > 0 && totalRows > spotLimit {
+		spotResults = spotResults[:spotLimit]
+	}
+	if outputFormat == "table" {
+		defer writeLimitNote(os.Stderr, len(spotResults), totalRows, "rows")
 	}
 
 	// Output results

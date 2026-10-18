@@ -28,6 +28,7 @@ var (
 	findApp           string // --app flag: application name from catalog
 	findExact         bool   // --exact flag: match exact vCPU and memory instead of minimum
 	findPickFirst     bool
+	findLimit         int
 	findService       string // --service flag: "ec2" (default) or "sagemaker"
 	findShowQuota     bool   // --show-quota flag: show per-type training-job quota (SageMaker only)
 	findShowPrice     bool   // --show-price flag: populate the on-demand price column
@@ -139,6 +140,7 @@ func init() {
 	findCmd.Flags().StringVar(&findApp, "app", "", "Application name from catalog (e.g. paraview, igv)")
 	findCmd.Flags().BoolVar(&findExact, "exact", false, "Match exact vCPU and memory values instead of minimum")
 	findCmd.Flags().BoolVar(&findPickFirst, "pick-first", false, "Output only the top result's instance type (useful for piping to spawn)")
+	findCmd.Flags().IntVar(&findLimit, "limit", 0, "List only the first N instance types, in result order, with every region row of each (0 = all). The table keeps its border and footer, unlike | head")
 	findCmd.Flags().BoolVar(&findShowPrice, "show-price", false, "Show on-demand pricing (live AWS Price List; warns if it falls back to built-in data)")
 	findCmd.Flags().StringVar(&findService, "service", "ec2", "Instance namespace to search: ec2 or sagemaker (ml.* types)")
 	findCmd.Flags().BoolVar(&findShowQuota, "show-quota", false, "Show the per-type training-job quota (SageMaker only)")
@@ -367,6 +369,11 @@ func runFind(cmd *cobra.Command, args []string) (err error) {
 		return nil
 	}
 
+	// --limit (truffle#250): after sorting and --pick-first, before rendering.
+	// The minimum-spec hint below still counts every match.
+	allResults := results
+	results, totalTypes := limitByKey(results, findLimit, func(r aws.InstanceTypeResult) string { return r.InstanceType })
+
 	// Add match explanations
 	enrichedResults := make([]find.FindResult, 0, len(results))
 	for _, r := range results {
@@ -377,15 +384,17 @@ func runFind(cmd *cobra.Command, args []string) (err error) {
 	}
 
 	// Print results
-	if err := printFindResults(enrichedResults, localZones); err != nil {
+	if err := printFindResults(enrichedResults, localZones, totalTypes); err != nil {
 		return err
 	}
 	// Spec terms are minimums, so say so — and how to get an exact match —
 	// next to the table. Human output only; machine formats stay clean.
 	if outputFormat == "table" {
-		if hint := minimumSpecHint(results, criteria.FilterOptions, sortPref); hint != "" {
+		if hint := minimumSpecHint(allResults, criteria.FilterOptions, sortPref); hint != "" {
 			fmt.Fprintln(os.Stderr, hint)
 		}
+		_, shownTypes := limitByKey(results, 0, func(r aws.InstanceTypeResult) string { return r.InstanceType })
+		writeLimitNote(os.Stderr, shownTypes, totalTypes, "types")
 	}
 	return pricingErr
 }
@@ -550,7 +559,7 @@ func describeUnknownTerms(terms []string) string {
 	return strings.Join(parts, ", ")
 }
 
-func printFindResults(results []find.FindResult, localZones map[string]bool) error {
+func printFindResults(results []find.FindResult, localZones map[string]bool, totalTypes int) error {
 	printer := output.NewPrinter(useColor())
 
 	switch outputFormat {
@@ -561,13 +570,13 @@ func printFindResults(results []find.FindResult, localZones map[string]bool) err
 	case "csv":
 		return printer.PrintCSV(convertToInstanceTypeResults(results))
 	case "table":
-		return printFindTable(results, printer, localZones)
+		return printFindTable(results, printer, localZones, totalTypes)
 	default:
 		return fmt.Errorf("unsupported output format: %s", outputFormat)
 	}
 }
 
-func printFindTable(results []find.FindResult, printer *output.Printer, localZones map[string]bool) error {
+func printFindTable(results []find.FindResult, printer *output.Printer, localZones map[string]bool, totalTypes int) error {
 	// For now, print standard table with match reasons in summary
 	baseResults := convertToInstanceTypeResults(results)
 
@@ -594,6 +603,7 @@ func printFindTable(results []find.FindResult, printer *output.Printer, localZon
 		ShowGPURatios: findShowGPURatios,
 		PriceUnit:     priceUnit,
 		LocalZoneAZs:  localZones,
+		TotalTypes:    totalTypes,
 		PreserveOrder: true, // already sorted closest-fit first by sortFindResults (#187)
 	}
 	return printer.PrintTableWithOptions(baseResults, opts)
@@ -809,6 +819,9 @@ func runSearchWithPatternDisplay(regexPattern, display, service string) error {
 		pricingErr = reportPricing(priceResults(ctx, awsClient, results, nil, service), findTimeout)
 	}
 
+	// --limit (truffle#250), as on the natural-language path.
+	results, totalTypes := limitByKey(results, findLimit, func(r aws.InstanceTypeResult) string { return r.InstanceType })
+
 	printer := output.NewPrinter(useColor())
 	var printErr error
 	switch outputFormat {
@@ -830,8 +843,13 @@ func runSearchWithPatternDisplay(regexPattern, display, service string) error {
 			ShowGPURatios: findShowGPURatios,
 			PriceUnit:     priceUnit,
 			LocalZoneAZs:  localZones,
+			TotalTypes:    totalTypes,
 		}
 		printErr = printer.PrintTableWithOptions(results, opts)
+		if printErr == nil {
+			_, shownTypes := limitByKey(results, 0, func(r aws.InstanceTypeResult) string { return r.InstanceType })
+			writeLimitNote(os.Stderr, shownTypes, totalTypes, "types")
+		}
 	default:
 		return fmt.Errorf("unsupported output format: %s", outputFormat)
 	}
