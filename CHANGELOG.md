@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.60.0] - 2026-10-18
+
 ### Added
 
 - **`metadata.IsFractionalGPUFamily`** (#245): whether a family's instances get
@@ -1480,7 +1482,8 @@ Initial tagged release from the standalone `spore-host/truffle` repository.
 Older releases are summarized in the
 [GitHub Releases](https://github.com/spore-host/truffle/releases) for this repo.
 
-[Unreleased]: https://github.com/spore-host/truffle/compare/v0.59.0...HEAD
+[Unreleased]: https://github.com/spore-host/truffle/compare/v0.60.0...HEAD
+[0.60.0]: https://github.com/spore-host/truffle/compare/v0.59.0...v0.60.0
 [0.59.0]: https://github.com/spore-host/truffle/compare/v0.58.0...v0.59.0
 [0.58.0]: https://github.com/spore-host/truffle/compare/v0.57.2...v0.58.0
 [0.57.2]: https://github.com/spore-host/truffle/compare/v0.57.1...v0.57.2
