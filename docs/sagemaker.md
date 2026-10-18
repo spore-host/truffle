@@ -6,14 +6,13 @@ namespace — in addition to raw EC2. SageMaker `ml.*` types (e.g.
 (`g5.2xlarge`) but are a **distinct namespace** with their own pricing (a
 management premium) and their own service quotas.
 
-Discovery is **opt-in**: pass `--service sagemaker` to `find` or `search`.
-Without it, both commands behave exactly as before (EC2 only).
+Discovery is **opt-in**: pass `--service sagemaker` to `find`.
+Without it, `find` covers EC2 only.
 
 ```bash
 # Discover ml.* types (glob, regex, or natural language)
-truffle find "ml.g5.*"      --service sagemaker --regions us-east-1
-truffle search "ml.g5.*"    --service sagemaker --regions us-east-1 --show-price
-truffle find "nvidia a10g"  --service sagemaker --regions us-east-1
+truffle find "ml.g5.*"   --service sagemaker --regions us-east-1
+truffle find "a10g"      --service sagemaker --regions us-east-1
 
 # Include the per-type training-job quota
 truffle find "ml.g5.*" --service sagemaker --show-quota --regions us-east-1
@@ -52,7 +51,7 @@ For each matched `ml.*` type, truffle:
 4. **Folds in quota data** — managed-spot eligibility and the training-job limit.
 
 Patterns match against the `ml.`-prefixed name, so `ml.g5.*` works directly.
-Natural-language queries (`nvidia a10g`, `48 vcpu`) also work — they match the
+Natural-language queries (`a10g`, `48 vcpu`) also work — they match the
 underlying EC2 specs.
 
 ## Pricing
@@ -65,7 +64,7 @@ carries a **management premium** over the equivalent EC2 rate. For example, in
 |------|------------------|------------|
 | `ml.g5.2xlarge` | ~$1.515 | ~$1.212 |
 
-`find` shows and sorts by this rate automatically; `search` shows it with
+`find` shows this rate automatically for `ml.*` types, with or without
 `--show-price`. Rates are cached per type/region, like EC2 pricing. A type with
 no published SageMaker rate shows `N/A`.
 
@@ -124,6 +123,6 @@ JSON/YAML (`-o json` / `-o yaml`) include the SageMaker fields:
   and `pricing:GetProducts`.
 - **`spot` is EC2-only.** `truffle spot` covers the EC2 Spot market; SageMaker
   managed spot is a billed-time discount, not a market, so it is surfaced through
-  the `Spot-Eligible` marker on `find`/`search` rather than as a spot price.
+  the `Spot-Eligible` marker on `find` rather than as a spot price.
 - **`SpawnSupported` is always false** for `ml.*` rows — [spawn](https://github.com/spore-host/spawn)
   launches EC2 instances, not SageMaker resources.

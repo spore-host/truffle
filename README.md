@@ -49,18 +49,21 @@ cd truffle && make build && sudo make install
 ## Quick Start
 
 ```bash
-# Search instance types (glob or regex; configured region by default, like find)
-truffle search "m7i*"                         # glob: all m7i sizes
-truffle search "c[6-8]i\.large"               # regex: c6i/c7i/c8i large
+# Find instance types by pattern (glob or regex; configured region by default)
+truffle find "m7i*"                           # glob: all m7i sizes
+truffle find "c[6-8]i.large"                  # regex: c6i/c7i/c8i large
+truffle find g5.2xlarge g5.4xlarge            # compare named types side by side
 
 # Compare spot prices (every enabled region by default: the point is the cheapest one)
 truffle spot m7i.large --regions us-east-1
 truffle spot "c6a*" --sort-by-price --lookback-hours 24
+truffle spot "c7a.*" --sort-by-price --limit 10   # first 10 rows; keeps the table border, unlike | head
 
 # Find by natural language (searches your configured region by default —
 # AWS_REGION / AWS_DEFAULT_REGION / profile region; all regions if none is set)
-truffle find "h200 8gpu efa"
+truffle find "h100 8 gpus efa"
 truffle find "amd turin 32 cores 64gb" --exact
+truffle find "A100-80GB"                      # GPU memory in a card name counts: 80 GB A100s only
 truffle find "gpu 24gb"                       # each GPU ≥24 GB/GiB as sold; "64gb ram" means host memory (GiB)
 truffle find graviton --regions us-east-1,us-west-2
 truffle find graviton --all-regions           # every enabled region (slower)
@@ -80,7 +83,7 @@ truffle find "ml.g5.*" --service sagemaker --show-quota --regions us-east-1
 truffle capacity --gpu-only
 
 # Output formats (all commands)
-truffle search "m7i*" -o json
+truffle find "m7i*" -o json
 truffle find "intel 8 vcpu" -o csv
 ```
 
@@ -88,9 +91,9 @@ truffle find "intel 8 vcpu" -o csv
 
 | Command | Description |
 |---------|-------------|
-| `search <pattern>` | Search by glob (`m7i*`) or regex (`c[6-8]i\.large`); `--service sagemaker` for `ml.*` types |
-| `find <query>` | Natural language search (`amd epyc 32 cores 64gb`); `--service sagemaker` for `ml.*` types |
+| `find <query>` | Natural language (`amd turin 32 cores 64gb`), glob (`m7i*`), or regex (`c[6-8]i.large`) search; `--service sagemaker` for `ml.*` types |
 | `spot <pattern>` | Spot pricing with savings vs on-demand |
+| `search <pattern>` | Deprecated: use `find`, which detects patterns itself |
 | `az <pattern>` | AZ-first availability view |
 | `available <type>` | Can you actually get it? Spot score, AZ footprint, quota headroom, capacity blocks |
 | `capacity` | On-demand capacity reservations (ODCRs) |
@@ -108,7 +111,7 @@ depends on what the command is for:
 
 | Command | Default scope | Why |
 |---------|---------------|-----|
-| `find`, `search` | your configured region (spore config, `AWS_REGION` / `AWS_DEFAULT_REGION`, profile region); all enabled regions if none is set | describing instance types; most people launch in one region |
+| `find` (and the deprecated `search`) | your configured region (spore config, `AWS_REGION` / `AWS_DEFAULT_REGION`, profile region); all enabled regions if none is set | describing instance types; most people launch in one region |
 | `spot` | all enabled regions | finding the cheapest region/AZ |
 | `az` | all enabled regions (or the regions of `--az` zones) | comparing AZ coverage across regions |
 | `capacity` | all enabled regions | your reservations can be in any region |
