@@ -69,7 +69,7 @@ func TestPrintTable_NeuronAccelerators(t *testing.T) {
 	out := captureStdout(t, func() {
 		_ = NewPrinter(false).PrintTableWithOptions(accelRows(), TableOptions{ShowGPURatios: true})
 	})
-	for _, h := range []string{"Accel ", "Accel Model", "Accel mem (GB)", "vCPU/Accel"} {
+	for _, h := range []string{"Accel ", "Accel Model", "Accel mem", "vCPU/Accel"} {
 		if !strings.Contains(out, h) {
 			t.Errorf("header %q missing:\n%s", h, out)
 		}
@@ -78,10 +78,10 @@ func TestPrintTable_NeuronAccelerators(t *testing.T) {
 		t.Errorf("a table with Inferentia rows should not head the columns GPU/VRAM:\n%s", out)
 	}
 	for _, tt := range []struct{ it, want string }{
-		{"inf2.xlarge", "1|Inferentia2|32 (32/chip)"},
-		{"inf2.48xlarge", "12|Inferentia2|384 (32/chip)"},
-		{"dl2q.24xlarge", "8|Qualcomm AI100|128 (16/dev)"},
-		{"g5.xlarge", "1|NVIDIA A10G|24 (24/gpu)"},
+		{"inf2.xlarge", "1|Inferentia2|32 GiB (32/chip)"},
+		{"inf2.48xlarge", "12|Inferentia2|384 GiB (32/chip)"},
+		{"dl2q.24xlarge", "8|Qualcomm AI100|128 GB (16/dev)"},
+		{"g5.xlarge", "1|NVIDIA A10G|24 GB (24/gpu)"},
 	} {
 		if row := cells(tableRow(t, out, tt.it)); !strings.Contains(row, "|"+tt.want+"|") {
 			t.Errorf("%s row should contain %q, got:\n%s", tt.it, tt.want, row)
@@ -98,13 +98,13 @@ func TestPrintTable_V100PerFamily(t *testing.T) {
 	out := captureStdout(t, func() {
 		_ = NewPrinter(false).PrintTable(v100Rows(), false, false)
 	})
-	if !strings.Contains(out, "VRAM (GB)") || strings.Contains(out, "Accel") {
+	if !strings.Contains(out, "VRAM") || strings.Contains(out, "Accel") {
 		t.Errorf("a GPU-only table keeps the GPU headers:\n%s", out)
 	}
-	if row := tableRow(t, out, "p3.2xlarge"); !strings.Contains(row, " 16 (16/gpu) ") {
+	if row := tableRow(t, out, "p3.2xlarge"); !strings.Contains(row, " 16 GiB (16/gpu) ") {
 		t.Errorf("p3 V100 should be 16 GB, got:\n%s", row)
 	}
-	if row := tableRow(t, out, "p3dn.24xlarge"); !strings.Contains(row, " 256 (32/gpu) ") {
+	if row := tableRow(t, out, "p3dn.24xlarge"); !strings.Contains(row, " 256 GiB (32/gpu) ") {
 		t.Errorf("p3dn V100 should be 32 GB each, got:\n%s", row)
 	}
 }
@@ -115,11 +115,11 @@ func TestPrintCSV_NeuronAccelerators(t *testing.T) {
 	out := captureStdout(t, func() {
 		_ = NewPrinter(false).PrintCSV(accelRows())
 	})
-	want := "instance_type,region,vcpus,memory_gib,architecture,accelerator_count,accelerator_model,accelerator_memory_gb,availability_zones\n" +
-		"inf2.xlarge,us-east-1,4,16.0,x86_64,1,Inferentia2,32,\n" +
-		"inf2.48xlarge,us-east-1,192,768.0,x86_64,12,Inferentia2,32,\n" +
-		"dl2q.24xlarge,us-east-1,96,768.0,x86_64,8,Qualcomm AI100,16,\n" +
-		"g5.xlarge,us-east-1,4,16.0,x86_64,1,NVIDIA A10G,24,\n"
+	want := "instance_type,region,vcpus,memory_gib,architecture,accelerator_count,accelerator_model,accelerator_memory_gb,accelerator_memory_gib,availability_zones\n" +
+		"inf2.xlarge,us-east-1,4,16.0,x86_64,1,Inferentia2,32,32,\n" +
+		"inf2.48xlarge,us-east-1,192,768.0,x86_64,12,Inferentia2,32,32,\n" +
+		"dl2q.24xlarge,us-east-1,96,768.0,x86_64,8,Qualcomm AI100,16,15.6,\n" +
+		"g5.xlarge,us-east-1,4,16.0,x86_64,1,NVIDIA A10G,24,22.4,\n"
 	if out != want {
 		t.Errorf("CSV mismatch\n got: %q\nwant: %q", out, want)
 	}

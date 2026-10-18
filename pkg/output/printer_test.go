@@ -457,8 +457,8 @@ func TestPrintTable_PerGPUVRAM_WholeGPU(t *testing.T) {
 	out := captureStdout(t, func() {
 		_ = NewPrinter(false).PrintTable(results, false, false)
 	})
-	if !strings.Contains(out, "96 (24/gpu)") {
-		t.Errorf("expected total+per-GPU VRAM figure %q:\n%s", "96 (24/gpu)", out)
+	if !strings.Contains(out, "96 GiB (24/gpu)") {
+		t.Errorf("expected total+per-GPU VRAM figure %q:\n%s", "96 GiB (24/gpu)", out)
 	}
 }
 

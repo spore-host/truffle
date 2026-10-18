@@ -70,7 +70,8 @@ type InstanceTypeResult struct {
 	GPUModel                string   `json:"gpu_model,omitempty" yaml:"gpu_model,omitempty"`                               // GPU model name, e.g. "A100"
 	GPUManufacturer         string   `json:"gpu_manufacturer,omitempty" yaml:"gpu_manufacturer,omitempty"`                 // GPU vendor, e.g. "nvidia"
 	AccelMemoryMiB          int64    `json:"accelerator_memory_mib,omitempty" yaml:"accelerator_memory_mib,omitempty"`     // Memory of ONE GPU or accelerator device in MiB: the GPU's (as GPUMemoryPerMiB), else a Neuron device's (Inferentia, Trainium; one chip, at its documented size where EC2's record is wrong, as Trainium2's 96 GiB for the 512 GiB EC2 reports, #242), else an inference accelerator's (dl2q); used by the per-GPU memory filter and closest-fit sort (#236)
-	AccelMemoryGB           float64  `json:"accelerator_memory_gb,omitempty" yaml:"accelerator_memory_gb,omitempty"`       // AccelMemoryMiB as the size the device is sold as, in GB (see NominalGPUMemoryGB): the figure the per-GPU memory filter compares and the table's VRAM column shows, e.g. 24 for an A10G (#238), 96 per Trainium2 chip, 179 for a B200 (#242)
+	AccelMemoryGB           float64  `json:"accelerator_memory_gb,omitempty" yaml:"accelerator_memory_gb,omitempty"`       // AccelMemoryMiB as the size the device is sold as (see NominalGPUMemoryGB): the figure the per-GPU memory filter compares and the table's VRAM column shows, e.g. 24 for an A10G (#238), 96 per Trainium2 chip, 179 for a B200 (#242). The name is historical: the figure is GiB for a binary-sized device (H100 80, B200 179) and GB for a decimal one (A10G 24); NominalGPUMemoryUnit(AccelMemoryMiB) says which, and AccelMemoryGiB is always binary (#244)
+	AccelMemoryGiB          float64  `json:"accelerator_memory_gib,omitempty" yaml:"accelerator_memory_gib,omitempty"`     // AccelMemoryMiB / 1024, to 0.1 GiB: 179.1 for a B200, 22.4 for an A10G, 80 for an H100 (#244)
 	AcceleratorCount        int32    `json:"accelerator_count,omitempty" yaml:"accelerator_count,omitempty"`               // Number of GPU or accelerator devices, from the same record as AccelMemoryMiB: GPUs (as GPUs; 0 for a fractional GPU), else Neuron devices (Inferentia, Trainium), else inference accelerators (dl2q) (#240)
 	AcceleratorModel        string   `json:"accelerator_model,omitempty" yaml:"accelerator_model,omitempty"`               // Device model from the same record, e.g. "A10G", "Inferentia2", "Qualcomm AI100" (#240)
 	AcceleratorManufacturer string   `json:"accelerator_manufacturer,omitempty" yaml:"accelerator_manufacturer,omitempty"` // Device maker as EC2 reports it, e.g. "NVIDIA", "Qualcomm"; empty for Neuron devices, whose record has no maker (#240)
@@ -104,7 +105,7 @@ type FilterOptions struct {
 	MinVCPUs         int     // Minimum vCPU count; 0 disables this filter
 	MinMemory        float64 // Minimum memory in GiB; 0 disables this filter
 	MinPhysicalCores int     // Minimum physical core count; 0 disables this filter
-	MinGPUMemory     float64 // Minimum memory of one GPU or accelerator device, in nominal GB (see NominalGPUMemoryGB); 0 disables this filter (#236)
+	MinGPUMemory     float64 // Minimum memory of one GPU or accelerator device, as the nominal size it is sold as, in its own unit (GiB for an H100's 80, GB for an A10G's 24; see NominalGPUMemoryGB, #244); 0 disables this filter (#236)
 	ExactVCPUs       bool    // If true, match exact vCPU count instead of minimum
 	ExactMemory      bool    // If true, match exact memory instead of minimum
 	ExactCores       bool    // If true, match exact physical core count instead of minimum
@@ -687,6 +688,7 @@ func buildResultFromEC2(it types.InstanceTypeInfo, displayType, region string) I
 
 	result.AccelMemoryMiB = acceleratorMemoryPerDeviceMiB(it)
 	result.AccelMemoryGB = math.Round(NominalGPUMemoryGB(result.AccelMemoryMiB)*10) / 10
+	result.AccelMemoryGiB = math.Round(float64(result.AccelMemoryMiB)/1024*10) / 10
 	result.AcceleratorCount, result.AcceleratorModel, result.AcceleratorManufacturer = acceleratorDevices(it)
 
 	return result
