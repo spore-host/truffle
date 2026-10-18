@@ -295,6 +295,16 @@ func AcceleratorMemoryMiB(family string) (int64, bool) {
 	return mib, ok
 }
 
+// fractionalGPUFamilies are the families whose instances get a partition of a
+// GPU rather than the whole device, so the model's MemoryGB is not what an
+// instance can use (2861 MiB on g6f.large against the L4's 24 GB). They are
+// the two left out of acceleratorMemoryMiB for that reason.
+var fractionalGPUFamilies = map[string]bool{"g6f": true, "gr6f": true}
+
+// IsFractionalGPUFamily reports whether family's instances get a fraction of
+// a GPU, so the GPU model's memory overstates theirs (#245).
+func IsFractionalGPUFamily(family string) bool { return fractionalGPUFamilies[family] }
+
 // GPUAliases maps common GPU names to canonical forms
 var GPUAliases = map[string]string{
 	"nvidia":         "nvidia",
