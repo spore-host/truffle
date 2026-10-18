@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`metadata.IsFractionalGPUFamily`** (#245): whether a family's instances get
+  a partition of a GPU (g6f, gr6f) rather than the whole device, so the GPU
+  model's memory overstates what they can use.
+
+### Fixed
+
+- **A GPU memory size in a card name is applied** (#245). `find.ResolveCard`
+  dropped it, so `"A100-80GB"` resolved to p4d.24xlarge (40 GB A100s) as well as
+  p4de.24xlarge (80 GB), and a job sized for 80 GB per GPU could be placed on
+  GPUs too small for it. The size is now per-GPU memory from the family's
+  recorded figure, applied as a minimum as elsewhere in truffle. So
+  `"A100-80GB"` resolves to p4de only, `"V100-32GB"` to p3dn only, and
+  `"A100-40GB"` keeps both. A size no variant has is `ErrNoMatch`, and
+  fractional GPUs (g6f, gr6f) are left out of a memory-suffixed card. The doc
+  comment no longer claims other constraints are rejected; they never were
+  (#246).
+
 ## [0.59.0] - 2026-10-15
 
 ### Added
