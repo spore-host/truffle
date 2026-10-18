@@ -3,6 +3,7 @@ package output
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/spore-host/libs/i18n"
 	"io"
 	"os"
 	"strings"
@@ -1085,5 +1086,26 @@ func TestFormatLocalWindow(t *testing.T) {
 				t.Errorf("formatLocalWindow(%q,%q) = %q, want %q", c.start, c.end, got, c.want)
 			}
 		})
+	}
+}
+
+// A --limit cut list still says how many types matched in its "Found N" line,
+// so the header doesn't contradict the "first 3 of 28" note (truffle#250).
+func TestTableFoundCountsEveryMatchUnderALimit(t *testing.T) {
+	old := i18n.Global
+	t.Cleanup(func() { i18n.Global = old })
+	if err := i18n.Init(i18n.Config{Language: "en", NoEmoji: true}); err != nil {
+		t.Fatal(err)
+	}
+	p := NewPrinter(false)
+	out := captureStdout(t, func() {
+		_ = p.PrintTableWithOptions(sampleInstances()[:1], TableOptions{TotalTypes: 28})
+	})
+	if !strings.Contains(out, "Found 28 instance types") {
+		t.Errorf("header under a limit = %q, want it to count all 28 matches", strings.SplitN(strings.TrimSpace(out), "\n", 2)[0])
+	}
+	out = captureStdout(t, func() { _ = p.PrintTableWithOptions(sampleInstances()[:1], TableOptions{}) })
+	if !strings.Contains(out, "Found 1 instance type") {
+		t.Errorf("header without a limit should count the rows shown: %q", strings.SplitN(strings.TrimSpace(out), "\n", 2)[0])
 	}
 }

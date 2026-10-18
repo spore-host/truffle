@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`--limit N` on `truffle find` and `truffle spot`** (#250). It lists only the
+  first N results in their ranked order: for `find`, the first N instance types
+  with every region row of each, and for `spot`, the first N rows. The table
+  keeps its border, legend and footer, which `| head -N` cut off, and a line
+  says what was left out ("Listed the first 3 of 28 types; --limit 0 lists
+  all"). The "Found N" header and the minimum-spec hint still count every
+  match. `0`, the default, lists everything.
+
 - **`accelerator_memory_gib`** (#244): JSON/YAML (`InstanceTypeResult.AccelMemoryGiB`)
   and CSV now carry the per-device GPU or accelerator memory as MiB/1024, to
   0.1 GiB (179.1 for a B200, 22.4 for an A10G), beside the nominal

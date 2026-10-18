@@ -96,6 +96,7 @@ truffle find <query> [flags]
 | `--all-regions` |  | bool |  | Search every enabled region (default: only your configured region, e.g. AWS_REGION or the profile's region) |
 | `--app` |  | string |  | Application name from catalog (e.g. paraview, igv) |
 | `--exact` |  | bool |  | Match exact vCPU and memory values instead of minimum |
+| `--limit` |  | int |  | List only the first N instance types, in result order, with every region row of each (0 = all). The table keeps its border and footer, unlike \| head |
 | `--local-zones` |  | bool |  | Restrict results to Local Zones and Wavelength Zones (edge locations); mutually exclusive with --skip-azs |
 | `--pick-first` |  | bool |  | Output only the top result's instance type (useful for piping to spawn) |
 | `--price-unit` |  | string | `hour` | Price display unit for --show-price: hour, minute, or second |
