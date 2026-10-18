@@ -2,7 +2,6 @@ package find
 
 import (
 	"fmt"
-	"math"
 	"strconv"
 	"strings"
 
@@ -54,8 +53,8 @@ processorDone:
 			for _, inst := range info.InstanceTypes {
 				if inst == result.InstanceType {
 					reasons = append(reasons,
-						fmt.Sprintf("GPU: %s (%s GB, %s)",
-							info.Name, gpuMemoryGB(info, family), info.UseCase))
+						fmt.Sprintf("GPU: %s (%s, %s)",
+							info.Name, gpuMemoryLabel(info, family), info.UseCase))
 					goto gpuDone
 				}
 			}
@@ -123,8 +122,10 @@ instructionSetDone:
 
 	// Check per-GPU memory match (#236)
 	if query.MinGPUMemory > 0 && aws.MatchesGPUMemory(result.AccelMemoryMiB, query.MinGPUMemory, query.ExactMatch) {
-		reasons = append(reasons, fmt.Sprintf("GPU memory: %s GB >= %s GB",
-			strconv.FormatFloat(math.Round(aws.NominalGPUMemoryGB(result.AccelMemoryMiB)), 'f', -1, 64),
+		// The device's size carries its unit (GiB or GB, as it is sold);
+		// the request is compared with that number (#244).
+		reasons = append(reasons, fmt.Sprintf("GPU memory: %s >= %s",
+			aws.FormatGPUMemory(result.AccelMemoryMiB),
 			strconv.FormatFloat(query.MinGPUMemory, 'f', -1, 64)))
 	}
 
@@ -163,14 +164,24 @@ networkDone:
 	return reasons
 }
 
-// gpuMemoryGB is the per-device memory of GPU model info in family, in GB as
-// sold: the family's recorded figure (metadata.AcceleratorMemoryMiB), so a
-// p3dn V100 reads 32 and a p4de A100 80, else the model's MemoryGB (#240).
-func gpuMemoryGB(info metadata.GPUInfo, family string) string {
+// gpuMemoryLabel is the per-device memory of GPU model info in family as
+// sold, with its unit: the family's recorded figure
+// (metadata.AcceleratorMemoryMiB), so a p3dn V100 reads 32 GiB and a p4de
+// A100 80 GiB, an A10G 24 GB (#240, #244), else the model's MemoryGB in the
+// unit the model's recorded families are sold in (a p3 V100 16 GiB, a g6f
+// L4 24 GB), or GB if none is recorded.
+func gpuMemoryLabel(info metadata.GPUInfo, family string) string {
 	if mib, ok := metadata.AcceleratorMemoryMiB(family); ok {
-		return strconv.FormatFloat(math.Round(aws.NominalGPUMemoryGB(mib)*10)/10, 'f', -1, 64)
+		return aws.FormatGPUMemory(mib)
 	}
-	return strconv.Itoa(info.MemoryGB)
+	unit := aws.UnitGB
+	for _, f := range info.Families {
+		if mib, ok := metadata.AcceleratorMemoryMiB(f); ok {
+			unit = aws.NominalGPUMemoryUnit(mib)
+			break
+		}
+	}
+	return strconv.Itoa(info.MemoryGB) + " " + unit
 }
 
 // extractFamily extracts the instance family from an instance type

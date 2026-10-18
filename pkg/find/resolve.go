@@ -58,7 +58,7 @@ func ResolveCard(card string) ([]string, error) {
 	if pq.MinGPUMemory > 0 {
 		instances = withGPUMemory(instances, pq.GPUs, pq.MinGPUMemory, pq.ExactMatch)
 		if len(instances) == 0 {
-			return nil, fmt.Errorf("%w: %q (no instance type for GPU %v has %v GB per GPU)", ErrNoMatch, card, pq.GPUs, pq.MinGPUMemory)
+			return nil, fmt.Errorf("%w: %q (no instance type for GPU %v has %v GB/GiB per GPU, as sold)", ErrNoMatch, card, pq.GPUs, pq.MinGPUMemory)
 		}
 	}
 

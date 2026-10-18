@@ -106,3 +106,52 @@ func TestMatchesFilters_AcceleratorNominal(t *testing.T) {
 		})
 	}
 }
+
+// TestNominalGPUMemoryUnit pins the unit of each nominal size (#244): a
+// size that is a whole number of GiB of the reported MiB is GiB (H100 80,
+// and the B200's 183359 MiB, 179.06 GiB, is 179 GiB, never "179 GB"); a
+// decimal size recorded as MiB is GB (A10G 24, dl2q's AI100 16).
+func TestNominalGPUMemoryUnit(t *testing.T) {
+	for _, tt := range []struct {
+		name, unit, label string
+		mib               int64
+	}{
+		{"B200", UnitGiB, "179 GiB", mibB200},
+		{"B300", UnitGiB, "268 GiB", mibB300},
+		{"H100", UnitGiB, "80 GiB", mibH100},
+		{"T4", UnitGiB, "16 GiB", mibT4},
+		{"Trainium2", UnitGiB, "96 GiB", 96 * 1024},
+		{"A10G", UnitGB, "24 GB", mibA10G},
+		{"L40S", UnitGB, "48 GB", 45776},
+		{"AI100 (dl2q)", UnitGB, "16 GB", 16000},
+		{"none", "", "", 0},
+	} {
+		if got := NominalGPUMemoryUnit(tt.mib); got != tt.unit {
+			t.Errorf("%s: NominalGPUMemoryUnit(%d) = %q, want %q", tt.name, tt.mib, got, tt.unit)
+		}
+		if got := FormatGPUMemory(tt.mib); got != tt.label {
+			t.Errorf("%s: FormatGPUMemory(%d) = %q, want %q", tt.name, tt.mib, got, tt.label)
+		}
+	}
+}
+
+// TestBuildResultFromEC2_AccelMemoryGiB checks the JSON/YAML
+// accelerator_memory_gib field is MiB/1024 to 0.1 GiB (#244), beside the
+// nominal accelerator_memory_gb: a B200's 183359 MiB is 179.1 GiB (nominal
+// 179), an A10G's 22888 MiB 22.4 GiB (nominal 24 GB).
+func TestBuildResultFromEC2_AccelMemoryGiB(t *testing.T) {
+	for _, tt := range []struct {
+		name          string
+		mib           int64
+		wantGiB, nomi float64
+	}{
+		{"p6-b200.48xlarge", mibB200, 179.1, 179},
+		{"g5.xlarge", mibA10G, 22.4, 24},
+		{"p5.48xlarge", mibH100, 80, 80},
+	} {
+		r := buildResultFromEC2(gpuTypeInfo(tt.name, int32(tt.mib)), tt.name, "us-east-1")
+		if r.AccelMemoryGiB != tt.wantGiB || r.AccelMemoryGB != tt.nomi {
+			t.Errorf("%s: AccelMemoryGiB = %v, AccelMemoryGB = %v; want %v, %v", tt.name, r.AccelMemoryGiB, r.AccelMemoryGB, tt.wantGiB, tt.nomi)
+		}
+	}
+}

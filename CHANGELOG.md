@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`accelerator_memory_gib`** (#244): JSON/YAML (`InstanceTypeResult.AccelMemoryGiB`)
+  and CSV now carry the per-device GPU or accelerator memory as MiB/1024, to
+  0.1 GiB (179.1 for a B200, 22.4 for an A10G), beside the nominal
+  `accelerator_memory_gb`. In CSV it is appended as the last column, so every
+  existing column keeps its position.
+  For library callers, `aws.NominalGPUMemoryUnit` says which unit
+  `aws.NominalGPUMemoryGB` is in (`aws.UnitGiB` or `aws.UnitGB`), and
+  `aws.FormatGPUMemory` renders it with that unit ("179 GiB", "24 GB").
+
+### Fixed
+
+- **GPU memory is labelled GiB when it is GiB** (#244). The VRAM column was
+  headed `VRAM (GB)`, so a B200 (EC2: 183359 MiB, 179.06 GiB) read
+  `1432 (179/gpu)` and looked like 179 GB. Most GPUs' sizes are binary
+  (H100 80 GiB, B200 179 GiB, Trainium2 96 GiB), a few are decimal (A10G and
+  L4 24 GB, L40S 48 GB, dl2q's AI100 16 GB), so each figure now carries its
+  own unit and the header carries none: `VRAM` / `Accel mem` read
+  `1432 GiB (179/gpu)`, `640 GiB (80/gpu)`, `96 GB (24/gpu)`. The "why it
+  matched" lines (`GPU: H100 (80 GiB, training)`, `GPU memory: 24 GB >= 24`)
+  do the same. The numbers are unchanged, and so is the per-GPU memory
+  filter: `"gpu 24gb"` is still compared with the size the GPU is sold as, in
+  its own unit, so it still matches the A10G and L4; the filter's notes and
+  hints now say `GB/GiB per GPU, as sold`. Host memory, always MiB/1024, is
+  GiB throughout (it already was in the table, CSV and filters); shell
+  completion descriptions said `GB RAM` and now say `GiB RAM`, and `find
+  --help` says that `"64gb"` host memory means 64 GiB. The JSON/YAML field
+  `accelerator_memory_gb` keeps its name and value for compatibility; despite
+  the name it is GiB for a binary-sized device, as documented on the field;
+  use the new `accelerator_memory_gib` for a binary figure, or
+  `accelerator_memory_mib`. `metadata.GPUInfo.MemoryGB` is likewise unchanged
+  and documented as in the GPU's own unit.
+
 ## [0.60.0] - 2026-10-18
 
 ### Added

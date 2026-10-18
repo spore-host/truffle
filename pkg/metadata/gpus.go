@@ -6,7 +6,7 @@ import "sort"
 type GPUInfo struct {
 	Name            string   // "A100", "V100", "H100"
 	Vendor          string   // "nvidia", "amd", "aws"
-	MemoryGB        int      // GPU memory per GPU, in GB as sold (the aws.NominalGPUMemoryGB figure: A10G 24, not 22 GiB; #238). Where a model's memory varies by family (V100: 16 on p3, 32 on p3dn; A100: 40 on p4d, 80 on p4de), this is the base variant's; AcceleratorMemoryMiB has the per-family figure (#240)
+	MemoryGB        int      // GPU memory per GPU, as sold (the aws.NominalGPUMemoryGB figure: A10G 24, not 22 GiB; #238). The name is historical: the figure is in the unit the GPU is sold in, GiB for most (H100 80, B200 179), GB for some (A10G, L4 24, L40S 48); aws.NominalGPUMemoryUnit of the family's AcceleratorMemoryMiB says which (#244). Where a model's memory varies by family (V100: 16 on p3, 32 on p3dn; A100: 40 on p4d, 80 on p4de), this is the base variant's; AcceleratorMemoryMiB has the per-family figure (#240)
 	UseCase         string   // "training", "inference", "graphics"
 	Families        []string // Instance families (for fuzzy matching)
 	InstanceTypes   []string // Exact instance types (for precise matching)

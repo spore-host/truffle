@@ -56,19 +56,20 @@ func TestPrintTable_VRAMNominalGB(t *testing.T) {
 	out := captureStdout(t, func() {
 		_ = NewPrinter(false).PrintTable(vramRows(), false, false)
 	})
-	if !strings.Contains(out, "VRAM (GB)") || strings.Contains(out, "VRAM (GiB)") {
-		t.Errorf("VRAM header should be labelled GB:\n%s", out)
+	// The header carries no unit; each cell carries its own (#244).
+	if !strings.Contains(out, "VRAM") || strings.Contains(out, "VRAM (") {
+		t.Errorf("VRAM header should carry no unit:\n%s", out)
 	}
-	if row := tableRow(t, out, "g5.xlarge"); !strings.Contains(row, " 24 (24/gpu) ") {
+	if row := tableRow(t, out, "g5.xlarge"); !strings.Contains(row, " 24 GB (24/gpu) ") {
 		t.Errorf("A10G row should show 24 GB VRAM, got:\n%s", row)
 	}
 	// 4 x 22888 MiB is 89.4 GiB, close enough to a whole GiB to fool a
 	// nominal reading of the total; the total is 4 x 24 GB.
-	if row := tableRow(t, out, "g5.12xlarge"); !strings.Contains(row, " 96 (24/gpu) ") {
+	if row := tableRow(t, out, "g5.12xlarge"); !strings.Contains(row, " 96 GB (24/gpu) ") {
 		t.Errorf("4 x A10G row should show 96 GB total, 24 per GPU, got:\n%s", row)
 	}
-	if row := tableRow(t, out, "p5.48xlarge"); !strings.Contains(row, " 640 (80/gpu) ") {
-		t.Errorf("H100 row should show 640 GB total, 80 per GPU, got:\n%s", row)
+	if row := tableRow(t, out, "p5.48xlarge"); !strings.Contains(row, " 640 GiB (80/gpu) ") {
+		t.Errorf("H100 row should show 640 GiB total, 80 per GPU, got:\n%s", row)
 	}
 }
 
@@ -77,10 +78,10 @@ func TestPrintCSV_VRAMNominalGB(t *testing.T) {
 	out := captureStdout(t, func() {
 		_ = NewPrinter(false).PrintCSV(vramRows())
 	})
-	want := "instance_type,region,vcpus,memory_gib,architecture,accelerator_count,accelerator_model,accelerator_memory_gb,availability_zones\n" +
-		"g5.xlarge,us-east-1,4,16.0,x86_64,1,NVIDIA A10G,24,\n" +
-		"g5.12xlarge,us-east-1,48,192.0,x86_64,4,NVIDIA A10G,24,\n" +
-		"p5.48xlarge,us-east-1,192,2048.0,x86_64,8,NVIDIA H100,80,\n"
+	want := "instance_type,region,vcpus,memory_gib,architecture,accelerator_count,accelerator_model,accelerator_memory_gb,availability_zones,accelerator_memory_gib\n" +
+		"g5.xlarge,us-east-1,4,16.0,x86_64,1,NVIDIA A10G,24,,22.4\n" +
+		"g5.12xlarge,us-east-1,48,192.0,x86_64,4,NVIDIA A10G,24,,22.4\n" +
+		"p5.48xlarge,us-east-1,192,2048.0,x86_64,8,NVIDIA H100,80,,80\n"
 	if out != want {
 		t.Errorf("CSV mismatch\n got: %q\nwant: %q", out, want)
 	}

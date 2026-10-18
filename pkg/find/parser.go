@@ -83,7 +83,7 @@ type ParsedQuery struct {
 	MinVCPU         int               // Minimum vCPU count; 0 means unconstrained
 	MinPhysCores    int               // Minimum physical core count; 0 means unconstrained
 	MinMemory       float64           // Minimum memory in GiB; 0 means unconstrained
-	MinGPUMemory    float64           // Minimum memory of each GPU or accelerator, in GB as the GPU is sold; 0 means unconstrained (#236)
+	MinGPUMemory    float64           // Minimum memory of each GPU or accelerator, compared with the size the GPU is sold as in its own unit (GiB for an H100's 80, GB for an A10G's 24; #244); 0 means unconstrained (#236)
 	GPUMemoryRead   string            // The bare size ("24gb") a GPU query read as per-GPU memory rather than host memory; empty if none (#236)
 	GPUCount        int               // Minimum number of GPUs; 0 means unconstrained
 	Architecture    string            // "x86_64" or "arm64"; empty means both
@@ -307,7 +307,7 @@ func (pq *ParsedQuery) MemoryReadingNote() string {
 	if pq == nil || pq.GPUMemoryRead == "" {
 		return ""
 	}
-	return fmt.Sprintf("Note: reading %q as memory per GPU (at least %s GB as sold); write \"%s ram\" for host memory",
+	return fmt.Sprintf("Note: reading %q as memory per GPU (at least %s GB/GiB, as the GPU is sold); write \"%s ram\" for host memory",
 		pq.GPUMemoryRead, strconv.FormatFloat(pq.MinGPUMemory, 'f', -1, 64), pq.GPUMemoryRead)
 }
 
@@ -582,7 +582,10 @@ func normalizeHyphenatedToken(word string) ([]string, bool) {
 	return strings.Split(stripped, "-"), true
 }
 
-// parseMemory parses memory string (e.g., "32gb", "64gib") to GiB
+// parseMemory parses memory string (e.g., "32gb", "64gib") to a number.
+// For host memory it is GiB: "64gb" and "64gib" both mean 64 GiB, the unit
+// truffle shows host memory in (#244). For per-GPU memory it is the size the
+// GPU is sold as, compared in the GPU's own unit (see aws.MatchesGPUMemory).
 func parseMemory(s string) (float64, error) {
 	s = strings.ToLower(strings.TrimSpace(s))
 	matches := memoryRegex.FindStringSubmatch(s)
@@ -595,7 +598,7 @@ func parseMemory(s string) (float64, error) {
 		return 0, err
 	}
 
-	// All units are treated as GiB
+	// The unit suffix is not converted (see above).
 	return value, nil
 }
 

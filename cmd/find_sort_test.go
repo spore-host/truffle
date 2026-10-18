@@ -174,7 +174,7 @@ func TestSortFindResults_GPUMemoryClosestFit(t *testing.T) {
 	if d := fitDistance(rs[0], f); d != 0 {
 		t.Errorf("fitDistance(L4, 24gb) = %v, want 0", d)
 	}
-	if got := minimumSpecHint(rs, f, find.SortDefault); got != "Showing 5 types with ≥24 GB per GPU, closest fit first; use --exact for an exact match" {
+	if got := minimumSpecHint(rs, f, find.SortDefault); got != "Showing 5 types with ≥24 GB/GiB per GPU, closest fit first; use --exact for an exact match" {
 		t.Errorf("hint = %q", got)
 	}
 	if got := minimumSpecHint(rs, aws.FilterOptions{MinGPUMemory: 24, ExactGPUMemory: true}, find.SortDefault); got != "" {

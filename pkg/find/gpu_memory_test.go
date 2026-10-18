@@ -79,9 +79,9 @@ func TestMemoryReadingNote(t *testing.T) {
 	if strings.Contains(got, "\n") {
 		t.Errorf("note is more than one line: %q", got)
 	}
-	// The VRAM column now shows the same GB, so no GiB caveat (#238).
-	if strings.Contains(got, "GiB") {
-		t.Errorf("note still carries the GiB caveat: %q", got)
+	// The size is compared as the GPU is sold, GB or GiB (#238, #244).
+	if !strings.Contains(got, "at least 24 GB/GiB, as the GPU is sold") {
+		t.Errorf("note should say the size is as sold, GB or GiB: %q", got)
 	}
 }
 
@@ -180,8 +180,8 @@ func TestGPUMemorySearch(t *testing.T) {
 func TestExplainGPUMemory(t *testing.T) {
 	r := aws.InstanceTypeResult{InstanceType: "g5.xlarge", AccelMemoryMiB: 22888}
 	reasons := ExplainMatch(r, mustParse(t, "gpu 24gb"))
-	if !slices.Contains(reasons, "GPU memory: 24 GB >= 24 GB") {
-		t.Errorf("reasons = %v, want GPU memory: 24 GB >= 24 GB", reasons)
+	if !slices.Contains(reasons, "GPU memory: 24 GB >= 24") {
+		t.Errorf("reasons = %v, want GPU memory: 24 GB >= 24", reasons)
 	}
 }
 
@@ -193,7 +193,7 @@ func TestExplainMatch_GPUMemoryNominal(t *testing.T) {
 		{"a10g", "g5.xlarge", "GPU: A10G (24 GB"},
 		{"l4", "g6.xlarge", "GPU: L4 (24 GB"},
 		{"l40s", "g6e.xlarge", "GPU: L40S (48 GB"},
-		{"h100", "p5.48xlarge", "GPU: H100 (80 GB"},
+		{"h100", "p5.48xlarge", "GPU: H100 (80 GiB"},
 	} {
 		got := strings.Join(ExplainMatch(aws.InstanceTypeResult{InstanceType: tt.it}, mustParse(t, tt.query)), "; ")
 		if !strings.Contains(got, tt.want) {
