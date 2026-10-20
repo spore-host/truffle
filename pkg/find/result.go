@@ -135,7 +135,7 @@ instructionSetDone:
 	}
 
 	// Check EFA match
-	if query.RequireEFA && metadata.IsEFASupported(family) {
+	if query.RequireEFA && result.EFASupported {
 		reasons = append(reasons, "Network: EFA supported")
 	}
 

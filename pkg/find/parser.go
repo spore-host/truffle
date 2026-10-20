@@ -88,7 +88,7 @@ type ParsedQuery struct {
 	GPUCount        int               // Minimum number of GPUs; 0 means unconstrained
 	Architecture    string            // "x86_64" or "arm64"; empty means both
 	MinNetworkGbps  int               // Minimum network bandwidth in Gbps; 0 means unconstrained
-	RequireEFA      bool              // If true, only match instance families with EFA support
+	RequireEFA      bool              // If true, only match instance types EC2 reports as EFA-capable (checked per type at search time, #253)
 	RequireMIG      bool              // If true, only match GPU families supporting NVIDIA Multi-Instance GPU (#143)
 	RequireNestedV  bool              // If true, only match instance types supporting nested virtualization
 	ExactMatch      bool              // If true, match exact vCPU and memory values instead of minimum
@@ -872,9 +872,10 @@ func (pq *ParsedQuery) ResolveInstanceFamilies() []string {
 		dimensions = append(dimensions, familySet(pq.Families))
 	}
 
-	if pq.RequireEFA {
-		dimensions = append(dimensions, familySet(metadata.GetFamiliesByEFA()))
-	}
+	// EFA is not a family dimension: support is per instance type and known
+	// only from EC2 (NetworkInfo.EfaSupported), so BuildCriteria passes it to
+	// the search as a filter instead. A hand-kept family list here stopped at
+	// p5 and made "h200 efa" match nothing (#253).
 
 	if pq.RequireMIG {
 		dimensions = append(dimensions, familySet(metadata.GetMIGCapableFamilies()))
@@ -963,9 +964,24 @@ func (pq *ParsedQuery) wantsAccelerators() bool {
 }
 
 // hasFamilyDimensions reports whether any query dimension that resolves to a
-// family set is present.
+// family set is present. EFA is not one: it is checked per type against EC2
+// (#253).
 func (pq *ParsedQuery) hasFamilyDimensions() bool {
-	return len(pq.GPUs) > 0 || pq.hasOtherActiveDimensions()
+	return len(pq.GPUs) > 0 || pq.hasOtherFamilyDimensions()
+}
+
+// hasOtherFamilyDimensions reports whether any family-resolving dimension
+// other than GPUs is present (vendor, processor, accelerator word,
+// instruction set, family, MIG, network speed).
+func (pq *ParsedQuery) hasOtherFamilyDimensions() bool {
+	return len(pq.Vendors) > 0 || len(pq.Processors) > 0 || len(pq.Accelerators) > 0 || len(pq.InstructionSets) > 0 || len(pq.Families) > 0 || pq.RequireMIG || pq.MinNetworkGbps > 0
+}
+
+// efaIsAlternative reports whether the query's "efa" is one side of an "or"
+// ("h100 or efa"): EFA-capable types are then admitted alongside the other
+// dimensions' families rather than required of them (#144, #253).
+func (pq *ParsedQuery) efaIsAlternative() bool {
+	return pq.RequireEFA && pq.Operator == OperatorOr && pq.hasFamilyDimensions()
 }
 
 // HasNoMatchingFamily reports whether the query names family constraints
@@ -976,13 +992,16 @@ func (pq *ParsedQuery) HasNoMatchingFamily() bool {
 	return (pq.hasFamilyDimensions() || len(pq.Apps) > 0) && len(pq.ResolveInstanceFamilies()) == 0
 }
 
-// hasOtherActiveDimensions reports whether any family-contributing dimension
-// OTHER than GPUs is present in the query (vendor, processor, accelerator
-// word, instruction set, EFA, MIG, network speed). Used by buildInstanceTypePattern to decide
-// whether the GPU-exact-instance-type shortcut is safe to take (#144) — it
-// isn't, once another dimension also needs to constrain the result.
+// hasOtherActiveDimensions reports whether any dimension OTHER than GPUs is
+// present in the query (vendor, processor, accelerator word, instruction
+// set, family, EFA, MIG, network speed). Used by buildInstanceTypePattern to
+// decide whether the GPU-exact-instance-type shortcut is safe to take (#144)
+// — it isn't, once another dimension also needs to constrain the result. EFA
+// counts here, so "h100 efa" still searches H100's families (and the EFA
+// filter then keeps the EFA-capable sizes), although it does not resolve to
+// a family set itself (#253).
 func (pq *ParsedQuery) hasOtherActiveDimensions() bool {
-	return len(pq.Vendors) > 0 || len(pq.Processors) > 0 || len(pq.Accelerators) > 0 || len(pq.InstructionSets) > 0 || len(pq.Families) > 0 || pq.RequireEFA || pq.RequireMIG || pq.MinNetworkGbps > 0
+	return pq.hasOtherFamilyDimensions() || pq.RequireEFA
 }
 
 // ResolveGPUInstances returns exact instance types for GPU queries

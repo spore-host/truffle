@@ -78,6 +78,7 @@ type InstanceTypeResult struct {
 	OnDemandPrice           float64  `json:"on_demand_price,omitempty" yaml:"on_demand_price,omitempty"`                   // On-demand $/hr; 0 if not yet fetched
 	SpawnSupported          bool     `json:"spawn_supported,omitempty" yaml:"spawn_supported,omitempty"`                   // True if spawn can launch instances in this region
 	NestedVirt              bool     `json:"nested_virtualization,omitempty" yaml:"nested_virtualization,omitempty"`       // True if the type supports nested virtualization (KVM/Hyper-V in-instance)
+	EFASupported            bool     `json:"efa_supported,omitempty" yaml:"efa_supported,omitempty"`                       // True if EC2 reports the type supports Elastic Fabric Adapter (NetworkInfo.EfaSupported, #253)
 	Service                 string   `json:"service,omitempty" yaml:"service,omitempty"`                                   // Offering namespace: "" / "ec2" (default) or "sagemaker" for ml.* types
 
 	// SageMaker-only fields (populated when Service == "sagemaker"):
@@ -112,7 +113,16 @@ type FilterOptions struct {
 	ExactGPUMemory   bool    // If true, match the per-GPU memory size exactly instead of as a minimum
 	InstanceFamily   string  // Restrict to a family prefix, e.g. "m6i"; empty matches all
 	NestedVirt       bool    // If true, only types supporting nested virtualization (KVM/Hyper-V in-instance)
+	RequireEFA       bool    // If true, only types EC2 reports as EFA-capable (NetworkInfo.EfaSupported), #253
 	Verbose          bool    // If true, log per-region progress to stderr
+
+	// EFAAlternative, if set, also admits a type the instance-type pattern
+	// rejects, when EC2 reports it EFA-capable and EFAAlternative matches its
+	// name: the "or efa" half of a query such as "h100 or efa" (#144, #253).
+	// EFA support is per type and known only from EC2, so it cannot be folded
+	// into the pattern. Setting it turns off the server-side instance-type
+	// narrowing, since the pattern no longer bounds the result.
+	EFAAlternative *regexp.Regexp
 }
 
 // SpotOptions controls the behavior of [Client.GetSpotPricing].
@@ -487,7 +497,12 @@ type describeInstanceTypesFunc func(ctx context.Context, input *ec2.DescribeInst
 // pages, never change the result.
 func matchingInstanceTypes(ctx context.Context, describe describeInstanceTypesFunc, matcher *regexp.Regexp, opts FilterOptions) ([]types.InstanceTypeInfo, error) {
 	var inputs []*ec2.DescribeInstanceTypesInput
-	specificTypes := extractSpecificTypes(matcher)
+	var specificTypes []types.InstanceType
+	if opts.EFAAlternative == nil {
+		// With an "or efa" alternative the pattern no longer bounds the
+		// result, so it can't name the types to fetch.
+		specificTypes = extractSpecificTypes(matcher)
+	}
 	if len(specificTypes) > 0 {
 		// Optimize: if pattern matches specific instance type(s), use API filter
 		inputs = []*ec2.DescribeInstanceTypesInput{{InstanceTypes: specificTypes}}
@@ -519,7 +534,7 @@ func matchingInstanceTypes(ctx context.Context, describe describeInstanceTypesFu
 			}
 			// Check if matches pattern. A nil matcher means "no pattern
 			// constraint" — every type is eligible (#106).
-			if matcher != nil && !matcher.MatchString(string(it.InstanceType)) {
+			if !admittedByPattern(it, string(it.InstanceType), matcher, opts) {
 				continue
 			}
 			if !matchesFilters(it, opts) {
@@ -658,6 +673,7 @@ func buildResultFromEC2(it types.InstanceTypeInfo, displayType, region string) I
 		result.Architecture = string(it.ProcessorInfo.SupportedArchitectures[0])
 	}
 	result.NestedVirt = supportsNestedVirt(it)
+	result.EFASupported = supportsEFA(it)
 
 	// Get GPU info
 	if it.GpuInfo != nil && len(it.GpuInfo.Gpus) > 0 {
@@ -809,7 +825,32 @@ func matchesFilters(it types.InstanceTypeInfo, opts FilterOptions) bool {
 		return false
 	}
 
+	// EFA filter: EC2's own per-type flag, not a family list (#253).
+	if opts.RequireEFA && !supportsEFA(it) {
+		return false
+	}
+
 	return true
+}
+
+// supportsEFA reports whether EC2 says the instance type supports Elastic
+// Fabric Adapter. EFA support is per type, not per family (c6a.48xlarge has
+// it, c6a.large does not), and new EFA families arrive with every GPU
+// generation, so the API is the source of truth rather than a hand-kept
+// family list, which had stopped at p5 and made "h200 efa" match nothing
+// (#253).
+func supportsEFA(it types.InstanceTypeInfo) bool {
+	return it.NetworkInfo != nil && aws.ToBool(it.NetworkInfo.EfaSupported)
+}
+
+// admittedByPattern reports whether the instance type named name passes the
+// search's name constraints: the pattern (a nil matcher means none, #106), or
+// failing that, the "or efa" alternative (see FilterOptions.EFAAlternative).
+func admittedByPattern(it types.InstanceTypeInfo, name string, matcher *regexp.Regexp, opts FilterOptions) bool {
+	if matcher == nil || matcher.MatchString(name) {
+		return true
+	}
+	return opts.EFAAlternative != nil && opts.EFAAlternative.MatchString(name) && supportsEFA(it)
 }
 
 // supportsNestedVirt reports whether an instance type can run a hypervisor

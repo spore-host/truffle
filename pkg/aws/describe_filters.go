@@ -25,9 +25,12 @@ const maxFilterValuesPerCall = 200
 //
 //   - instance-type: the literal family prefixes (or exact names) the pattern
 //     is anchored to, as EC2 wildcards such as "c8a.*". Patterns of any other
-//     shape are not pushed down.
+//     shape are not pushed down, and nor is any pattern when an "or efa"
+//     alternative (FilterOptions.EFAAlternative) can admit types outside it.
 //   - processor-info.supported-architecture: matches if any supported
 //     architecture equals the value, as matchesFilters does.
+//   - network-info.efa-supported: "true" when EFA is required; the same
+//     NetworkInfo.EfaSupported flag matchesFilters checks (#253).
 //   - vcpu-info.default-vcpus: only for an exact vCPU match. EC2 filters take
 //     discrete values, not ranges, so minimum vCPU, memory, and core counts
 //     stay client-side.
@@ -43,6 +46,12 @@ func describeInputsFor(matcher *regexp.Regexp, opts FilterOptions) []*ec2.Descri
 			Values: []string{opts.Architecture},
 		})
 	}
+	if opts.RequireEFA {
+		common = append(common, types.Filter{
+			Name:   stringPtr("network-info.efa-supported"),
+			Values: []string{"true"},
+		})
+	}
 	if opts.ExactVCPUs && opts.MinVCPUs > 0 {
 		common = append(common, types.Filter{
 			Name:   stringPtr("vcpu-info.default-vcpus"),
@@ -51,7 +60,7 @@ func describeInputsFor(matcher *regexp.Regexp, opts FilterOptions) []*ec2.Descri
 	}
 
 	var typeValues []string
-	if matcher != nil {
+	if matcher != nil && opts.EFAAlternative == nil {
 		typeValues = instanceTypeFilterValues(matcher.String())
 	}
 

@@ -17,6 +17,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ParseQuery` read the query as a pattern, and `metadata.InstanceFamilies`
   lists the known family names.
 
+### Deprecated
+
+- **`metadata.EFACapableFamilies`, `metadata.GetFamiliesByEFA` and
+  `metadata.IsEFASupported`** (#253). The hand-kept family list stops at p5
+  and treats EFA as a family property. truffle no longer uses it; read
+  `NetworkInfo.EfaSupported` (or `InstanceTypeResult.EFASupported`) instead.
+
 ### Fixed
 
 - **`find.ParseQuery` accepts an exact instance type** (#263). A library
@@ -35,6 +42,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   type as natural language and failed with "unknown terms", because the
   pattern check expected a generation digit straight after the first letters
   of the name. The family is now recognised whole.
+- **`efa_supported` in JSON/YAML results** (#253): `InstanceTypeResult.EFASupported`
+  carries EC2's own per-type EFA flag (`NetworkInfo.EfaSupported`). For
+  library callers, `aws.FilterOptions.RequireEFA` keeps only EFA-capable
+  types, and `aws.FilterOptions.EFAAlternative` admits them beside a pattern
+  (the "or efa" half of a query).
+
+- **`efa` queries find every EFA-capable type** (#253). `truffle find "h200
+  efa"` matched nothing, and so did `"b200 efa"`, because EFA support came
+  from a hand-kept family list that stopped at p5. It missed p5e, p5en,
+  p6-b200/b300, trn1, g5/g6/g6e/g7, the 8th-generation CPU families and
+  others. EFA is now EC2's per-type flag, checked during the search: "h200
+  efa" finds p5e.48xlarge and p5en.48xlarge. A family no longer counts as EFA
+  because some of its sizes are: `"c6a efa"` lists c6a.48xlarge and
+  c6a.metal, not c6a.large. "h100 or efa" still means H100 instances or any
+  EFA-capable type (#144). The "Network: EFA supported" match reason also
+  reads the type's own flag.
 
 ## [0.61.0] - 2026-10-18
 
