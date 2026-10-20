@@ -153,3 +153,27 @@ func TestExtractFamily(t *testing.T) {
 		})
 	}
 }
+
+// TestExplainMatch_EFAFromTheResult: the "Network: EFA supported" reason comes
+// from the type's own EC2 flag, not from a family list, which had no p5e
+// (#253) and claimed EFA for c6a.large.
+func TestExplainMatch_EFAFromTheResult(t *testing.T) {
+	pq, err := ParseQuery("h200 efa")
+	if err != nil {
+		t.Fatal(err)
+	}
+	has := func(r aws.InstanceTypeResult) bool {
+		for _, reason := range ExplainMatch(r, pq) {
+			if reason == "Network: EFA supported" {
+				return true
+			}
+		}
+		return false
+	}
+	if !has(aws.InstanceTypeResult{InstanceType: "p5e.48xlarge", EFASupported: true}) {
+		t.Error("p5e.48xlarge with EFASupported: no EFA reason")
+	}
+	if has(aws.InstanceTypeResult{InstanceType: "c6a.large"}) {
+		t.Error("c6a.large without EFASupported: EFA reason given")
+	}
+}

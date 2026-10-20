@@ -141,13 +141,20 @@ func (c *Client) searchSageMakerInRegion(ctx context.Context, region string, mat
 	//    queries, whose matcher is built for EC2-style names like "^g5\.", also
 	//    match). Track base EC2 type → its quota detail for spec enrichment.
 	baseToQuota := make(map[string]quotas.SageMakerTypeQuota)
+	// Types admitted only by the "or efa" alternative: whether they qualify
+	// depends on the EC2 record, checked in step 4 (#253).
+	efaOnly := make(map[string]bool)
 	for _, q := range offered {
 		base := strings.TrimPrefix(q.InstanceType, "ml.")
 		// A nil matcher means "no pattern constraint" — every offered type is
 		// eligible. Guarded because this runs in a per-region goroutine, where a
 		// nil dereference would crash the whole process, not just this call (#106).
 		if matcher != nil && !matcher.MatchString(q.InstanceType) && !matcher.MatchString(base) {
-			continue
+			alt := opts.EFAAlternative
+			if alt == nil || (!alt.MatchString(q.InstanceType) && !alt.MatchString(base)) {
+				continue
+			}
+			efaOnly[base] = true
 		}
 		if _, dup := baseToQuota[base]; dup {
 			continue
@@ -193,7 +200,7 @@ func (c *Client) searchSageMakerInRegion(ctx context.Context, region string, mat
 	for base, q := range baseToQuota {
 		if it, ok := enriched[base]; ok {
 			// Apply spec-based filters against the EC2 record.
-			if !matchesFilters(it, opts) {
+			if !matchesFilters(it, opts) || (efaOnly[base] && !supportsEFA(it)) {
 				continue
 			}
 			result := buildResultFromEC2(it, q.InstanceType, region)
@@ -209,7 +216,8 @@ func (c *Client) searchSageMakerInRegion(ctx context.Context, region string, mat
 		// No EC2 peer returned — emit a quota-only row (specs unknown). Skip it
 		// if spec-based filters were requested, since we can't verify them.
 		if opts.Architecture != "" || opts.MinVCPUs > 0 || opts.MinMemory > 0 ||
-			opts.MinPhysicalCores > 0 || opts.MinGPUMemory > 0 || opts.NestedVirt {
+			opts.MinPhysicalCores > 0 || opts.MinGPUMemory > 0 || opts.NestedVirt ||
+			opts.RequireEFA || efaOnly[base] {
 			continue
 		}
 		if opts.InstanceFamily != "" && "ml."+extractFamily(base) != opts.InstanceFamily {

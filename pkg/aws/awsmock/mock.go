@@ -154,7 +154,11 @@ func (m *Finder) SearchInstanceTypes(_ context.Context, regions []string, matche
 		if !regionSet[inst.Region] {
 			continue
 		}
-		if matcher != nil && !matcher.MatchString(inst.InstanceType) {
+		if matcher != nil && !matcher.MatchString(inst.InstanceType) &&
+			(opts.EFAAlternative == nil || !opts.EFAAlternative.MatchString(inst.InstanceType) || !inst.EFASupported) {
+			continue
+		}
+		if opts.RequireEFA && !inst.EFASupported {
 			continue
 		}
 		if opts.Architecture != "" && inst.Architecture != opts.Architecture {

@@ -50,7 +50,16 @@ func (pq *ParsedQuery) BuildCriteria(includeAZs bool) (*SearchCriteria, error) {
 			ExactGPUMemory:   pq.ExactMatch,
 			Architecture:     pq.DeriveArchitecture(),
 			NestedVirt:       pq.RequireNestedV,
+			RequireEFA:       pq.RequireEFA && !pq.efaIsAlternative(),
 		},
+	}
+
+	// "x or efa": EFA-capable types are admitted beside x's families, still
+	// within the query's app families and sizes, so the alternative is the
+	// pattern the query would have with no dimension but EFA (#144, #253).
+	if pq.efaIsAlternative() {
+		alt := &ParsedQuery{Apps: pq.Apps, Sizes: pq.Sizes, InstanceSizes: pq.InstanceSizes}
+		sc.FilterOptions.EFAAlternative = regexp.MustCompile(alt.buildInstanceTypePattern())
 	}
 
 	// Apply hardware minimums from app catalog entries.

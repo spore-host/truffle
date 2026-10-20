@@ -705,9 +705,13 @@ func TestResolveInstanceFamilies_ANDByDefault(t *testing.T) {
 	}
 }
 
-// TestResolveInstanceFamilies_ExplicitOr confirms "or" restores the old
-// union behavior across dimensions (#144).
-func TestResolveInstanceFamilies_ExplicitOr(t *testing.T) {
+// TestBuildCriteria_ExplicitOrWithEFA confirms "or" restores the union
+// across dimensions for EFA too (#144). EFA is no longer a family set (it is
+// EC2's per-type flag, #253), so the union is carried by the criteria: under
+// AND, EFA is a required filter; under OR, it is an alternative that admits
+// EFA-capable types beside H100's family. pkg/aws's
+// TestEFAQueries_FixtureMetadata checks the union end to end.
+func TestBuildCriteria_ExplicitOrWithEFA(t *testing.T) {
 	pqAnd, err := ParseQuery("h100 efa")
 	if err != nil {
 		t.Fatalf("ParseQuery error: %v", err)
@@ -716,20 +720,26 @@ func TestResolveInstanceFamilies_ExplicitOr(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseQuery error: %v", err)
 	}
-	andFamilies := pqAnd.ResolveInstanceFamilies()
-	orFamilies := pqOr.ResolveInstanceFamilies()
-	if len(orFamilies) <= len(andFamilies) {
-		t.Errorf("ResolveInstanceFamilies() for \"h100 or efa\" (%d families) should be strictly larger than \"h100 efa\" (%d families)", len(orFamilies), len(andFamilies))
+	and, err := pqAnd.BuildCriteria(false)
+	if err != nil {
+		t.Fatal(err)
 	}
-	orSet := make(map[string]bool, len(orFamilies))
-	for _, f := range orFamilies {
-		orSet[f] = true
+	or, err := pqOr.BuildCriteria(false)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !orSet["p5"] {
-		t.Errorf("ResolveInstanceFamilies() for \"h100 or efa\" missing p5 (H100's family): %v", orFamilies)
+	if !and.FilterOptions.RequireEFA || and.FilterOptions.EFAAlternative != nil {
+		t.Errorf(`"h100 efa": RequireEFA = %v, EFAAlternative = %v; want EFA required, no alternative`,
+			and.FilterOptions.RequireEFA, and.FilterOptions.EFAAlternative)
 	}
-	if !orSet["c6a"] {
-		t.Errorf("ResolveInstanceFamilies() for \"h100 or efa\" missing c6a (an EFA-capable family unrelated to H100): %v", orFamilies)
+	if or.FilterOptions.RequireEFA {
+		t.Error(`"h100 or efa": RequireEFA = true; want EFA as an alternative, not a requirement`)
+	}
+	if alt := or.FilterOptions.EFAAlternative; alt == nil || !alt.MatchString("c6a.48xlarge") {
+		t.Errorf(`"h100 or efa": EFAAlternative = %v; want one admitting any family (c6a.48xlarge)`, alt)
+	}
+	if !or.InstanceTypePattern.MatchString("p5.48xlarge") {
+		t.Errorf(`"h100 or efa": pattern %s does not match p5.48xlarge (H100's family)`, or.InstanceTypePattern)
 	}
 }
 

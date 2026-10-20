@@ -14,7 +14,15 @@ type NetworkFeature struct {
 	Families    []string
 }
 
-// EFACapableFamilies lists all instance families that support EFA
+// EFACapableFamilies is a hand-kept list of instance families that support
+// EFA, as of its last edit.
+//
+// Deprecated: the list is incomplete (it stops at p5, missing p5e, p5en,
+// p6-*, trn*, g5/g6 and the 8th-generation CPU families, among others) and
+// EFA support is per instance type, not per family. truffle no longer uses
+// it; read NetworkInfo.EfaSupported from DescribeInstanceTypes instead, as
+// aws.FilterOptions.RequireEFA and aws.InstanceTypeResult.EFASupported do
+// (#253).
 var EFACapableFamilies = []string{
 	// Compute optimized
 	"c5n", "c6a", "c6gn", "c6i", "c6id", "c6in", "c7a", "c7g", "c7gd", "c7gn", "c7i",
@@ -119,12 +127,16 @@ func GetFamiliesByNetworkSpeed(minGbps int) []string {
 	return families
 }
 
-// GetFamiliesByEFA returns families that support EFA
+// GetFamiliesByEFA returns [EFACapableFamilies].
+//
+// Deprecated: see [EFACapableFamilies] (#253).
 func GetFamiliesByEFA() []string {
 	return EFACapableFamilies
 }
 
-// IsEFASupported checks if a family supports EFA
+// IsEFASupported reports whether family is in [EFACapableFamilies].
+//
+// Deprecated: see [EFACapableFamilies] (#253).
 func IsEFASupported(family string) bool {
 	for _, f := range EFACapableFamilies {
 		if f == family {

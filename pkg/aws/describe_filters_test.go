@@ -165,6 +165,9 @@ func TestMatchingInstanceTypes_SameAsFullScan(t *testing.T) {
 		{"exact 8 vCPU", patAll, FilterOptions{MinVCPUs: 8, ExactVCPUs: true}, true},
 		{"16 cores 64gb", patAll, FilterOptions{MinVCPUs: 16, MinMemory: 64}, false},
 		{"nested virt", patAll, FilterOptions{NestedVirt: true}, false},
+		{"efa", patAll, FilterOptions{RequireEFA: true}, true},
+		{"h200 efa", `^(p5e|p5en)\..*$`, FilterOptions{RequireEFA: true}, true},
+		{"h100 or efa", patH100EFA, FilterOptions{EFAAlternative: regexp.MustCompile(".*")}, false},
 		{"no match", `^$`, FilterOptions{}, false},
 	}
 
@@ -176,7 +179,12 @@ func TestMatchingInstanceTypes_SameAsFullScan(t *testing.T) {
 			// filter client-side.
 			var want []string
 			for _, it := range catalog {
-				if m.MatchString(string(it.InstanceType)) && matchesFilters(it, tt.opts) {
+				name := string(it.InstanceType)
+				// "or efa": a type outside the pattern is still in when it
+				// has EFA and the alternative matches it (#253).
+				orEFA := tt.opts.EFAAlternative != nil && tt.opts.EFAAlternative.MatchString(name) &&
+					aws.ToBool(it.NetworkInfo.EfaSupported)
+				if (m.MatchString(name) || orEFA) && matchesFilters(it, tt.opts) {
 					want = append(want, string(it.InstanceType))
 				}
 			}
@@ -267,6 +275,8 @@ func fakeFilterMatches(name string, values []string, it types.InstanceTypeInfo) 
 		}
 	case "vcpu-info.default-vcpus":
 		have = []string{strconv.Itoa(int(aws.ToInt32(it.VCpuInfo.DefaultVCpus)))}
+	case "network-info.efa-supported":
+		have = []string{strconv.FormatBool(it.NetworkInfo != nil && aws.ToBool(it.NetworkInfo.EfaSupported))}
 	default:
 		panic("fakeEC2: unsupported filter " + name)
 	}
@@ -357,6 +367,18 @@ func fixtureCatalog() []types.InstanceTypeInfo {
 		{"p5en.48xlarge", 192, 96, 2, 2048, x86, false},
 		{"p6-b200.48xlarge", 192, 96, 2, 2048, x86, false},
 		{"u7i-6tb.112xlarge", 448, 224, 2, 6144, x86, false},
+		{"c6a.large", 2, 1, 2, 4, x86, false},
+		{"c6a.48xlarge", 192, 96, 2, 384, x86, false},
+	}
+
+	// EFA support as DescribeInstanceTypes reported it (NetworkInfo.EfaSupported)
+	// in us-east-1 / us-west-2 on 2026-10-20, for the rows above; every other
+	// row reported false. Per type, not per family: c6a.48xlarge has EFA and
+	// c6a.large does not (#253).
+	efa := map[string]bool{
+		"c6a.48xlarge": true, "p4d.24xlarge": true, "p4de.24xlarge": true,
+		"p5.4xlarge": true, "p5.48xlarge": true, "p5e.48xlarge": true,
+		"p5en.48xlarge": true, "p6-b200.48xlarge": true, "u7i-6tb.112xlarge": true,
 	}
 
 	out := make([]types.InstanceTypeInfo, 0, len(rows))
@@ -377,6 +399,7 @@ func fixtureCatalog() []types.InstanceTypeInfo {
 			VCpuInfo:      vc,
 			MemoryInfo:    &types.MemoryInfo{SizeInMiB: aws.Int64(int64(r.memGiB * 1024))},
 			ProcessorInfo: pi,
+			NetworkInfo:   &types.NetworkInfo{EfaSupported: aws.Bool(efa[r.name])},
 		})
 	}
 	return out
