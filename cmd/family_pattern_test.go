@@ -3,6 +3,8 @@ package cmd
 import (
 	"regexp"
 	"testing"
+
+	"github.com/spore-host/truffle/pkg/find"
 )
 
 // TestPatternToRegex_BareFamily: `truffle find g5` matched ^g5$, which no
@@ -19,15 +21,15 @@ func TestPatternToRegex_BareFamily(t *testing.T) {
 		{"m7i-flex", []string{"m7i-flex.large"}, []string{"m7i.large"}},
 		{"m7i.large", []string{"m7i.large"}, []string{"m7i.xlarge"}}, // unchanged
 	} {
-		re := regexp.MustCompile(patternToRegex(tt.pattern))
+		re := regexp.MustCompile(find.PatternToRegex(tt.pattern))
 		for _, it := range tt.match {
 			if !re.MatchString(it) {
-				t.Errorf("patternToRegex(%q) = %s does not match %s", tt.pattern, re, it)
+				t.Errorf("find.PatternToRegex(%q) = %s does not match %s", tt.pattern, re, it)
 			}
 		}
 		for _, it := range tt.noMatch {
 			if re.MatchString(it) {
-				t.Errorf("patternToRegex(%q) = %s matches %s", tt.pattern, re, it)
+				t.Errorf("find.PatternToRegex(%q) = %s matches %s", tt.pattern, re, it)
 			}
 		}
 	}

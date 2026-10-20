@@ -1,6 +1,7 @@
 package find
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 
@@ -21,7 +22,21 @@ type SearchCriteria struct {
 // per-type availability-zone lookup. This is a CLI-flag concern (--skip-azs),
 // not something derived from the query text itself, so it's a parameter here
 // rather than a ParsedQuery field.
+//
+// For a pattern query ([ParsedQuery.IsPattern]) the instance-type pattern is
+// the pattern itself, via [PatternToRegex], and no other filter applies.
 func (pq *ParsedQuery) BuildCriteria(includeAZs bool) (*SearchCriteria, error) {
+	if pq.IsPattern() {
+		re, err := regexp.Compile(PatternToRegex(pq.Pattern))
+		if err != nil {
+			return nil, fmt.Errorf("invalid instance-type pattern %q: %w", pq.Pattern, err)
+		}
+		return &SearchCriteria{
+			InstanceTypePattern: re,
+			FilterOptions:       aws.FilterOptions{IncludeAZs: includeAZs},
+		}, nil
+	}
+
 	sc := &SearchCriteria{
 		FilterOptions: aws.FilterOptions{
 			IncludeAZs:       includeAZs,

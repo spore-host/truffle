@@ -27,8 +27,8 @@ func TestLooksLikePattern_AcceleratorFamilies(t *testing.T) {
 		"m7*",
 	}
 	for _, q := range wantPattern {
-		if !looksLikePattern(q) {
-			t.Errorf("looksLikePattern(%q) = false, want true (should take the exact/pattern path)", q)
+		if !find.LooksLikePattern(q) {
+			t.Errorf("find.LooksLikePattern(%q) = false, want true (should take the exact/pattern path)", q)
 		}
 	}
 
@@ -36,8 +36,8 @@ func TestLooksLikePattern_AcceleratorFamilies(t *testing.T) {
 		"8 cpus 32gb", "gpu instances", "cheapest with 4 gpus", "trainium",
 	}
 	for _, q := range wantNaturalLanguage {
-		if looksLikePattern(q) {
-			t.Errorf("looksLikePattern(%q) = true, want false (should take the NL parser path)", q)
+		if find.LooksLikePattern(q) {
+			t.Errorf("find.LooksLikePattern(%q) = true, want false (should take the NL parser path)", q)
 		}
 	}
 }
@@ -68,8 +68,8 @@ func TestLooksLikePattern_HyphenatedGPUSpecStrings(t *testing.T) {
 		"AVX2", // uppercase vocabulary: also broken pre-fix, same root cause
 	}
 	for _, q := range wantNaturalLanguage {
-		if looksLikePattern(q) {
-			t.Errorf("looksLikePattern(%q) = true, want false — this is a recognized GPU/instruction-set "+
+		if find.LooksLikePattern(q) {
+			t.Errorf("find.LooksLikePattern(%q) = true, want false — this is a recognized GPU/instruction-set "+
 				"spec-string and must reach find.ParseQuery, not the literal instance-type pattern matcher (#130)", q)
 		}
 	}
@@ -78,8 +78,8 @@ func TestLooksLikePattern_HyphenatedGPUSpecStrings(t *testing.T) {
 	// must still route as patterns — the fix must not swallow every hyphen.
 	wantPattern := []string{"m7i-flex.large", "m7i-flex"}
 	for _, q := range wantPattern {
-		if !looksLikePattern(q) {
-			t.Errorf("looksLikePattern(%q) = false, want true (a real hyphenated instance family, not vocabulary)", q)
+		if !find.LooksLikePattern(q) {
+			t.Errorf("find.LooksLikePattern(%q) = false, want true (a real hyphenated instance family, not vocabulary)", q)
 		}
 	}
 }
@@ -97,9 +97,9 @@ func TestWildcardToRegex(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.pattern, func(t *testing.T) {
-			re, err := regexp.Compile(wildcardToRegex(tt.pattern))
+			re, err := regexp.Compile(find.WildcardToRegex(tt.pattern))
 			if err != nil {
-				t.Fatalf("wildcardToRegex(%q) produced invalid regex: %v", tt.pattern, err)
+				t.Fatalf("find.WildcardToRegex(%q) produced invalid regex: %v", tt.pattern, err)
 			}
 			for _, m := range tt.match {
 				if !re.MatchString(m) {
@@ -378,9 +378,9 @@ func TestPatternToRegex(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.pattern, func(t *testing.T) {
-			re, err := regexp.Compile(patternToRegex(tt.pattern))
+			re, err := regexp.Compile(find.PatternToRegex(tt.pattern))
 			if err != nil {
-				t.Fatalf("patternToRegex(%q) produced invalid regex: %v", tt.pattern, err)
+				t.Fatalf("find.PatternToRegex(%q) produced invalid regex: %v", tt.pattern, err)
 			}
 			for _, m := range tt.match {
 				if !re.MatchString(m) {
@@ -393,25 +393,6 @@ func TestPatternToRegex(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-func TestLooksLikeRegex(t *testing.T) {
-	tests := []struct {
-		pattern string
-		want    bool
-	}{
-		{"m7i*", false},
-		{"m7i.large", false},
-		{"c[6-8]i", true},
-		{"(p4d|p5)", true},
-		{"m7.+", true},
-		{"\\d+", true},
-	}
-	for _, tt := range tests {
-		if got := looksLikeRegex(tt.pattern); got != tt.want {
-			t.Errorf("looksLikeRegex(%q) = %v, want %v", tt.pattern, got, tt.want)
-		}
 	}
 }
 

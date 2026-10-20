@@ -47,6 +47,9 @@ func ResolveCard(card string) ([]string, error) {
 	if err != nil {
 		return nil, err // empty / unparseable input
 	}
+	if pq.IsPattern() {
+		return nil, fmt.Errorf("%w: %q reads as an instance-type pattern, not a GPU card", ErrNoMatch, card)
+	}
 	if len(pq.GPUs) == 0 {
 		return nil, fmt.Errorf("%w: %q resolved to no GPU (tokens: %s)", ErrNoMatch, card, tokenSummary(pq))
 	}

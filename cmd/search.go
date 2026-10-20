@@ -115,7 +115,7 @@ func runSearch(cmd *cobra.Command, args []string) (err error) {
 	// Convert pattern to regex: if the pattern contains regex metacharacters
 	// (brackets, +, unescaped dots not followed by *), treat it as a regex.
 	// Otherwise treat it as a glob (only * and ? are wildcards).
-	regexPattern := patternToRegex(pattern)
+	regexPattern := find.PatternToRegex(pattern)
 	matcher, err := regexp.Compile(regexPattern)
 	if err != nil {
 		return i18n.Te("truffle.search.error.invalid_pattern", err)
@@ -248,97 +248,6 @@ func runSearch(cmd *cobra.Command, args []string) (err error) {
 		return printErr
 	}
 	return pricingErr
-}
-
-// patternToRegex converts a user pattern to a regex. If the pattern contains
-// regex metacharacters ([, ], +, \d, \w, unanchored ^/$), it's treated as a
-// regex directly. Otherwise it's treated as a glob where * and ? are wildcards.
-func patternToRegex(pattern string) string {
-	// A bare family name means the whole family: "g5" -> every g5 size. It
-	// used to become ^g5$, which no instance type matches (#229).
-	if lower := strings.ToLower(pattern); find.IsInstanceFamily(lower) {
-		return "^(" + regexp.QuoteMeta(lower) + `)\..*$`
-	}
-	if looksLikeRegex(pattern) {
-		// Fix common mistake: bare * used as glob wildcard inside regex.
-		// Replace "*" with ".*" when not preceded by a regex quantifier target
-		// (e.g., "]*.xlarge" → "].*\\.xlarge")
-		pattern = fixGlobStarsInRegex(pattern)
-		// Unescaped dots in instance-type patterns are almost always literal
-		// (e.g., "c7i.xlarge"), so escape dots that aren't part of ".*" or ".+"
-		pattern = escapeLiteralDots(pattern)
-		// Anchor if not already anchored
-		if !strings.HasPrefix(pattern, "^") {
-			pattern = "^" + pattern
-		}
-		if !strings.HasSuffix(pattern, "$") {
-			pattern = pattern + "$"
-		}
-		return pattern
-	}
-	return wildcardToRegex(pattern)
-}
-
-// fixGlobStarsInRegex replaces bare "*" with ".*" in patterns that mix regex
-// and glob syntax. A bare "*" is one not preceded by "." or another quantifier.
-func fixGlobStarsInRegex(pattern string) string {
-	var result strings.Builder
-	for i := 0; i < len(pattern); i++ {
-		if pattern[i] == '*' && (i == 0 || (pattern[i-1] != '.' && pattern[i-1] != '\\')) {
-			result.WriteString(".*")
-		} else {
-			result.WriteByte(pattern[i])
-		}
-	}
-	return result.String()
-}
-
-// escapeLiteralDots escapes dots that appear to be literal separators in
-// instance type names (e.g., "c7i.xlarge") rather than regex wildcards.
-// Dots that are part of ".*" or ".+" are left as-is.
-func escapeLiteralDots(pattern string) string {
-	var result strings.Builder
-	for i := 0; i < len(pattern); i++ {
-		if pattern[i] == '.' {
-			if i+1 < len(pattern) && (pattern[i+1] == '*' || pattern[i+1] == '+') {
-				// Part of .* or .+ — keep as regex wildcard
-				result.WriteByte('.')
-			} else if i > 0 && pattern[i-1] == '\\' {
-				// Already escaped
-				result.WriteByte('.')
-			} else {
-				// Likely a literal dot separator in instance type name
-				result.WriteString("\\.")
-			}
-		} else {
-			result.WriteByte(pattern[i])
-		}
-	}
-	return result.String()
-}
-
-func looksLikeRegex(pattern string) bool {
-	for _, indicator := range []string{"[", "]", "(", ")", "+", "\\d", "\\w", "\\s", "|"} {
-		if strings.Contains(pattern, indicator) {
-			return true
-		}
-	}
-	return false
-}
-
-func wildcardToRegex(pattern string) string {
-	// Treat ".*" as a combined "match anything" before escaping, since users
-	// commonly write "c7.*" meaning "everything starting with c7".
-	pattern = strings.ReplaceAll(pattern, ".*", "\x00DOTSTAR\x00")
-	// Escape special regex characters except * and ?
-	pattern = regexp.QuoteMeta(pattern)
-	// Replace wildcards
-	pattern = strings.ReplaceAll(pattern, `\*`, ".*")
-	pattern = strings.ReplaceAll(pattern, `\?`, ".")
-	// Restore .* sequences
-	pattern = strings.ReplaceAll(pattern, "\x00DOTSTAR\x00", ".*")
-	// Anchor the pattern
-	return "^" + pattern + "$"
 }
 
 func pluralize(n int, singular, plural string) string {

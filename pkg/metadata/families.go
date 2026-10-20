@@ -1,5 +1,7 @@
 package metadata
 
+import "sort"
+
 // instanceFamilies is every instance family DescribeInstanceTypes reported in
 // us-west-2, us-east-1, us-east-2, eu-west-1 and ap-northeast-1 on 2026-10-15
 // (#229). It lets find recognise a bare family name ("g5", "m7i-flex") as a
@@ -42,4 +44,16 @@ func init() {
 // ("g5", "m7i-flex", "u7in-16tb"), from the 2026-10-15 catalog snapshot.
 func IsInstanceFamily(family string) bool {
 	return instanceFamilies[family]
+}
+
+// InstanceFamilies returns every known instance family name, sorted: the
+// snapshot [IsInstanceFamily] consults. It exists so tests can enumerate the
+// families instead of listing them (#263).
+func InstanceFamilies() []string {
+	out := make([]string, 0, len(instanceFamilies))
+	for f := range instanceFamilies {
+		out = append(out, f)
+	}
+	sort.Strings(out)
+	return out
 }

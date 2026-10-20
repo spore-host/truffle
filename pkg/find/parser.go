@@ -95,6 +95,13 @@ type ParsedQuery struct {
 	RawTokens       []Token           // Parsed tokens in input order, useful for diagnostics
 	Apps            []string          // Application names from catalog (e.g. ["paraview"]); resolved to hardware in BuildCriteria
 	Operator        DimensionOperator // How cross-dimension constraints combine (#144); AND is the default (zero value)
+	Pattern         string            // Set when the whole query is an instance-type pattern ("r8g.2xlarge", "g5", "m7i.*"; see LooksLikePattern), as written; every other field is then empty (#263)
+}
+
+// IsPattern reports whether the query is an instance-type pattern rather than
+// a natural-language query (see [ParsedQuery.Pattern]).
+func (pq *ParsedQuery) IsPattern() bool {
+	return pq != nil && pq.Pattern != ""
 }
 
 // DimensionOperator controls how the distinct query dimensions (vendor,
@@ -180,8 +187,24 @@ func matchPhrase(words []string, i int) (Token, int, bool) {
 	return Token{}, 0, false
 }
 
-// ParseQuery parses a natural language query into structured search criteria
+// ParseQuery parses a query into structured search criteria.
+//
+// A query that is an instance-type pattern — an exact type such as
+// "r8g.2xlarge", a bare family, a glob or a regex (see [LooksLikePattern]) —
+// is not tokenised: it comes back with [ParsedQuery.Pattern] set, and
+// [ParsedQuery.BuildCriteria] matches exactly what the pattern names. This is
+// the dispatch `truffle find` does, so every caller of ParseQuery gets it; a
+// caller that checked only the natural-language path saw "unknown term" for
+// an exact type (#263). An invalid regex is an error here rather than a
+// panic in BuildCriteria.
 func ParseQuery(query string) (*ParsedQuery, error) {
+	if trimmed := strings.TrimSpace(query); trimmed != "" && LooksLikePattern(trimmed) {
+		if _, err := regexp.Compile(PatternToRegex(trimmed)); err != nil {
+			return nil, fmt.Errorf("invalid instance-type pattern %q: %w", trimmed, err)
+		}
+		return &ParsedQuery{Pattern: trimmed}, nil
+	}
+
 	// Normalize: lowercase, trim
 	query = strings.ToLower(strings.TrimSpace(query))
 	if query == "" {

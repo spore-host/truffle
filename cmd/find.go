@@ -196,16 +196,16 @@ func runFind(cmd *cobra.Command, args []string) (err error) {
 		return fmt.Errorf("query or --app required")
 	}
 
-	// Auto-detect: if query looks like a pattern (glob or regex), route to
-	// the pattern-matching path instead of NL parsing.
-	if looksLikePattern(queryStr) {
-		return runSearchWithPattern(queryStr, service)
-	}
-
-	// Parse query
+	// Parse query. ParseQuery itself recognises an instance-type pattern
+	// (exact type, family, glob or regex), so the CLI and library callers
+	// such as spore-host-mcp share one dispatch (#263); a pattern takes the
+	// pattern-matching path rather than the natural-language one.
 	query, err := find.ParseQuery(queryStr)
 	if err != nil {
 		return fmt.Errorf("failed to parse query: %w", err)
+	}
+	if query.IsPattern() {
+		return runSearchWithPattern(query.Pattern, service)
 	}
 
 	// Apply --exact flag
@@ -632,45 +632,6 @@ func instanceGeneration(instanceType string) int {
 	return 0
 }
 
-// looksLikePattern returns true if the query looks like an instance type pattern
-// (glob or regex) rather than a natural language query.
-func looksLikePattern(query string) bool {
-	// A single word that fully resolves as known vocabulary — a GPU,
-	// processor, or instruction-set term, including a hyphenated/suffixed
-	// spec-string spelling like "RTX-PRO-6000", "A100-80GB", "H100!", "B200+"
-	// (#130) — always takes the natural-language path, checked BEFORE the
-	// wildcard/regex-indicator checks below. This has to come first: "+" is
-	// one of the indicators looksLikeRegex treats as "this must be a regex",
-	// so without this ordering "B200+"/"b200+" (a real, documented Modal
-	// spec-string) matched looksLikeRegex and never reached the vocabulary
-	// check that would have recognized it. No real GPU/processor/
-	// instruction-set key contains '*' or '?' either, so checking vocabulary
-	// first cannot misroute an actual glob/regex query.
-	if !strings.Contains(query, " ") && find.IsRecognizedTerm(query) {
-		return false
-	}
-	if strings.ContainsAny(query, "*?") {
-		return true
-	}
-	if looksLikeRegex(query) {
-		return true
-	}
-	// Single word that looks like an instance type (e.g. "m7i.large", "c6i",
-	// "trn1.32xlarge"). The family prefix may be MULTIPLE letters before the
-	// generation digit — AWS accelerator families are trn1/trn2 (Trainium),
-	// inf1/inf2 (Inferentia), dl1 (Habana), vt1 (video). The old `^[a-z]\d`
-	// (single leading letter) silently misrouted those to the natural-language
-	// parser, which emitted a ".*" match-everything pattern and hung/returned the
-	// whole catalog (#69-class bug). Match one-or-more leading letters + a
-	// generation digit instead.
-	if !strings.Contains(query, " ") {
-		if matched, _ := regexp.MatchString(`(?i)^[a-z]+\d`, query); matched {
-			return true
-		}
-	}
-	return false
-}
-
 // allLookLikePatterns reports whether every arg individually looks like an
 // instance-type pattern (glob, regex, or exact type) rather than a
 // natural-language term. Used to decide whether multiple args are a
@@ -681,7 +642,7 @@ func looksLikePattern(query string) bool {
 // aren't patterns but "8 cores" together IS meaningful to ParseQuery.
 func allLookLikePatterns(args []string) bool {
 	for _, a := range args {
-		if !looksLikePattern(a) {
+		if !find.LooksLikePattern(a) {
 			return false
 		}
 	}
@@ -691,13 +652,13 @@ func allLookLikePatterns(args []string) bool {
 // combinePatternsToRegex ORs multiple instance-type patterns into one regexp
 // via alternation, so a multi-type comparison query still runs as a single
 // SearchInstanceTypes call instead of N separate ones (#52). Each pattern is
-// converted and anchored independently first (patternToRegex already wraps
+// converted and anchored independently first (find.PatternToRegex already wraps
 // each in ^...$), then the anchors are stripped before joining so the
 // alternation applies to the whole combined pattern, not to a suffix of it.
 func combinePatternsToRegex(patterns []string) string {
 	parts := make([]string, 0, len(patterns))
 	for _, p := range patterns {
-		re := patternToRegex(p)
+		re := find.PatternToRegex(p)
 		re = strings.TrimPrefix(re, "^")
 		re = strings.TrimSuffix(re, "$")
 		parts = append(parts, "(?:"+re+")")
@@ -718,7 +679,7 @@ func runSearchWithPatterns(patterns []string, service string) error {
 
 // runSearchWithPattern runs a pattern-based search (the same logic as the search command).
 func runSearchWithPattern(pattern, service string) error {
-	return runSearchWithPatternDisplay(patternToRegex(pattern), pattern, service)
+	return runSearchWithPatternDisplay(find.PatternToRegex(pattern), pattern, service)
 }
 
 // runSearchWithPatternDisplay is the shared implementation behind
