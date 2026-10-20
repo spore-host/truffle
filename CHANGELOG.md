@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`truffle --help` examples use `truffle find`, not the deprecated `truffle search`** (#255). The root help text comes from the shared libs catalog; this bumps libs to v0.51.2, which fixes it (and carries golang.org/x/text v0.41.0 for CVE-2026-56851).
 - **`find.ParseQuery` accepts an exact instance type** (#263). A library
   caller such as spore-host-mcp's `truffle_find` got
   `unknown term: "r8g.2xlarge"` for the most specific query there is, while
