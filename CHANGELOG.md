@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Library: the pattern dispatch `truffle find` uses is exported** (#263).
+  `find.LooksLikePattern` reports whether a query is an instance-type
+  pattern (an exact type, a bare family, a glob or a regex),
+  `find.PatternToRegex` and `find.WildcardToRegex` build the anchored regexp
+  for one, `ParsedQuery.Pattern` / `ParsedQuery.IsPattern` say that
+  `ParseQuery` read the query as a pattern, and `metadata.InstanceFamilies`
+  lists the known family names.
+
+### Fixed
+
+- **`find.ParseQuery` accepts an exact instance type** (#263). A library
+  caller such as spore-host-mcp's `truffle_find` got
+  `unknown term: "r8g.2xlarge"` for the most specific query there is, while
+  `truffle find r8g.2xlarge` worked, because only the CLI checked for a
+  pattern before parsing. `ParseQuery` now does that check itself, so every
+  caller matches exactly the named type (or the family, glob or regex), and
+  the CLI goes through the same function. A pattern query sets
+  `ParsedQuery.Pattern`, and `BuildCriteria` matches what it names with no
+  other filter. As in the CLI, a single family-shaped word truffle does not
+  know ("zz9q") is now searched as a pattern rather than refused with a
+  suggestion, and an invalid regex is an error from `ParseQuery`.
+- **Exact types of the `u-*tb1` and `mac-m*` families are found** (#263).
+  `truffle find u-6tb1.112xlarge` and `truffle find mac-m4.metal` read the
+  type as natural language and failed with "unknown terms", because the
+  pattern check expected a generation digit straight after the first letters
+  of the name. The family is now recognised whole.
+
 ## [0.61.0] - 2026-10-18
 
 ### Added

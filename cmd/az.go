@@ -17,6 +17,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spore-host/libs/i18n"
 	"github.com/spore-host/truffle/pkg/aws"
+	"github.com/spore-host/truffle/pkg/find"
 	"github.com/spore-host/truffle/pkg/output"
 	"gopkg.in/yaml.v3"
 )
@@ -79,7 +80,7 @@ func runAZSearch(cmd *cobra.Command, args []string) error {
 	pattern := args[0]
 
 	// Convert wildcard pattern to regex
-	regexPattern := wildcardToRegex(pattern)
+	regexPattern := find.WildcardToRegex(pattern)
 	matcher, err := regexp.Compile(regexPattern)
 	if err != nil {
 		return fmt.Errorf("invalid pattern: %w", err)
