@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.62.1] - 2026-10-20
+
 ### Security
 - **Built with Go 1.26.10** for GO-2026-6809 (disclosed 2026-10-21), which
   makes `crypto/x509` distrust compromised intermediate certificates. The CI
@@ -1586,7 +1588,8 @@ Initial tagged release from the standalone `spore-host/truffle` repository.
 Older releases are summarized in the
 [GitHub Releases](https://github.com/spore-host/truffle/releases) for this repo.
 
-[Unreleased]: https://github.com/spore-host/truffle/compare/v0.62.0...HEAD
+[Unreleased]: https://github.com/spore-host/truffle/compare/v0.62.1...HEAD
+[0.62.1]: https://github.com/spore-host/truffle/compare/v0.62.0...v0.62.1
 [0.62.0]: https://github.com/spore-host/truffle/compare/v0.61.0...v0.62.0
 [0.61.0]: https://github.com/spore-host/truffle/compare/v0.60.0...v0.61.0
 [0.60.0]: https://github.com/spore-host/truffle/compare/v0.59.0...v0.60.0
