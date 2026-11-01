@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The update notice no longer appears when stderr is not a terminal** (libs#69, via libs v0.51.4). Scripts capturing truffle's stderr got "A newer version of truffle is available" on every run; with stderr redirected, truffle now skips the check and the notice. `SPORE_NO_UPDATE_CHECK` and `CI` still suppress it; `truffle version` still checks.
 - **`truffle available` no longer prints a raw AWS error for a type that isn't
   eligible for Capacity Blocks.** The row now reads
   `Capacity blocks  not eligible for <type> in <region>` with no warning. Real

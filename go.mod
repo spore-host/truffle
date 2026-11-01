@@ -17,7 +17,7 @@ require (
 	github.com/scttfrdmn/substrate v0.124.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
-	github.com/spore-host/libs v0.51.2
+	github.com/spore-host/libs v0.51.4
 	gopkg.in/yaml.v3 v3.0.1
 )
 
