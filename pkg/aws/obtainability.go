@@ -2,6 +2,7 @@ package aws
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -66,12 +67,20 @@ type Obtainability struct {
 	// or spot prospects can still be reservable this way (and Capacity Blocks
 	// routinely undercut On-Demand for accelerator types), so a zero here is a
 	// meaningful part of "unobtainable" and a positive number is a real remedy.
-	// Nil when the query could not be made.
+	// Nil when the query could not be made or the type is not a Capacity Block
+	// type at all; CapacityBlockState says which.
 	CapacityBlockOfferings *int `json:"capacity_block_offerings,omitempty" yaml:"capacity_block_offerings,omitempty"`
 
 	// CapacityBlockWindowHours is the duration the offering count was queried for,
 	// so the number has a stated scope rather than reading as "ever".
 	CapacityBlockWindowHours int `json:"capacity_block_window_hours,omitempty" yaml:"capacity_block_window_hours,omitempty"`
+
+	// CapacityBlockState says how the Capacity Block signal resolved: counted,
+	// ineligible (AWS says this type is not sold as a Capacity Block here — a
+	// permanent answer, not a failure), or unavailable (the query failed; the
+	// reason is in Warnings). Empty only on a value [Client.Obtainability] did
+	// not build (#272).
+	CapacityBlockState CapacityBlockState `json:"capacity_block_state,omitempty" yaml:"capacity_block_state,omitempty"`
 
 	// OnDemandPrice is the On-Demand $/hr for this type in this region, when a
 	// caller resolved it. Price is a separate question from obtainability (a type
@@ -92,6 +101,43 @@ type Obtainability struct {
 	// GetSpotPlacementScores in particular is commonly denied by SCP — but the gap
 	// is never silent, because an absent signal must not read as a good one.
 	Warnings []string `json:"warnings,omitempty" yaml:"warnings,omitempty"`
+}
+
+// CapacityBlockState is the outcome of the Capacity Block offerings query.
+type CapacityBlockState string
+
+const (
+	// CapacityBlockCounted means the query ran and CapacityBlockOfferings holds
+	// the count (which may be zero).
+	CapacityBlockCounted CapacityBlockState = "counted"
+	// CapacityBlockIneligible means AWS reported the type is not a Capacity
+	// Block type in this region ([ErrCapacityBlockIneligible]). No amount of
+	// waiting changes it, and it is not an error.
+	CapacityBlockIneligible CapacityBlockState = "ineligible"
+	// CapacityBlockUnavailable means the query failed (AccessDenied,
+	// throttling, ...), so nothing is known; the error is in Warnings.
+	CapacityBlockUnavailable CapacityBlockState = "unavailable"
+)
+
+// recordCapacityBlocks stores the result of the Capacity Block offerings query
+// and returns the warning to record, or "" when there is none. An ineligible
+// type is a clean answer, not a warning: printing AWS's raw
+// InvalidParameterValue text for it read as a failure (#272). Every other
+// error is a real gap and stays a warning. The caller holds any lock guarding o.
+func (o *Obtainability) recordCapacityBlocks(offerings int, err error) string {
+	switch {
+	case err == nil:
+		o.CapacityBlockState = CapacityBlockCounted
+		o.CapacityBlockOfferings = &offerings
+		o.CapacityBlockWindowHours = obtainabilityCapacityBlockHours
+		return ""
+	case errors.Is(err, ErrCapacityBlockIneligible):
+		o.CapacityBlockState = CapacityBlockIneligible
+		return ""
+	default:
+		o.CapacityBlockState = CapacityBlockUnavailable
+		return fmt.Sprintf("capacity block offerings unavailable: %v", err)
+	}
 }
 
 // SpotPlacement is one AZ's spot placement score. Both identifiers are kept: the
@@ -282,15 +328,12 @@ func (c *Client) Obtainability(ctx context.Context, instanceType, region string)
 			InstanceCount:         1,
 			CapacityDurationHours: obtainabilityCapacityBlockHours,
 		})
-		if err != nil {
-			warn("capacity block offerings unavailable: %v", err)
-			return
-		}
-		count := len(offerings)
 		mu.Lock()
-		out.CapacityBlockOfferings = &count
-		out.CapacityBlockWindowHours = obtainabilityCapacityBlockHours
+		warning := out.recordCapacityBlocks(len(offerings), err)
 		mu.Unlock()
+		if warning != "" {
+			warn("%s", warning)
+		}
 	}()
 
 	wg.Wait()

@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`capacity_block_state` in `truffle available` JSON/YAML** (and
+  `aws.Obtainability.CapacityBlockState`): `counted`, `ineligible` (AWS doesn't
+  sell this type as a Capacity Block in the region), or `unavailable` (the query
+  failed; the reason is in `warnings`). Ineligible used to be indistinguishable
+  from a failed query (#272).
+
+### Changed
+
+- **`truffle available`'s clear verdict no longer reads as "On-Demand will
+  work".** It used to print "no blocking signals found", but none of its signals
+  can observe On-Demand capacity and AWS has no API that does. It now names the
+  signals it actually checked and says so, e.g.
+  "→ no blocking signals among: Spot placement, offered AZs, quota", then
+  "(on-demand capacity can't be checked; `lagotto watch <type>` waits for it)".
+  The command help says the same (#272).
+
+### Fixed
+
+- **`truffle available` no longer prints a raw AWS error for a type that isn't
+  eligible for Capacity Blocks.** The row now reads
+  `Capacity blocks  not eligible for <type> in <region>` with no warning. Real
+  query failures (AccessDenied, throttling) are still warnings (#272).
+
 ## [0.62.1] - 2026-10-20
 
 ### Security

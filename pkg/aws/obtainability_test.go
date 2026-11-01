@@ -2,6 +2,9 @@ package aws
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -238,4 +241,60 @@ func hasWarningAbout(warnings []string, substr string) bool {
 		}
 	}
 	return false
+}
+
+// TestRecordCapacityBlocks is the #272 gate on the Capacity Block signal. An
+// ineligible type (ErrCapacityBlockIneligible, however deeply wrapped) is a clean
+// state with no warning, carried in JSON as capacity_block_state; a real failure
+// stays a warning with the "unavailable" state; a successful query is counted.
+func TestRecordCapacityBlocks(t *testing.T) {
+	// The exact shape GetCapacityBlockOfferings returns for one ineligible region.
+	ineligible := fmt.Errorf("%w in all 1 queried region(s): %w", ErrCapacityBlockIneligible,
+		errors.Join(fmt.Errorf("region us-west-2: %w: %w", ErrCapacityBlockIneligible,
+			errors.New("api error InvalidParameterValue: The instance type c7i.4xlarge is not supported"))))
+	realErr := fmt.Errorf("all 1 region queries failed: %w", errors.New("api error AccessDenied"))
+
+	tests := []struct {
+		name        string
+		count       int
+		err         error
+		wantState   CapacityBlockState
+		wantWarning bool
+		wantCount   bool
+	}{
+		{name: "ineligible", err: ineligible, wantState: CapacityBlockIneligible},
+		{name: "real error", err: realErr, wantState: CapacityBlockUnavailable, wantWarning: true},
+		{name: "counted", count: 3, wantState: CapacityBlockCounted, wantCount: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			o := &Obtainability{InstanceType: "c7i.4xlarge", Region: "us-west-2"}
+			warning := o.recordCapacityBlocks(tt.count, tt.err)
+
+			if (warning != "") != tt.wantWarning {
+				t.Errorf("warning = %q, want warning: %v", warning, tt.wantWarning)
+			}
+			if tt.wantWarning && !strings.Contains(warning, "AccessDenied") {
+				t.Errorf("real error's cause dropped from the warning: %q", warning)
+			}
+			if o.CapacityBlockState != tt.wantState {
+				t.Errorf("CapacityBlockState = %q, want %q", o.CapacityBlockState, tt.wantState)
+			}
+			if (o.CapacityBlockOfferings != nil) != tt.wantCount {
+				t.Errorf("CapacityBlockOfferings set = %v, want %v", o.CapacityBlockOfferings != nil, tt.wantCount)
+			}
+
+			raw, err := json.Marshal(o)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var decoded map[string]any
+			if err := json.Unmarshal(raw, &decoded); err != nil {
+				t.Fatal(err)
+			}
+			if got := decoded["capacity_block_state"]; got != string(tt.wantState) {
+				t.Errorf("JSON capacity_block_state = %v, want %q (%s)", got, tt.wantState, raw)
+			}
+		})
+	}
 }
