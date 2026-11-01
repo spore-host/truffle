@@ -19,8 +19,9 @@ import (
 var availableCmd = &cobra.Command{
 	Use:   "available <instance-type>",
 	Short: "Report how obtainable an instance type is right now",
-	Long: `Report whether you can actually GET an instance type — as opposed to whether it
-exists and what it costs, which 'truffle find' already answers.
+	Long: `Report what AWS can tell you about whether you can actually GET an instance
+type — as opposed to whether it exists and what it costs, which 'truffle find'
+already answers.
 
 For scarce accelerator types the price is often not the deciding number: a type can
 be listed, priced, and completely unobtainable. This gathers the four signals AWS
@@ -31,6 +32,11 @@ for different remedies:
   Offered AZs       where the type is offered at all, with the region's AZ count
   Quota headroom    vCPUs left under your On-Demand quota, and the quota to raise
   Capacity blocks   purchasable Capacity Block for ML offerings (24h window)
+
+None of these observes On-Demand capacity, and AWS has no API that does: an
+On-Demand launch can fail with InsufficientInstanceCapacity in every AZ while
+all four look fine. So a clean report means no checked signal blocks, not that
+an On-Demand launch will succeed. To wait for capacity, use 'lagotto watch'.
 
 Each signal is best-effort: one being unavailable (commonly GetSpotPlacementScores,
 which SCPs often deny) is reported as a warning, not a failure — an absent signal is
@@ -187,13 +193,18 @@ func printObtainability(w io.Writer, o *aws.Obtainability) error {
 
 	// Capacity blocks. Counted at instance-count 1 (see #109) and over a stated
 	// window, so the number can't be read as "never".
-	if o.CapacityBlockOfferings != nil {
+	switch {
+	case o.CapacityBlockState == aws.CapacityBlockIneligible:
+		// A definitive answer, not a failure (#272): AWS doesn't sell this type
+		// as a Capacity Block here, so no warning and no raw API error.
+		rowf("  Capacity blocks\tnot eligible for %s in %s\n", o.InstanceType, o.Region)
+	case o.CapacityBlockOfferings != nil:
 		window := ""
 		if o.CapacityBlockWindowHours > 0 {
 			window = fmt.Sprintf("\t(%dh window)", o.CapacityBlockWindowHours)
 		}
 		rowf("  Capacity blocks\t%s%s\n", pluralOfferings(*o.CapacityBlockOfferings), window)
-	} else {
+	default:
 		rowf("  Capacity blocks\t—\t(unavailable)\n")
 	}
 
@@ -220,12 +231,18 @@ func printObtainability(w io.Writer, o *aws.Obtainability) error {
 	// The verdict names which signals drove it, so it can't be mistaken for an
 	// opaque score. lagotto is the suggested remedy because waiting for capacity is
 	// exactly what it does.
+	//
+	// The clear verdict names the signals actually checked and says outright that
+	// On-Demand capacity isn't one of them: no AWS API reports it, and a bare "no
+	// blocking signals found" was read as "On-Demand will work" while On-Demand
+	// launches were failing in every AZ (#272).
 	fmt.Fprintln(&b)
 	if len(concerns) > 0 {
 		fmt.Fprintf(&b, "  → low obtainability (%s); consider `lagotto watch %s`\n",
 			strings.Join(concerns, ", "), o.InstanceType)
 	} else {
-		fmt.Fprintf(&b, "  → no blocking signals found\n")
+		fmt.Fprintf(&b, "  → no blocking signals among: %s\n", strings.Join(checkedSignals(o), ", "))
+		fmt.Fprintf(&b, "    (on-demand capacity can't be checked; `lagotto watch %s` waits for it)\n", o.InstanceType)
 	}
 
 	// Warnings last: a missing signal must be visible, since the reader would
@@ -240,6 +257,22 @@ func printObtainability(w io.Writer, o *aws.Obtainability) error {
 
 	_, err := io.WriteString(w, b.String())
 	return err
+}
+
+// checkedSignals names the verdict-driving signals that actually returned data,
+// so the clear verdict never vouches for a signal that wasn't collected.
+// Offered AZs is always among them on that path: zero offered AZs raises a
+// concern, so reaching the clear verdict means the footprint was seen.
+func checkedSignals(o *aws.Obtainability) []string {
+	var checked []string
+	if _, ok := o.BestSpotPlacement(); ok {
+		checked = append(checked, "Spot placement")
+	}
+	checked = append(checked, "offered AZs")
+	if o.OnDemandQuotaHeadroom != nil {
+		checked = append(checked, "quota")
+	}
+	return checked
 }
 
 func pluralInstances(n int) string {

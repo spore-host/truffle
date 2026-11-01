@@ -272,3 +272,81 @@ func TestPrintObtainability_HeadroomTooSmallForOneInstance(t *testing.T) {
 		t.Errorf("non-zero-but-unusable headroom was not treated as a concern:\n%s", out)
 	}
 }
+
+// TestPrintObtainability_VerdictNeverClaimsOnDemandCapacity is the #272 gate. No
+// signal truffle collects observes On-Demand capacity (AWS has no API for it), so
+// the clear verdict must say which signals it checked, say On-Demand capacity
+// isn't one of them, and point at lagotto for waiting. Before #272 it printed a
+// bare "no blocking signals found", read as "On-Demand will work" while On-Demand
+// launches were failing in every AZ.
+func TestPrintObtainability_VerdictNeverClaimsOnDemandCapacity(t *testing.T) {
+	tests := []struct {
+		name        string
+		o           *aws.Obtainability
+		wantChecked string
+	}{
+		{
+			name: "all signals present",
+			o: &aws.Obtainability{
+				InstanceType:          "m5.large",
+				Region:                "us-east-1",
+				SpotPlacements:        []aws.SpotPlacement{{AZ: "us-east-1a", AZID: "use1-az2", Score: 10}},
+				OfferedAZs:            []string{"us-east-1a", "us-east-1b", "us-east-1c"},
+				TotalAZs:              6,
+				OnDemandQuotaHeadroom: intPtr(640),
+				VCPUsPerInstance:      2,
+			},
+			wantChecked: "no blocking signals among: Spot placement, offered AZs, quota",
+		},
+		{
+			// A signal that wasn't collected must not be named as checked.
+			name: "spot and quota unavailable",
+			o: &aws.Obtainability{
+				InstanceType: "p5.48xlarge",
+				Region:       "us-east-1",
+				OfferedAZs:   []string{"us-east-1a", "us-east-1b"},
+				TotalAZs:     6,
+				Warnings:     []string{"spot placement scores unavailable: AccessDenied"},
+			},
+			wantChecked: "no blocking signals among: offered AZs\n",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out := render(t, tt.o)
+			if !strings.Contains(out, tt.wantChecked) {
+				t.Errorf("verdict does not name exactly the checked signals (want %q):\n%s", tt.wantChecked, out)
+			}
+			if !strings.Contains(out, "on-demand capacity can't be checked") {
+				t.Errorf("clear verdict does not say on-demand capacity is unchecked:\n%s", out)
+			}
+			if want := "`lagotto watch " + tt.o.InstanceType + "`"; !strings.Contains(out, want) {
+				t.Errorf("clear verdict does not suggest %s for waiting:\n%s", want, out)
+			}
+			if strings.Contains(out, "no blocking signals found") {
+				t.Errorf("unqualified clear verdict is back:\n%s", out)
+			}
+		})
+	}
+}
+
+// TestPrintObtainability_CapacityBlockIneligible pins the #272 rendering: a type
+// AWS doesn't sell as a Capacity Block gets a plain "not eligible" row, not
+// "(unavailable)" and not a raw API error.
+func TestPrintObtainability_CapacityBlockIneligible(t *testing.T) {
+	out := render(t, &aws.Obtainability{
+		InstanceType:       "c7i.4xlarge",
+		Region:             "us-west-2",
+		OfferedAZs:         []string{"us-west-2a"},
+		TotalAZs:           4,
+		CapacityBlockState: aws.CapacityBlockIneligible,
+	})
+	if !strings.Contains(out, "not eligible for c7i.4xlarge in us-west-2") {
+		t.Errorf("ineligible capacity blocks not rendered as such:\n%s", out)
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "Capacity blocks") && strings.Contains(line, "unavailable") {
+			t.Errorf("ineligible rendered as unavailable: %q", line)
+		}
+	}
+}
