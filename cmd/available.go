@@ -171,7 +171,7 @@ func printObtainability(w io.Writer, o *aws.Obtainability) error {
 
 	// Quota headroom. A zero quota is the single most common hard block, and it is
 	// actionable — so name the quota code to request an increase against.
-	if o.OnDemandQuotaHeadroom != nil {
+	if o.QuotaHeadroomKnown() && o.OnDemandQuotaHeadroom != nil {
 		headroom := *o.OnDemandQuotaHeadroom
 		detail := ""
 		switch {
@@ -192,6 +192,8 @@ func printObtainability(w io.Writer, o *aws.Obtainability) error {
 		}
 		rowf("  Quota headroom\t%d vCPU%s\n", headroom, detail)
 	} else {
+		// Unreadable is unknown, not "quota is 0" (#271): no value, no concern;
+		// the warning says which quota and why.
 		unavailableRow(rowf, "Quota headroom")
 	}
 
@@ -284,7 +286,7 @@ func checkedSignals(o *aws.Obtainability) []string {
 	if o.OfferedAZsKnown() {
 		checked = append(checked, "offered AZs")
 	}
-	if o.OnDemandQuotaHeadroom != nil {
+	if o.QuotaHeadroomKnown() && o.OnDemandQuotaHeadroom != nil {
 		checked = append(checked, "quota")
 	}
 	return checked

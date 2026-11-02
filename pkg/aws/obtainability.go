@@ -58,8 +58,17 @@ type Obtainability struct {
 	// OnDemandQuotaHeadroom is the vCPUs still available under the relevant
 	// On-Demand quota (limit − current usage), floored at 0. This is the gate that
 	// actually blocks most accounts: the P-family quota is commonly 0 by default on
-	// newer accounts and an increase takes days. Nil when quotas were unavailable.
+	// newer accounts and an increase takes days. Nil when the quota could not be
+	// read; QuotaHeadroomState says so.
 	OnDemandQuotaHeadroom *int `json:"on_demand_quota_headroom,omitempty" yaml:"on_demand_quota_headroom,omitempty"`
+
+	// QuotaHeadroomState says how the quota-headroom signal resolved: collected
+	// (OnDemandQuotaHeadroom holds it, possibly 0) or unavailable (the quota
+	// could not be read — a denied servicequotas:GetServiceQuota, throttling, a
+	// region without the code — so the limit is unknown, never zero; the reason
+	// is in Warnings). Empty only on a value [Client.Obtainability] did not build
+	// (#271).
+	QuotaHeadroomState SignalState `json:"quota_headroom_state,omitempty" yaml:"quota_headroom_state,omitempty"`
 
 	// QuotaFamily / QuotaCode identify the quota consulted, so a user with no
 	// headroom can request an increase against the right limit.
@@ -224,14 +233,6 @@ type SpotPlacement struct {
 	Score int `json:"score" yaml:"score"`
 }
 
-// quotaCodeFor maps a quota family to the Service Quotas code a user would file
-// an increase against. Verified live 2026-07-27 (#108).
-var quotaCodeFor = map[quotas.QuotaFamily]string{
-	"P":        "L-417A185B", // Running On-Demand P instances
-	"G":        "L-DB2E81BA", // Running On-Demand G and VT instances
-	"Standard": "L-1216C47A", // Running On-Demand Standard (A, C, D, H, I, M, R, T, Z)
-}
-
 // BestSpotPlacement returns the highest-scoring AZ. ok is false when no score is
 // available. SpotPlacements is already sorted best-first, so this is the head.
 func (o *Obtainability) BestSpotPlacement() (p SpotPlacement, ok bool) {
@@ -251,6 +252,52 @@ func (o *Obtainability) OfferedAZsKnown() bool {
 		return o.OfferedAZsState.Known()
 	}
 	return len(o.OfferedAZs) > 0
+}
+
+// QuotaHeadroomKnown reports whether the On-Demand quota was actually read, so
+// a zero OnDemandQuotaHeadroom can be read as "no headroom". An unreadable quota
+// is unknown, never zero (#271). For a value built without a state, the presence
+// of OnDemandQuotaHeadroom decides.
+func (o *Obtainability) QuotaHeadroomKnown() bool {
+	if o.QuotaHeadroomState != "" {
+		return o.QuotaHeadroomState.Known()
+	}
+	return o.OnDemandQuotaHeadroom != nil
+}
+
+// recordQuotaHeadroom stores the On-Demand quota headroom for family from a
+// [quotas.Client.GetQuotas] result and returns the warning to record, or "".
+//
+// Since #167 GetQuotas does not fail when one family's GetServiceQuota does: it
+// leaves the family ABSENT from OnDemand and records the error in
+// OnDemandErrors. A one-value map read turned that absence into a limit of 0,
+// so `truffle available` told a user missing an IAM grant that their quota was
+// zero (#271). The two-value read here keeps it unknown. The caller holds any
+// lock guarding o.
+func (o *Obtainability) recordQuotaHeadroom(info *quotas.QuotaInfo, family quotas.QuotaFamily, err error) string {
+	if err != nil {
+		return signalUnavailable(&o.QuotaHeadroomState, "quota headroom", err)
+	}
+	limit, ok := info.OnDemand[family]
+	if !ok {
+		cause := info.LookupError(family, false)
+		if cause == nil {
+			cause = errors.New("no value was returned")
+		}
+		code := o.QuotaCode
+		if code == "" {
+			code = "no quota code known"
+		}
+		return signalUnavailable(&o.QuotaHeadroomState, "quota headroom",
+			fmt.Errorf("the On-Demand %s vCPU quota (%s) could not be read — limit unknown, not zero: %w", family, code, cause))
+	}
+	headroom := int(limit - info.Usage[family])
+	if headroom < 0 {
+		headroom = 0
+	}
+	o.OnDemandQuotaHeadroom = &headroom
+	o.QuotaHeadroomState = SignalCollected
+	return ""
 }
 
 // InstanceHeadroom converts the vCPU quota headroom into how many instances of
@@ -348,29 +395,24 @@ func (c *Client) Obtainability(ctx context.Context, instanceType, region string)
 	go func() {
 		defer wg.Done()
 		family := quotas.GetQuotaFamily(instanceType)
-		code := quotaCodeFor[family]
+		// The single source of truth for quota codes (#167): an unmapped family
+		// gets no code rather than another family's.
+		code, _ := quotas.QuotaCodeFor(family, false)
 		mu.Lock()
 		out.QuotaFamily, out.QuotaCode = string(family), code
 		mu.Unlock()
 
 		qc := quotas.NewClientFromConfig(c.cfg)
 		info, err := qc.GetQuotas(ctx, region)
-		if err != nil {
-			warn("quota headroom unavailable: %v", err)
-			return
-		}
-		if !info.CredentialsAvailable {
+		if err == nil && !info.CredentialsAvailable {
 			warn("quota headroom is an estimate (no credentials)")
 		}
-		limit := info.OnDemand[family]
-		used := info.Usage[family]
-		headroom := int(limit - used)
-		if headroom < 0 {
-			headroom = 0
-		}
 		mu.Lock()
-		out.OnDemandQuotaHeadroom = &headroom
+		warning := out.recordQuotaHeadroom(info, family, err)
 		mu.Unlock()
+		if warning != "" {
+			warn("%s", warning)
+		}
 	}()
 
 	// 4. vCPU count, so headroom converts to a usable instance count. Taken from
