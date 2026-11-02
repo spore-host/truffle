@@ -212,13 +212,15 @@ func TestPrintObtainability_MissingSignalsAreVisible(t *testing.T) {
 
 // TestPrintObtainability_NotOfferedInRegion covers the hard "wrong region" answer:
 // zero offered AZs is not a scarcity signal, it means this type isn't in this
-// region at all and no amount of waiting will change that.
+// region at all and no amount of waiting will change that. Only a lookup that
+// actually returned the empty footprint may say so (#274).
 func TestPrintObtainability_NotOfferedInRegion(t *testing.T) {
 	out := render(t, &aws.Obtainability{
-		InstanceType: "p6-b200.48xlarge",
-		Region:       "eu-west-3",
-		OfferedAZs:   nil,
-		TotalAZs:     3,
+		InstanceType:    "p6-b200.48xlarge",
+		Region:          "eu-west-3",
+		OfferedAZs:      []string{},
+		OfferedAZsState: aws.SignalCollected,
+		TotalAZs:        3,
 	})
 
 	if !strings.Contains(out, "not offered in this region") {
@@ -348,5 +350,67 @@ func TestPrintObtainability_CapacityBlockIneligible(t *testing.T) {
 		if strings.Contains(line, "Capacity blocks") && strings.Contains(line, "unavailable") {
 			t.Errorf("ineligible rendered as unavailable: %q", line)
 		}
+	}
+}
+
+// TestPrintObtainability_OfferedAZLookupFailedIsUnknown is the #274 gate on the
+// renderer. A failed offered-AZ lookup is unknown, not "not offered": the row
+// reads "— (unavailable)", raises no concern, keeps its warning, and the offered
+// AZs aren't named among the signals the clear verdict checked. Before #274 a
+// throttled DescribeInstanceTypeOfferings rendered "0 ⚠ not offered in this
+// region" and "low obtainability (azs)".
+func TestPrintObtainability_OfferedAZLookupFailedIsUnknown(t *testing.T) {
+	const warning = "offered AZs unavailable: api error ThrottlingException: Rate exceeded"
+	for _, state := range []aws.SignalState{aws.SignalUnavailable, ""} {
+		t.Run("state="+string(state), func(t *testing.T) {
+			out := render(t, &aws.Obtainability{
+				InstanceType:          "m7i.large",
+				Region:                "us-east-1",
+				OfferedAZsState:       state,
+				TotalAZs:              6,
+				OnDemandQuotaHeadroom: intPtr(640),
+				VCPUsPerInstance:      2,
+				Warnings:              []string{warning},
+			})
+			var row string
+			for _, line := range strings.Split(out, "\n") {
+				if strings.Contains(line, "Offered AZs") {
+					row = line
+				}
+			}
+			if !strings.Contains(row, "—") || !strings.Contains(row, "(unavailable)") {
+				t.Errorf("failed lookup not rendered as unavailable: %q\n%s", row, out)
+			}
+			if strings.Contains(out, "not offered") {
+				t.Errorf("unknown footprint rendered as a hard negative:\n%s", out)
+			}
+			if strings.Contains(out, "low obtainability") {
+				t.Errorf("unknown footprint raised a concern:\n%s", out)
+			}
+			if !strings.Contains(out, warning) {
+				t.Errorf("lookup warning dropped:\n%s", out)
+			}
+			if !strings.Contains(out, "no blocking signals among: quota\n") {
+				t.Errorf("verdict names unchecked offered AZs (want only quota):\n%s", out)
+			}
+		})
+	}
+}
+
+// TestPrintObtainability_NothingCheckedVouchesForNothing: when no
+// verdict-driving signal returned data, the verdict says so instead of an
+// empty "no blocking signals among: " list (#274).
+func TestPrintObtainability_NothingCheckedVouchesForNothing(t *testing.T) {
+	out := render(t, &aws.Obtainability{
+		InstanceType:    "m7i.large",
+		Region:          "us-east-1",
+		OfferedAZsState: aws.SignalUnavailable,
+		Warnings:        []string{"offered AZs unavailable: AccessDenied"},
+	})
+	if !strings.Contains(out, "no signal could be checked") {
+		t.Errorf("all-unknown report not called out:\n%s", out)
+	}
+	if strings.Contains(out, "no blocking signals among") {
+		t.Errorf("all-unknown report vouches for an empty signal list:\n%s", out)
 	}
 }

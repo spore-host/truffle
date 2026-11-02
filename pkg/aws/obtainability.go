@@ -40,8 +40,16 @@ type Obtainability struct {
 
 	// OfferedAZs lists the AZs where the type is offered at all — a hard
 	// constraint, not a prediction. A 1-AZ footprint is a materially different risk
-	// profile from 6 AZs regardless of price or score.
+	// profile from 6 AZs regardless of price or score. Empty both when the type is
+	// offered nowhere and when the lookup failed; OfferedAZsState says which.
 	OfferedAZs []string `json:"offered_azs,omitempty" yaml:"offered_azs,omitempty"`
+
+	// OfferedAZsState says how the offered-AZ lookup resolved: collected (then an
+	// empty OfferedAZs really means "not offered in this region") or unavailable
+	// (the lookup failed, so the footprint is unknown — never zero; the reason is
+	// in Warnings). Empty only on a value [Client.Obtainability] did not build
+	// (#274).
+	OfferedAZsState SignalState `json:"offered_azs_state,omitempty" yaml:"offered_azs_state,omitempty"`
 
 	// TotalAZs is how many AZs the region has, giving OfferedAZs a denominator
 	// ("1 of 6" reads very differently from "1 of 1").
@@ -103,20 +111,57 @@ type Obtainability struct {
 	Warnings []string `json:"warnings,omitempty" yaml:"warnings,omitempty"`
 }
 
-// CapacityBlockState is the outcome of the Capacity Block offerings query.
-type CapacityBlockState string
+// SignalState is how one obtainability signal resolved. It is the one shared
+// answer to "did this signal return data?", so a lookup that FAILED is never
+// rendered or serialized as one that returned zero: an unknown footprint is not
+// "not offered" (#274), an unreadable quota is not "quota is 0" (#271), and a
+// failed Capacity Block query is not "no offerings" (#272). Every signal that
+// can be unknown carries a state field of this type, set by its record* method
+// and, on failure, by [signalUnavailable].
+type SignalState string
+
+const (
+	// SignalCollected means the lookup returned data, which may legitimately be
+	// zero or empty.
+	SignalCollected SignalState = "collected"
+	// SignalUnavailable means the lookup failed (AccessDenied, throttling, a
+	// missing grant, ...), so the value is unknown — not zero. The reason is in
+	// Warnings.
+	SignalUnavailable SignalState = "unavailable"
+	// SignalIneligible means AWS answered definitively that the signal does not
+	// apply (today only Capacity Blocks: the type is not sold that way in the
+	// region). Not an error, and no amount of waiting changes it.
+	SignalIneligible SignalState = "ineligible"
+)
+
+// Known reports whether the signal returned data. Everything else — failed,
+// ineligible, or never set — must not be presented as a value.
+func (s SignalState) Known() bool { return s == SignalCollected }
+
+// signalUnavailable is the one way a signal is marked unknown: it sets the state
+// and returns the warning to record, worded "<what> unavailable: <err>". Sharing
+// it keeps every signal's failure path identical — state, wording and the rule
+// that the value is left unset rather than zeroed.
+func signalUnavailable(state *SignalState, what string, err error) string {
+	*state = SignalUnavailable
+	return fmt.Sprintf("%s unavailable: %v", what, err)
+}
+
+// CapacityBlockState is the outcome of the Capacity Block offerings query. It is
+// a [SignalState]; the aliases below name its three outcomes.
+type CapacityBlockState = SignalState
 
 const (
 	// CapacityBlockCounted means the query ran and CapacityBlockOfferings holds
 	// the count (which may be zero).
-	CapacityBlockCounted CapacityBlockState = "counted"
+	CapacityBlockCounted = SignalCollected
 	// CapacityBlockIneligible means AWS reported the type is not a Capacity
 	// Block type in this region ([ErrCapacityBlockIneligible]). No amount of
 	// waiting changes it, and it is not an error.
-	CapacityBlockIneligible CapacityBlockState = "ineligible"
+	CapacityBlockIneligible = SignalIneligible
 	// CapacityBlockUnavailable means the query failed (AccessDenied,
 	// throttling, ...), so nothing is known; the error is in Warnings.
-	CapacityBlockUnavailable CapacityBlockState = "unavailable"
+	CapacityBlockUnavailable = SignalUnavailable
 )
 
 // recordCapacityBlocks stores the result of the Capacity Block offerings query
@@ -135,9 +180,31 @@ func (o *Obtainability) recordCapacityBlocks(offerings int, err error) string {
 		o.CapacityBlockState = CapacityBlockIneligible
 		return ""
 	default:
-		o.CapacityBlockState = CapacityBlockUnavailable
-		return fmt.Sprintf("capacity block offerings unavailable: %v", err)
+		return signalUnavailable(&o.CapacityBlockState, "capacity block offerings", err)
 	}
+}
+
+// recordOfferedAZs stores the result of the offered-AZ lookup and returns the
+// warning to record, or "" when there is none. A failed lookup leaves OfferedAZs
+// nil and the state unavailable: the footprint is unknown, and rendering it as
+// "0 — not offered in this region" told users a throttled or denied
+// DescribeInstanceTypeOfferings meant the type doesn't exist there (#274). The
+// caller holds any lock guarding o.
+func (o *Obtainability) recordOfferedAZs(offered []string, err error) string {
+	if err != nil {
+		o.OfferedAZs = nil
+		return signalUnavailable(&o.OfferedAZsState, "offered AZs", err)
+	}
+	// Deduplicate before counting. DescribeInstanceTypeOfferings returns one row
+	// per (type, location), so anything that widens the match — or a backend that
+	// doesn't honour the instance-type filter — yields the same AZ repeatedly.
+	// Since this count is rendered against a region-AZ denominator ("1 of 6"), a
+	// duplicate would print a nonsense ratio like "24 of 3".
+	offered = uniqueSorted(offered)
+	SortZoneNames(offered)
+	o.OfferedAZs = offered
+	o.OfferedAZsState = SignalCollected
+	return ""
 }
 
 // SpotPlacement is one AZ's spot placement score. Both identifiers are kept: the
@@ -172,6 +239,18 @@ func (o *Obtainability) BestSpotPlacement() (p SpotPlacement, ok bool) {
 		return SpotPlacement{}, false
 	}
 	return o.SpotPlacements[0], true
+}
+
+// OfferedAZsKnown reports whether the offered-AZ footprint was actually
+// observed, so an empty OfferedAZs can be read as "not offered in this region".
+// A failed lookup is unknown, never zero (#274). For a value built without a
+// state (not by [Client.Obtainability]) only a non-empty list counts as known:
+// absent evidence is never promoted to a hard negative.
+func (o *Obtainability) OfferedAZsKnown() bool {
+	if o.OfferedAZsState != "" {
+		return o.OfferedAZsState.Known()
+	}
+	return len(o.OfferedAZs) > 0
 }
 
 // InstanceHeadroom converts the vCPU quota headroom into how many instances of
@@ -248,23 +327,19 @@ func (c *Client) Obtainability(ctx context.Context, instanceType, region string)
 	go func() {
 		defer wg.Done()
 		offered, err := c.getAvailabilityZones(ctx, region, instanceType)
-		if err != nil {
-			warn("offered AZs unavailable: %v", err)
+		mu.Lock()
+		warning := out.recordOfferedAZs(offered, err)
+		mu.Unlock()
+		if warning != "" {
+			warn("%s", warning)
 			return
 		}
-		// Deduplicate before counting. DescribeInstanceTypeOfferings returns one row
-		// per (type, location), so anything that widens the match — or a backend that
-		// doesn't honour the instance-type filter — yields the same AZ repeatedly.
-		// Since this count is rendered against a region-AZ denominator ("1 of 6"), a
-		// duplicate would print a nonsense ratio like "24 of 3".
-		offered = uniqueSorted(offered)
-		SortZoneNames(offered)
 		total, err := c.countRegionAZs(ctx, region)
 		if err != nil {
 			warn("region AZ count unavailable: %v", err)
 		}
 		mu.Lock()
-		out.OfferedAZs, out.TotalAZs = offered, total
+		out.TotalAZs = total
 		mu.Unlock()
 	}()
 

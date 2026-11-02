@@ -10,10 +10,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **`capacity_block_state` in `truffle available` JSON/YAML** (and
-  `aws.Obtainability.CapacityBlockState`): `counted`, `ineligible` (AWS doesn't
+  `aws.Obtainability.CapacityBlockState`): `collected`, `ineligible` (AWS doesn't
   sell this type as a Capacity Block in the region), or `unavailable` (the query
   failed; the reason is in `warnings`). Ineligible used to be indistinguishable
   from a failed query (#272).
+- **`offered_azs_state` in `truffle available` JSON/YAML** (and
+  `aws.Obtainability.OfferedAZsState` / `OfferedAZsKnown()`): `collected` or
+  `unavailable`, so an empty `offered_azs` from a failed lookup can be told
+  apart from a type offered nowhere (#274). Both states share one library type,
+  `aws.SignalState` (`collected` / `unavailable` / `ineligible`), which every
+  obtainability signal that can be unknown now uses; `CapacityBlockState` is an
+  alias of it.
 
 ### Changed
 
@@ -32,6 +39,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   eligible for Capacity Blocks.** The row now reads
   `Capacity blocks  not eligible for <type> in <region>` with no warning. Real
   query failures (AccessDenied, throttling) are still warnings (#272).
+- **`truffle available` no longer says a type is "not offered in this region"
+  when the offered-AZ lookup failed.** A throttled or denied
+  `DescribeInstanceTypeOfferings` used to render `Offered AZs  0  ⚠ not offered
+  in this region` and raise the `azs` concern. The row now reads
+  `Offered AZs  —  (unavailable)`, raises no concern, keeps the warning, and the
+  clear verdict no longer names offered AZs among the signals it checked. When
+  no signal returned data at all, the verdict says "no signal could be checked"
+  (#274).
 
 ## [0.62.1] - 2026-10-20
 

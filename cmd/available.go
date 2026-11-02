@@ -151,6 +151,10 @@ func printObtainability(w io.Writer, o *aws.Obtainability) error {
 	// Offered AZs. The denominator is what makes this readable: "1 of 6" is a
 	// concentration risk, "1 of 1" is just a small region.
 	switch {
+	case !o.OfferedAZsKnown():
+		// The lookup failed (or never ran): the footprint is unknown, not zero, so
+		// no "not offered" and no concern. The warning says why (#274).
+		unavailableRow(rowf, "Offered AZs")
 	case len(o.OfferedAZs) == 0:
 		rowf("  Offered AZs\t0\t%s not offered in this region\n", i18n.Symbol("warning"))
 		concerns = append(concerns, "azs")
@@ -188,7 +192,7 @@ func printObtainability(w io.Writer, o *aws.Obtainability) error {
 		}
 		rowf("  Quota headroom\t%d vCPU%s\n", headroom, detail)
 	} else {
-		rowf("  Quota headroom\t—\t(unavailable)\n")
+		unavailableRow(rowf, "Quota headroom")
 	}
 
 	// Capacity blocks. Counted at instance-count 1 (see #109) and over a stated
@@ -205,7 +209,7 @@ func printObtainability(w io.Writer, o *aws.Obtainability) error {
 		}
 		rowf("  Capacity blocks\t%s%s\n", pluralOfferings(*o.CapacityBlockOfferings), window)
 	default:
-		rowf("  Capacity blocks\t—\t(unavailable)\n")
+		unavailableRow(rowf, "Capacity blocks")
 	}
 
 	// On-demand price. A separate concern from the obtainability signals above (a
@@ -240,8 +244,11 @@ func printObtainability(w io.Writer, o *aws.Obtainability) error {
 	if len(concerns) > 0 {
 		fmt.Fprintf(&b, "  → low obtainability (%s); consider `lagotto watch %s`\n",
 			strings.Join(concerns, ", "), o.InstanceType)
+	} else if checked := checkedSignals(o); len(checked) == 0 {
+		// Nothing returned data, so there is nothing to vouch for (#274).
+		fmt.Fprintf(&b, "  → no signal could be checked (see warnings)\n")
 	} else {
-		fmt.Fprintf(&b, "  → no blocking signals among: %s\n", strings.Join(checkedSignals(o), ", "))
+		fmt.Fprintf(&b, "  → no blocking signals among: %s\n", strings.Join(checked, ", "))
 		fmt.Fprintf(&b, "    (on-demand capacity can't be checked; `lagotto watch %s` waits for it)\n", o.InstanceType)
 	}
 
@@ -259,16 +266,24 @@ func printObtainability(w io.Writer, o *aws.Obtainability) error {
 	return err
 }
 
+// unavailableRow renders a signal whose lookup failed: "—  (unavailable)", the
+// same words for every signal, with no value and no concern. The reason is in
+// the warnings block, so the row never stands in for a zero (#274, #272).
+func unavailableRow(rowf func(string, ...any), label string) {
+	rowf("  %s\t—\t(unavailable)\n", label)
+}
+
 // checkedSignals names the verdict-driving signals that actually returned data,
-// so the clear verdict never vouches for a signal that wasn't collected.
-// Offered AZs is always among them on that path: zero offered AZs raises a
-// concern, so reaching the clear verdict means the footprint was seen.
+// so the clear verdict never vouches for a signal that wasn't collected. An
+// unknown offered-AZ footprint is left out (#274), as is an unread quota.
 func checkedSignals(o *aws.Obtainability) []string {
 	var checked []string
 	if _, ok := o.BestSpotPlacement(); ok {
 		checked = append(checked, "Spot placement")
 	}
-	checked = append(checked, "offered AZs")
+	if o.OfferedAZsKnown() {
+		checked = append(checked, "offered AZs")
+	}
 	if o.OnDemandQuotaHeadroom != nil {
 		checked = append(checked, "quota")
 	}
