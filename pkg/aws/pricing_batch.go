@@ -25,8 +25,12 @@ type PriceKey struct {
 // [context.Canceled] when the lookup was cut short, so a caller can tell "the
 // run timed out" from "AWS publishes no price for this type".
 type PriceQuote struct {
-	Price  float64
+	Price float64
+	// Source is Origin.PriceSource, kept for existing callers.
 	Source PriceSource
+	// Origin is the price's full provenance: for a static rate, why and when
+	// (#184). Zero when Price is 0.
+	Origin PriceOrigin
 	Err    error
 }
 
@@ -57,8 +61,8 @@ func (c *Client) OnDemandPrices(ctx context.Context, keys []PriceKey) map[PriceK
 		}
 		out := make(map[string]PriceQuote, len(regions))
 		for _, region := range regions {
-			price, src, err := c.OnDemandPriceWithSource(ctx, instanceType, region)
-			out[region] = quoteOrContextError(ctx, price, src, err)
+			price, origin, err := c.OnDemandPriceWithOrigin(ctx, instanceType, region)
+			out[region] = quoteOrContextError(ctx, price, origin, err)
 		}
 		return out
 	})
@@ -71,7 +75,7 @@ func (c *Client) SageMakerPrices(ctx context.Context, keys []PriceKey) map[Price
 		out := make(map[string]PriceQuote, len(regions))
 		for _, region := range regions {
 			price, err := c.SageMakerPrice(ctx, instanceType, region)
-			out[region] = quoteOrContextError(ctx, price, PriceSourceUnknown, err)
+			out[region] = quoteOrContextError(ctx, price, PriceOrigin{}, err)
 		}
 		return out
 	})
@@ -80,9 +84,9 @@ func (c *Client) SageMakerPrices(ctx context.Context, keys []PriceKey) map[Price
 // quoteOrContextError builds a quote, reporting the context's error rather than
 // the pricer's when the context has ended and no price came back: the pricer's
 // error then is a symptom (a cancelled request), not the cause.
-func quoteOrContextError(ctx context.Context, price float64, src PriceSource, err error) PriceQuote {
+func quoteOrContextError(ctx context.Context, price float64, origin PriceOrigin, err error) PriceQuote {
 	if price > 0 {
-		return PriceQuote{Price: price, Source: src}
+		return PriceQuote{Price: price, Source: origin.PriceSource, Origin: origin}
 	}
 	if cerr := ctx.Err(); cerr != nil {
 		return PriceQuote{Err: cerr}
@@ -146,7 +150,7 @@ func runPriceBatch(ctx context.Context, keys []PriceKey, price func(ctx context.
 			for _, r := range regions {
 				q, ok := got[r]
 				if !ok {
-					q = quoteOrContextError(ctx, 0, PriceSourceUnknown, fmt.Errorf("no on-demand price for %s in %s", t, r))
+					q = quoteOrContextError(ctx, 0, PriceOrigin{}, fmt.Errorf("no on-demand price for %s in %s", t, r))
 				}
 				out[PriceKey{t, r}] = q
 			}
@@ -179,7 +183,7 @@ func (f *fallbackPricer) pricesForType(ctx context.Context, instanceType string,
 	}
 	for _, r := range regions {
 		if price := live[r]; price > 0 {
-			out[r] = PriceQuote{Price: price, Source: PriceSourceLive}
+			out[r] = PriceQuote{Price: price, Source: PriceSourceLive, Origin: LivePriceOrigin()}
 			continue
 		}
 		if cerr := ctx.Err(); cerr != nil {
@@ -190,8 +194,13 @@ func (f *fallbackPricer) pricesForType(ctx context.Context, instanceType string,
 		if primaryErr == nil {
 			primaryErr = fmt.Errorf("no on-demand price found for %s in %s", instanceType, r)
 		}
+		reason := "live AWS Price List not consulted"
+		if f.primary != nil {
+			reason = liveUnavailableReason(liveErr, instanceType, r)
+		}
 		if price, err := f.fallback.OnDemandPrice(ctx, instanceType, r); err == nil && price > 0 {
-			out[r] = PriceQuote{Price: price, Source: PriceSourceStatic}
+			origin := StaticPriceOrigin(reason)
+			out[r] = PriceQuote{Price: price, Source: origin.PriceSource, Origin: origin}
 		} else {
 			out[r] = PriceQuote{Err: primaryErr}
 		}

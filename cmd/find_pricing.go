@@ -24,6 +24,11 @@ type pricingOutcome struct {
 	static   int // priced from the built-in table, not the live Price List
 	unpriced int // no price: AWS publishes none, or the lookup failed
 	timedOut int // no price because the deadline expired (a subset of unpriced)
+
+	// staticNotes are the distinct origin labels of the static prices
+	// ("static, collected <date>: <why>"), so the stderr note can say why and
+	// when, not just "may be out of date" (#184).
+	staticNotes []string
 }
 
 // priceResults fills OnDemandPrice for the rows of results whose instance type
@@ -51,11 +56,18 @@ func priceResults(ctx context.Context, p batchPricer, results []aws.InstanceType
 	} else {
 		quotes = p.OnDemandPrices(ctx, keys)
 	}
+	origins := make([]aws.PriceOrigin, 0, len(idx))
 	for n, i := range idx {
 		q := quotes[keys[n]]
 		results[i].OnDemandPrice = q.Price
+		results[i].PriceOrigin = q.Origin
+		if q.Price > 0 && q.Origin.PriceSource == aws.PriceSourceUnknown && q.Source != aws.PriceSourceUnknown {
+			// A quote that set only Source (an injected batch pricer).
+			results[i].PriceOrigin = aws.PriceOrigin{PriceSource: q.Source}
+		}
+		origins = append(origins, results[i].PriceOrigin)
 		switch {
-		case q.Price > 0 && q.Source == aws.PriceSourceStatic:
+		case q.Price > 0 && results[i].IsStatic():
 			out.static++
 		case q.Price <= 0:
 			out.unpriced++
@@ -64,6 +76,7 @@ func priceResults(ctx context.Context, p batchPricer, results []aws.InstanceType
 			}
 		}
 	}
+	out.staticNotes = aws.StaticPriceNotes(origins)
 	return out
 }
 
@@ -74,8 +87,11 @@ func priceResults(ctx context.Context, p batchPricer, results []aws.InstanceType
 // notes, not errors.
 func reportPricing(o pricingOutcome, timeout time.Duration) error {
 	if o.static > 0 {
-		fmt.Fprintf(os.Stderr, "%s On-demand price for %d of %d %s from truffle's built-in table, not the live AWS Price List — it may be out of date.\n",
+		fmt.Fprintf(os.Stderr, "%s On-demand price for %d of %d %s STATIC, from truffle's built-in table rather than the live AWS Price List — it may be out of date:\n",
 			i18n.Symbol("warning"), o.static, o.rows, pluralize(o.static, "type is", "types are"))
+		for _, note := range o.staticNotes {
+			fmt.Fprintf(os.Stderr, "    %s\n", note)
+		}
 	}
 	if o.timedOut > 0 {
 		return &pricingTimeoutError{fmt.Sprintf("on-demand pricing timed out after %s: no price for %d of %d %s (shown as N/A); increase --timeout or narrow --regions",

@@ -126,9 +126,11 @@ func TestPrintCPUOnly_DemoUnchanged(t *testing.T) {
 	}
 
 	csvOut := captureStdout(t, func() { _ = NewPrinter(false).PrintCSV(rs) })
-	wantCSV := "instance_type,region,vcpus,memory_gib,architecture,on_demand_price,availability_zones\n" +
-		"m8a.4xlarge,us-west-2,16,64.0,x86_64,0.9738,\n" +
-		"c8a.8xlarge,us-west-2,32,64.0,x86_64,1.7243,\n"
+	// The price-provenance columns (#184) are appended after every existing
+	// column, so each pre-#184 column keeps its position.
+	wantCSV := "instance_type,region,vcpus,memory_gib,architecture,on_demand_price,availability_zones,price_source,price_as_of,price_fallback_reason\n" +
+		"m8a.4xlarge,us-west-2,16,64.0,x86_64,0.9738,,,,\n" +
+		"c8a.8xlarge,us-west-2,32,64.0,x86_64,1.7243,,,,\n"
 	if csvOut != wantCSV {
 		t.Errorf("CSV changed\n got: %q\nwant: %q", csvOut, wantCSV)
 	}

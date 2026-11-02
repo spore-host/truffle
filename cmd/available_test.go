@@ -43,7 +43,7 @@ func TestPrintObtainability_ShowsOnDemandPrice(t *testing.T) {
 			name:   "static fallback rate",
 			price:  floatPtr(0.7838),
 			source: aws.PriceSourceStatic,
-			want:   []string{"On-demand price", "$0.7838/hr", "static fallback"},
+			want:   []string{"On-demand price", "$0.7838/hr", "on-demand (static, collection date unknown: reason not recorded)"},
 			absent: []string{"(live)"},
 		},
 		{

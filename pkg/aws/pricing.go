@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -52,6 +53,134 @@ const (
 	PriceSourceStatic PriceSource = "static"
 )
 
+// PriceOrigin is a price's provenance: where it came from and, for a static
+// price, WHY the live Price List was not used and WHEN the static data was
+// collected. Every price truffle prints or serializes carries one, embedded in
+// the result type, so JSON/YAML gain price_source, price_as_of and
+// price_fallback_reason next to the price itself.
+//
+// The owner rule it implements (truffle#184): a static or fallback price must
+// say that it is static, why, and when it was collected — a stale rate that
+// reads like a current one is the #114 failure ("a fabricated price is worse
+// than no price") with a slower fuse. Build a static origin only with
+// [StaticPriceOrigin], which fills all three; a gate rejects any other
+// construction.
+type PriceOrigin struct {
+	// PriceSource is live, static, or unknown ("") when no price was resolved
+	// or the pricer could not say.
+	PriceSource PriceSource `json:"price_source,omitempty" yaml:"price_source,omitempty"`
+	// PriceAsOf is the date (YYYY-MM-DD) the static rates were collected; set
+	// only for a static price. Empty for an injected static pricer that did not
+	// report one, which renders as "collection date unknown" rather than
+	// pretending.
+	PriceAsOf string `json:"price_as_of,omitempty" yaml:"price_as_of,omitempty"`
+	// PriceFallbackReason says why the live Price List was not used (its error,
+	// or that it returned no price); set only for a static price.
+	PriceFallbackReason string `json:"price_fallback_reason,omitempty" yaml:"price_fallback_reason,omitempty"`
+}
+
+// LivePriceOrigin is the origin of a rate read from the live AWS Price List
+// (including one cached from it within this process).
+func LivePriceOrigin() PriceOrigin { return PriceOrigin{PriceSource: PriceSourceLive} }
+
+// StaticPriceOrigin is the origin of a rate from truffle's embedded table
+// (libs/pricing): static, collected at [libpricing.PricesAsOf], for reason.
+// It is the only constructor of a static origin, so the date and the reason
+// can't be left off. An empty reason is recorded as "reason not recorded"
+// rather than left blank.
+func StaticPriceOrigin(reason string) PriceOrigin {
+	return staticOrigin(libpricing.PricesAsOf, reason)
+}
+
+// staticOrigin builds a static origin with an explicit collection date (empty
+// when the source of the rate could not say).
+func staticOrigin(asOf, reason string) PriceOrigin {
+	if strings.TrimSpace(reason) == "" {
+		reason = "reason not recorded"
+	}
+	return PriceOrigin{PriceSource: PriceSourceStatic, PriceAsOf: asOf, PriceFallbackReason: reason}
+}
+
+// liveUnavailableReason words why a static rate was used in place of the live
+// Price List: its error, or (with no error) that it had no rate for the pair.
+func liveUnavailableReason(err error, instanceType, region string) string {
+	if err == nil {
+		return fmt.Sprintf("the live AWS Price List returned no on-demand price for %s in %s", instanceType, region)
+	}
+	return fmt.Sprintf("live AWS Price List unavailable: %v", err)
+}
+
+// IsStatic reports whether the price came from a static table.
+func (o PriceOrigin) IsStatic() bool { return o.PriceSource == PriceSourceStatic }
+
+// Label is the one wording of a price's origin, shared by every renderer so
+// the phrasing can't drift between commands:
+//
+//	live
+//	static, collected 2026-10-07: live AWS Price List unavailable: <err>
+//
+// and "" for an unknown source.
+func (o PriceOrigin) Label() string {
+	switch o.PriceSource {
+	case PriceSourceLive:
+		return "live"
+	case PriceSourceStatic:
+		date := "collection date unknown"
+		if o.PriceAsOf != "" {
+			date = "collected " + o.PriceAsOf
+		}
+		reason := o.PriceFallbackReason
+		if reason == "" {
+			reason = "reason not recorded"
+		}
+		return fmt.Sprintf("static, %s: %s", date, reason)
+	default:
+		return ""
+	}
+}
+
+// DescribeOnDemandPrice renders an On-Demand rate with its origin, e.g.
+//
+//	$0.7140/hr on-demand (live)
+//	$0.7140/hr on-demand (static, collected 2026-10-07: live AWS Price List unavailable: <err>)
+func DescribeOnDemandPrice(price float64, o PriceOrigin) string {
+	s := fmt.Sprintf("$%.4f/hr on-demand", price)
+	if label := o.Label(); label != "" {
+		s += " (" + label + ")"
+	}
+	return s
+}
+
+// StaticPriceNotes returns the distinct origin labels among the static origins
+// given, sorted, for a table that marks static cells and explains them once in
+// a footer. Nil when none is static.
+func StaticPriceNotes(origins []PriceOrigin) []string {
+	seen := map[string]bool{}
+	var notes []string
+	for _, o := range origins {
+		if !o.IsStatic() {
+			continue
+		}
+		if l := o.Label(); !seen[l] {
+			seen[l] = true
+			notes = append(notes, l)
+		}
+	}
+	sort.Strings(notes)
+	return notes
+}
+
+// OriginOnDemandPricer is an optional extension of [OnDemandPricer] for
+// implementations that can report a rate's full [PriceOrigin]. truffle's
+// default pricer implements it; [Client.OnDemandPriceWithOrigin] uses it when
+// available.
+type OriginOnDemandPricer interface {
+	OnDemandPricer
+
+	// OnDemandPriceWithOrigin returns the rate and its provenance.
+	OnDemandPriceWithOrigin(ctx context.Context, instanceType, region string) (float64, PriceOrigin, error)
+}
+
 // SourcedOnDemandPricer is an optional extension of [OnDemandPricer] for
 // implementations that can report where a rate came from. truffle's default
 // pricer implements it; [Client.OnDemandPriceWithSource] uses it when available
@@ -97,12 +226,44 @@ func (c *Client) OnDemandPrice(ctx context.Context, instanceType, region string)
 // [SourcedOnDemandPricer] — which is the case for an injected pricer that only
 // satisfies [OnDemandPricer].
 func (c *Client) OnDemandPriceWithSource(ctx context.Context, instanceType, region string) (float64, PriceSource, error) {
+	price, origin, err := c.OnDemandPriceWithOrigin(ctx, instanceType, region)
+	return price, origin.PriceSource, err
+}
+
+// OnDemandPriceWithOrigin is [Client.OnDemandPrice] plus the rate's full
+// [PriceOrigin]: for a static rate, why the live Price List was not used and
+// when the static table was collected (#184). Use it for anything a user will
+// see.
+//
+// An injected pricer that implements only [SourcedOnDemandPricer] gets its
+// source passed through; a static rate from it is labelled with an unknown
+// collection date and "reported by the injected pricer", since truffle can't
+// vouch for either. A plain [OnDemandPricer] reports [PriceSourceUnknown].
+func (c *Client) OnDemandPriceWithOrigin(ctx context.Context, instanceType, region string) (float64, PriceOrigin, error) {
 	p := c.onDemandPricer()
+	if op, ok := p.(OriginOnDemandPricer); ok {
+		return op.OnDemandPriceWithOrigin(ctx, instanceType, region)
+	}
 	if sp, ok := p.(SourcedOnDemandPricer); ok {
-		return sp.OnDemandPriceWithSource(ctx, instanceType, region)
+		price, src, err := sp.OnDemandPriceWithSource(ctx, instanceType, region)
+		return price, originFromSource(src), err
 	}
 	price, err := p.OnDemandPrice(ctx, instanceType, region)
-	return price, PriceSourceUnknown, err
+	return price, PriceOrigin{}, err
+}
+
+// originFromSource is the best origin for a pricer that reports only a
+// source. A static source from such a pricer has no date or reason truffle
+// can vouch for, so it says so rather than borrowing libs/pricing's date.
+func originFromSource(src PriceSource) PriceOrigin {
+	switch src {
+	case PriceSourceLive:
+		return LivePriceOrigin()
+	case PriceSourceStatic:
+		return staticOrigin("", "reported by the injected pricer")
+	default:
+		return PriceOrigin{PriceSource: src}
+	}
 }
 
 // HourlyRate returns the current $/hr for one instance type in one region under
@@ -378,12 +539,23 @@ func (f *fallbackPricer) OnDemandPrice(ctx context.Context, instanceType, region
 }
 
 func (f *fallbackPricer) OnDemandPriceWithSource(ctx context.Context, instanceType, region string) (float64, PriceSource, error) {
+	price, origin, err := f.OnDemandPriceWithOrigin(ctx, instanceType, region)
+	return price, origin.PriceSource, err
+}
+
+// OnDemandPriceWithOrigin keeps the primary's error on the SUCCESSFUL fallback
+// too: it is the "why" a static rate must carry (#184). Before, it survived
+// only when the fallback also failed, so no command could say why a printed
+// static price was static.
+func (f *fallbackPricer) OnDemandPriceWithOrigin(ctx context.Context, instanceType, region string) (float64, PriceOrigin, error) {
 	var primaryErr error
+	reason := "live AWS Price List not consulted"
 	if f.primary != nil {
 		price, err := f.primary.OnDemandPrice(ctx, instanceType, region)
 		if err == nil && price > 0 {
-			return price, PriceSourceLive, nil
+			return price, LivePriceOrigin(), nil
 		}
+		reason = liveUnavailableReason(err, instanceType, region)
 		primaryErr = err
 		if primaryErr == nil {
 			primaryErr = fmt.Errorf("no on-demand price for %s in %s", instanceType, region)
@@ -392,13 +564,13 @@ func (f *fallbackPricer) OnDemandPriceWithSource(ctx context.Context, instanceTy
 
 	price, err := f.fallback.OnDemandPrice(ctx, instanceType, region)
 	if err == nil && price > 0 {
-		return price, PriceSourceStatic, nil
+		return price, StaticPriceOrigin(reason), nil
 	}
 	if primaryErr == nil {
-		return 0, PriceSourceUnknown, err
+		return 0, PriceOrigin{}, err
 	}
 	if err == nil {
-		return 0, PriceSourceUnknown, primaryErr
+		return 0, PriceOrigin{}, primaryErr
 	}
-	return 0, PriceSourceUnknown, fmt.Errorf("%w (static fallback also unavailable: %v)", primaryErr, err)
+	return 0, PriceOrigin{}, fmt.Errorf("%w (static fallback also unavailable: %v)", primaryErr, err)
 }

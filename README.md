@@ -146,6 +146,13 @@ rate, _ := client.HourlyRate(ctx, "c6i.4xlarge", "us-east-1", "on-demand")
 // never a guess.
 rate, source, err := client.OnDemandPriceWithSource(ctx, "c6i.4xlarge", "us-east-1")
 
+// Same, with the full origin: for a static rate, why the live Price List was
+// not used and when the table was collected. Show a price with its origin —
+// a static price must say it is static, why, and when.
+rate, origin, err := client.OnDemandPriceWithOrigin(ctx, "c6i.4xlarge", "us-east-1")
+fmt.Println(aws.DescribeOnDemandPrice(rate, origin))
+// $0.6800/hr on-demand (static, collected 2026-10-07: live AWS Price List unavailable: ...)
+
 // Spot prices with on-demand comparison populated
 prices, _ := client.GetSpotPricing(ctx, results, aws.SpotOptions{ShowSavings: true})
 ```

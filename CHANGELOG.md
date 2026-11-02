@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Price provenance on every on-demand price** (#184). JSON/YAML from
+  `truffle find`, `search --show-price`, `spot` and `available` now carry
+  `price_source` (`live` / `static`), `price_as_of` (the date the static table
+  was collected, `libs/pricing.PricesAsOf`) and `price_fallback_reason` (why the
+  live AWS Price List wasn't used) next to the price. CSV output from `find`,
+  `search` and `spot` gains the same three columns, appended after every
+  existing column. Library: `aws.PriceOrigin` (embedded in
+  `InstanceTypeResult`, `SpotPriceResult` and `Obtainability`),
+  `Client.OnDemandPriceWithOrigin`, `OriginOnDemandPricer`,
+  `StaticPriceOrigin`, `DescribeOnDemandPrice`, `StaticPriceNotes` and
+  `PriceQuote.Origin`.
 - **`capacity_block_state` in `truffle available` JSON/YAML** (and
   `aws.Obtainability.CapacityBlockState`): `collected`, `ineligible` (AWS doesn't
   sell this type as a Capacity Block in the region), or `unavailable` (the query
@@ -27,6 +38,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **A static price now says it is static, why, and when it was collected,
+  everywhere it is shown** (#184). `truffle available` prints
+  `$0.7140/hr on-demand (static, collected 2026-10-07: live AWS Price List
+  unavailable: <error>)` instead of `on-demand (static fallback)`. The `find`,
+  `search --show-price` and `spot` tables mark a static cell `(static)` and
+  explain it in a footer with the date and reason; the `find`/`search` stderr
+  note lists them too, and `spot`'s average-savings line says when it is
+  measured against static rates. The `--show-price` help no longer claims
+  `search` uses static data (it uses the live Price List, like `find`).
 - **`truffle available`'s clear verdict no longer reads as "On-Demand will
   work".** It used to print "no blocking signals found", but none of its signals
   can observe On-Demand capacity and AWS has no API that does. It now names the
@@ -37,6 +57,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The reason a price fell back to the static table is no longer thrown
+  away** (#184). The live Price List's error was kept only when the static
+  fallback also failed, so on the successful fallback — the only case that
+  prints a static price — no command could say why. `truffle spot` also read
+  its on-demand rates with no source at all; they now carry their origin.
 - **The update notice no longer appears when stderr is not a terminal** (libs#69, via libs v0.51.4). Scripts capturing truffle's stderr got "A newer version of truffle is available" on every run; with stderr redirected, truffle now skips the check and the notice. `SPORE_NO_UPDATE_CHECK` and `CI` still suppress it; `truffle version` still checks.
 - **`truffle available` no longer prints a raw AWS error for a type that isn't
   eligible for Capacity Blocks.** The row now reads
