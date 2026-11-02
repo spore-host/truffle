@@ -113,6 +113,12 @@ type Obtainability struct {
 	// mistaken for the current one. Empty when OnDemandPrice is nil.
 	OnDemandPriceSource PriceSource `json:"on_demand_price_source,omitempty" yaml:"on_demand_price_source,omitempty"`
 
+	// PriceOrigin is OnDemandPrice's full provenance — price_source,
+	// price_as_of and price_fallback_reason — so a static rate in JSON/YAML
+	// says why and when, not just "static" (#184). OnDemandPriceSource repeats
+	// its source for existing consumers.
+	PriceOrigin `yaml:",inline"`
+
 	// Warnings records signals that could not be collected (a denied API, missing
 	// credentials). A partial answer is reported rather than a hard failure —
 	// GetSpotPlacementScores in particular is commonly denied by SCP — but the gap

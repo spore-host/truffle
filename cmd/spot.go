@@ -277,9 +277,26 @@ func printSpotSummary(results []aws.SpotPriceResult) {
 	fmt.Printf("   %s: $%.4f - $%.4f %s\n", i18n.T("truffle.spot.summary.price_range"), minPrice, maxPrice, i18n.T("truffle.spot.summary.per_hour"))
 	fmt.Printf("   %s: $%.4f %s\n", i18n.T("truffle.spot.summary.average_price"), avgPrice, i18n.T("truffle.spot.summary.per_hour"))
 	if avgSavings > 0 {
-		fmt.Printf("   %s: %.1f%% %s\n", i18n.T("truffle.spot.summary.average_savings"), avgSavings, i18n.T("truffle.spot.summary.vs_on_demand"))
+		fmt.Printf("   %s: %.1f%% %s%s\n", i18n.T("truffle.spot.summary.average_savings"), avgSavings, i18n.T("truffle.spot.summary.vs_on_demand"), staticSavingsNote(results))
 	}
 	fmt.Println()
+}
+
+// staticSavingsNote qualifies the average-savings line when any on-demand rate
+// behind it came from the static table: the savings are then static too. The
+// table footer gives each static rate's date and reason (#184).
+func staticSavingsNote(results []aws.SpotPriceResult) string {
+	origins := make([]aws.PriceOrigin, 0, len(results))
+	for _, r := range results {
+		if r.SavingsPercent > 0 {
+			origins = append(origins, r.PriceOrigin)
+		}
+	}
+	notes := aws.StaticPriceNotes(origins)
+	if len(notes) == 0 {
+		return ""
+	}
+	return " (vs on-demand: " + strings.Join(notes, "; ") + ")"
 }
 
 // sortSpotResults orders spot rows by instance type, region and AZ, or

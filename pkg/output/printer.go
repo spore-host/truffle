@@ -226,6 +226,9 @@ func (p *Printer) printTable(results []aws.InstanceTypeResult, opts TableOptions
 	// Managed-spot eligibility is auto-surfaced (marker + footer) whenever any
 	// SageMaker result is eligible — no flag needed, since it's derived data.
 	hasSpotEligible := false
+	// priceOrigins collects the origin of every price cell rendered, so the
+	// footer can explain each static one (#184).
+	var priceOrigins []aws.PriceOrigin
 	for _, r := range results {
 		if hasAccelerator(r) {
 			hasGPU = true
@@ -448,7 +451,8 @@ func (p *Printer) printTable(results []aws.InstanceTypeResult, opts TableOptions
 			}
 			if showPrice {
 				if result.OnDemandPrice > 0 {
-					row = append(row, formatPrice(result.OnDemandPrice, opts.PriceUnit))
+					row = append(row, priceCell(formatPrice(result.OnDemandPrice, opts.PriceUnit), result.PriceOrigin))
+					priceOrigins = append(priceOrigins, result.PriceOrigin)
 				} else {
 					row = append(row, "N/A")
 				}
@@ -528,6 +532,7 @@ func (p *Printer) printTable(results []aws.InstanceTypeResult, opts TableOptions
 	if localZoneShown {
 		printFooterNote(p.useColor, "  "+localZoneMarker+" = Local Zone / Wavelength Zone (edge location, not a standard in-region AZ)")
 	}
+	printStaticPriceFooter(p.useColor, priceOrigins)
 
 	// Note SageMaker (ml.*) results: they run on the underlying EC2 hardware but
 	// are billed under the AmazonSageMaker offer (a management premium over the
@@ -580,6 +585,31 @@ func formatAZCell(azs []string, localSet map[string]bool) (string, bool) {
 		}
 	}
 	return strings.Join(parts, ", "), labeled
+}
+
+// staticPriceMarker tags a price cell whose rate came from truffle's static
+// table rather than the live Price List; the footer printed by
+// [printStaticPriceFooter] says when it was collected and why (#184).
+const staticPriceMarker = " (static)"
+
+// priceCell renders one price cell, marking a static rate.
+func priceCell(formatted string, origin aws.PriceOrigin) string {
+	if origin.IsStatic() {
+		return formatted + staticPriceMarker
+	}
+	return formatted
+}
+
+// printStaticPriceFooter explains the static price cells of a table: one line
+// per distinct collection date and reason, e.g.
+//
+//	(static) price: static, collected 2026-10-07: live AWS Price List unavailable: <err>
+//
+// Nothing is printed when no rendered price was static.
+func printStaticPriceFooter(useColor bool, origins []aws.PriceOrigin) {
+	for _, note := range aws.StaticPriceNotes(origins) {
+		printFooterNote(useColor, "  "+strings.TrimSpace(staticPriceMarker)+" price: "+note+" — may be out of date")
+	}
 }
 
 // printFooterNote prints a single-line note below the table, following the
@@ -806,6 +836,12 @@ func (p *Printer) PrintCSV(results []aws.InstanceTypeResult) error {
 	if hasGPU {
 		header = append(header, "accelerator_memory_gib")
 	}
+	// Price provenance goes LAST, after every existing column, so a reader
+	// that indexes by position is unaffected; a static rate's row says why and
+	// when (#184).
+	if hasPrice {
+		header = append(header, priceOriginCSVHeader...)
+	}
 	if err := writer.Write(header); err != nil {
 		return err
 	}
@@ -838,11 +874,26 @@ func (p *Printer) PrintCSV(results []aws.InstanceTypeResult) error {
 		if hasGPU {
 			row = append(row, vramGiB)
 		}
+		if hasPrice {
+			row = append(row, priceOriginCSV(result.OnDemandPrice, result.PriceOrigin)...)
+		}
 		if err := writer.Write(row); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// priceOriginCSVHeader names the price-provenance CSV columns after the JSON
+// fields they mirror.
+var priceOriginCSVHeader = []string{"price_source", "price_as_of", "price_fallback_reason"}
+
+// priceOriginCSV is a row's price-provenance cells; empty when unpriced.
+func priceOriginCSV(price float64, o aws.PriceOrigin) []string {
+	if price <= 0 {
+		return []string{"", "", ""}
+	}
+	return []string{string(o.PriceSource), o.PriceAsOf, o.PriceFallbackReason}
 }
 
 // PrintSpotTable outputs Spot pricing results as a formatted table
@@ -867,13 +918,15 @@ func (p *Printer) PrintSpotTable(results []aws.SpotPriceResult) error {
 	for _, result := range results {
 		grouped[result.InstanceType] = append(grouped[result.InstanceType], result)
 	}
+	var priceOrigins []aws.PriceOrigin
 
 	for instanceType, prices := range grouped {
 		for i, result := range prices {
 			odStr, savStr := "N/A", "N/A"
 			if result.OnDemandPrice > 0 {
-				odStr = fmt.Sprintf("$%.4f", result.OnDemandPrice)
+				odStr = priceCell(fmt.Sprintf("$%.4f", result.OnDemandPrice), result.PriceOrigin)
 				savStr = fmt.Sprintf("%.0f%%", result.SavingsPercent)
+				priceOrigins = append(priceOrigins, result.PriceOrigin)
 			}
 			row := []string{
 				instanceType,
@@ -893,7 +946,12 @@ func (p *Printer) PrintSpotTable(results []aws.SpotPriceResult) error {
 		}
 	}
 
-	return table.render()
+	if err := table.render(); err != nil {
+		return err
+	}
+	// A static on-demand rate also makes the Savings column static (#184).
+	printStaticPriceFooter(p.useColor, priceOrigins)
+	return nil
 }
 
 func hasDistinctTimestamps(results []aws.SpotPriceResult) bool {
@@ -965,6 +1023,7 @@ func (p *Printer) PrintSpotCSV(results []aws.SpotPriceResult) error {
 	defer writer.Flush()
 
 	header := []string{"instance_type", "region", "availability_zone", "spot_price", "on_demand_price", "savings_percent", "timestamp"}
+	header = append(header, priceOriginCSVHeader...)
 	if err := writer.Write(header); err != nil {
 		return err
 	}
@@ -978,6 +1037,7 @@ func (p *Printer) PrintSpotCSV(results []aws.SpotPriceResult) error {
 			fmt.Sprintf("%.2f", result.SavingsPercent),
 			result.Timestamp,
 		}
+		row = append(row, priceOriginCSV(result.OnDemandPrice, result.PriceOrigin)...)
 		if err := writer.Write(row); err != nil {
 			return err
 		}

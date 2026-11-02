@@ -89,20 +89,28 @@ func runAvailable(cmd *cobra.Command, args []string) error {
 	// price-free. A failure is reported honestly as "unavailable" downstream
 	// (obt.OnDemandPrice stays nil) rather than omitted or faked — truffle's
 	// pricer errors rather than guessing (#114/#115).
-	if price, src, perr := awsClient.OnDemandPriceWithSource(ctx, instanceType, region); perr == nil && price > 0 {
+	if price, origin, perr := awsClient.OnDemandPriceWithOrigin(ctx, instanceType, region); perr == nil && price > 0 {
 		obt.OnDemandPrice = &price
-		obt.OnDemandPriceSource = src
+		obt.OnDemandPriceSource = origin.PriceSource
+		obt.PriceOrigin = origin
 	}
 
-	switch outputFormat {
+	return writeObtainability(os.Stdout, outputFormat, obt)
+}
+
+// writeObtainability writes the report in the requested format: JSON or YAML
+// (which carry the price's origin as price_source, price_as_of and
+// price_fallback_reason, #184), else the human-facing table.
+func writeObtainability(w io.Writer, format string, obt *aws.Obtainability) error {
+	switch format {
 	case "json":
-		enc := json.NewEncoder(os.Stdout)
+		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
 		return enc.Encode(obt)
 	case "yaml":
-		return yaml.NewEncoder(os.Stdout).Encode(obt)
+		return yaml.NewEncoder(w).Encode(obt)
 	default:
-		return printObtainability(os.Stdout, obt)
+		return printObtainability(w, obt)
 	}
 }
 
@@ -218,16 +226,10 @@ func printObtainability(w io.Writer, o *aws.Obtainability) error {
 	// type can be cheap and unobtainable), shown because it's the number most
 	// people also want at discovery time (#159). The source is stated so a stale
 	// fallback rate isn't read as the live one; an unresolved price is reported as
-	// "unavailable" rather than a fabricated number.
+	// "unavailable" rather than a fabricated number. A static rate also says why
+	// and when it was collected (#184), in the one wording every command shares.
 	if o.OnDemandPrice != nil {
-		label := "on-demand"
-		switch o.OnDemandPriceSource {
-		case aws.PriceSourceLive:
-			label = "on-demand (live)"
-		case aws.PriceSourceStatic:
-			label = "on-demand (static fallback)"
-		}
-		rowf("  On-demand price\t$%.4f/hr %s\n", *o.OnDemandPrice, label)
+		rowf("  On-demand price\t%s\n", aws.DescribeOnDemandPrice(*o.OnDemandPrice, obtainabilityPriceOrigin(o)))
 	} else {
 		rowf("  On-demand price\t—\t(unavailable)\n")
 	}
@@ -273,6 +275,16 @@ func printObtainability(w io.Writer, o *aws.Obtainability) error {
 // the warnings block, so the row never stands in for a zero (#274, #272).
 func unavailableRow(rowf func(string, ...any), label string) {
 	rowf("  %s\t—\t(unavailable)\n", label)
+}
+
+// obtainabilityPriceOrigin is o's price origin, falling back to the bare
+// OnDemandPriceSource for a value that set only that (as consumers built before
+// #184 do), so a static rate is never rendered unlabelled.
+func obtainabilityPriceOrigin(o *aws.Obtainability) aws.PriceOrigin {
+	if o.PriceSource != aws.PriceSourceUnknown || o.OnDemandPriceSource == aws.PriceSourceUnknown {
+		return o.PriceOrigin
+	}
+	return aws.PriceOrigin{PriceSource: o.OnDemandPriceSource}
 }
 
 // checkedSignals names the verdict-driving signals that actually returned data,

@@ -82,7 +82,7 @@ func init() {
 	searchCmd.Flags().StringVar(&instanceFamily, "family", "", "Filter by instance family (e.g., m5, c5)")
 	searchCmd.Flags().BoolVar(&searchNestedV, "nested-virtualization", false, "Only types supporting nested virtualization (KVM/Hyper-V in-instance)")
 	searchCmd.Flags().BoolVar(&searchPickFirst, "pick-first", false, "Output only the top result's instance type (useful for piping to spawn)")
-	searchCmd.Flags().BoolVar(&searchShowPrice, "show-price", false, "Show on-demand pricing (uses static pricing data)")
+	searchCmd.Flags().BoolVar(&searchShowPrice, "show-price", false, "Show on-demand pricing (live AWS Price List; a static fallback price is marked, with its collection date and why)")
 	searchCmd.Flags().StringVar(&searchService, "service", "ec2", "Instance namespace to search: ec2 or sagemaker (ml.* types)")
 	searchCmd.Flags().BoolVar(&searchShowQuota, "show-quota", false, "Show the per-type training-job quota (SageMaker only)")
 	searchCmd.Flags().BoolVar(&searchShowRealCores, "show-real-cores", false, "Show physical CPU core count alongside vCPUs (format: vCPU/CPU, e.g. 96/48)")
