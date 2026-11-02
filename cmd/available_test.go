@@ -414,3 +414,50 @@ func TestPrintObtainability_NothingCheckedVouchesForNothing(t *testing.T) {
 		t.Errorf("all-unknown report vouches for an empty signal list:\n%s", out)
 	}
 }
+
+// TestPrintObtainability_UnreadableQuotaIsUnknown is the #271 gate on the
+// renderer. An unreadable On-Demand quota renders "— (unavailable)", never
+// "<code> is 0", raises no quota concern, keeps its warning, and is not named
+// among the checked signals — even if a stale zero is sitting in the headroom
+// field, the state decides.
+func TestPrintObtainability_UnreadableQuotaIsUnknown(t *testing.T) {
+	const warning = "quota headroom unavailable: the On-Demand P vCPU quota (L-417A185B) could not be read — limit unknown, not zero: AccessDeniedException"
+	for name, headroom := range map[string]*int{"no value": nil, "stale zero": intPtr(0)} {
+		t.Run(name, func(t *testing.T) {
+			out := render(t, &aws.Obtainability{
+				InstanceType:          "p5.48xlarge",
+				Region:                "us-east-1",
+				OfferedAZs:            []string{"us-east-1a", "us-east-1b"},
+				OfferedAZsState:       aws.SignalCollected,
+				TotalAZs:              6,
+				QuotaFamily:           "P",
+				QuotaCode:             "L-417A185B",
+				OnDemandQuotaHeadroom: headroom,
+				QuotaHeadroomState:    aws.SignalUnavailable,
+				VCPUsPerInstance:      192,
+				Warnings:              []string{warning},
+			})
+			var row string
+			for _, line := range strings.Split(out, "\n") {
+				if strings.Contains(line, "Quota headroom") {
+					row = line
+				}
+			}
+			if !strings.Contains(row, "(unavailable)") {
+				t.Errorf("unreadable quota not rendered as unavailable: %q\n%s", row, out)
+			}
+			if strings.Contains(out, "L-417A185B is 0") || strings.Contains(out, "no headroom") {
+				t.Errorf("unreadable quota rendered as zero:\n%s", out)
+			}
+			if strings.Contains(out, "low obtainability") {
+				t.Errorf("unreadable quota raised a concern:\n%s", out)
+			}
+			if !strings.Contains(out, warning) {
+				t.Errorf("quota warning dropped:\n%s", out)
+			}
+			if !strings.Contains(out, "no blocking signals among: offered AZs\n") {
+				t.Errorf("verdict names the unread quota as checked:\n%s", out)
+			}
+		})
+	}
+}

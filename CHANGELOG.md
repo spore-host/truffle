@@ -21,6 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `aws.SignalState` (`collected` / `unavailable` / `ineligible`), which every
   obtainability signal that can be unknown now uses; `CapacityBlockState` is an
   alias of it.
+- **`quota_headroom_state` in `truffle available` JSON/YAML** (and
+  `aws.Obtainability.QuotaHeadroomState` / `QuotaHeadroomKnown()`):
+  `collected` or `unavailable`, on the same `aws.SignalState` (#271).
 
 ### Changed
 
@@ -47,6 +50,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   clear verdict no longer names offered AZs among the signals it checked. When
   no signal returned data at all, the verdict says "no signal could be checked"
   (#274).
+- **`truffle available` no longer reports an unreadable On-Demand quota as
+  "quota is 0".** When one family's `GetServiceQuota` failed (a missing
+  `servicequotas:GetServiceQuota` grant, throttling, a region without the code),
+  `available` read the missing value as a limit of 0 and printed
+  `Quota headroom  0 vCPU  ⚠ L-… is 0` plus a quota concern. It now prints
+  `Quota headroom  —  (unavailable)`, raises no concern, warns which quota
+  could not be read and why, and leaves the quota out of the verdict's checked
+  list. `on_demand_quota_headroom` is omitted from JSON in that case rather than
+  sent as 0 — the same fix #167 made for `truffle quotas` (#271).
+- **`truffle available` names the right quota to raise for X, F, DL, Inf and
+  Trn types.** It kept its own three-family quota-code table, so those types got
+  no quota code and a generic "no headroom"; it now uses the same table as
+  `truffle quotas` (#271).
 
 ## [0.62.1] - 2026-10-20
 
