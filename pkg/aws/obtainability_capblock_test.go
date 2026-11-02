@@ -14,12 +14,13 @@ import (
 	"github.com/spore-host/truffle/pkg/testutil"
 )
 
-// capBlockErrorTransport answers every DescribeCapacityBlockOfferings call with
-// a canned EC2 error and passes everything else through to base (the Substrate
-// emulator), so Obtainability runs end to end against a chosen Capacity Block
-// outcome.
+// capBlockErrorTransport answers every call to one EC2 action (action, default
+// DescribeCapacityBlockOfferings) with a canned EC2 error and passes everything
+// else through to base (the Substrate emulator), so Obtainability runs end to
+// end against a chosen outcome for that one signal.
 type capBlockErrorTransport struct {
 	base    http.RoundTripper
+	action  string
 	code    string
 	message string
 	status  int
@@ -33,7 +34,11 @@ func (t *capBlockErrorTransport) RoundTrip(req *http.Request) (*http.Response, e
 		}
 		_ = req.Body.Close()
 		req.Body = io.NopCloser(bytes.NewReader(body))
-		if bytes.Contains(body, []byte("Action=DescribeCapacityBlockOfferings")) {
+		action := t.action
+		if action == "" {
+			action = "DescribeCapacityBlockOfferings"
+		}
+		if bytes.Contains(body, []byte("Action="+action+"&")) || bytes.HasSuffix(body, []byte("Action="+action)) {
 			xml := `<?xml version="1.0" encoding="UTF-8"?><Response><Errors><Error><Code>` + t.code +
 				`</Code><Message>` + t.message + `</Message></Error></Errors><RequestID>test</RequestID></Response>`
 			return &http.Response{
