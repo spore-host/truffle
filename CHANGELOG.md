@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.63.1] - 2026-11-11
+
 ### Security
 
 - Build and test with Go 1.26.11 / 1.27.4: GO-2026-6859 (net/http: an HTTP/1 server crash from a `MaxBytesReader` header race), published 2026-11-11.
@@ -1683,7 +1685,8 @@ Initial tagged release from the standalone `spore-host/truffle` repository.
 Older releases are summarized in the
 [GitHub Releases](https://github.com/spore-host/truffle/releases) for this repo.
 
-[Unreleased]: https://github.com/spore-host/truffle/compare/v0.63.0...HEAD
+[Unreleased]: https://github.com/spore-host/truffle/compare/v0.63.1...HEAD
+[0.63.1]: https://github.com/spore-host/truffle/compare/v0.63.0...v0.63.1
 [0.63.0]: https://github.com/spore-host/truffle/compare/v0.62.1...v0.63.0
 [0.62.1]: https://github.com/spore-host/truffle/compare/v0.62.0...v0.62.1
 [0.62.0]: https://github.com/spore-host/truffle/compare/v0.61.0...v0.62.0
