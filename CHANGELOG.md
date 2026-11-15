@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.64.0] - 2026-11-15
+
 ### Changed
 
 - Homebrew: releases now publish a cask, `spore-host/tap/truffle`, instead of a
@@ -1696,7 +1698,8 @@ Initial tagged release from the standalone `spore-host/truffle` repository.
 Older releases are summarized in the
 [GitHub Releases](https://github.com/spore-host/truffle/releases) for this repo.
 
-[Unreleased]: https://github.com/spore-host/truffle/compare/v0.63.1...HEAD
+[Unreleased]: https://github.com/spore-host/truffle/compare/v0.64.0...HEAD
+[0.64.0]: https://github.com/spore-host/truffle/compare/v0.63.1...v0.64.0
 [0.63.1]: https://github.com/spore-host/truffle/compare/v0.63.0...v0.63.1
 [0.63.0]: https://github.com/spore-host/truffle/compare/v0.62.1...v0.63.0
 [0.62.1]: https://github.com/spore-host/truffle/compare/v0.62.0...v0.62.1
