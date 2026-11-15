@@ -94,21 +94,30 @@ nfpms:
     rpm:
       summary: "Find and discover AWS EC2 instance types"
 
-brews:
+# A cask, not a formula (spore-host/spore-host#747): GoReleaser deprecated
+# `brews:` for prebuilt binaries in v2.10, and `goreleaser check` fails on it.
+# Casks install on Linux too. The binaries are not notarized, so the post-install
+# hook clears macOS's quarantine bit, without which Gatekeeper blocks them. The
+# old Formula/truffle.rb stays in the tap until spawn's formula, which depends
+# on it, has also moved; tap_migrations.json then moves formula users here.
+homebrew_casks:
   - name: truffle
+    binaries: [truffle]
     repository:
       owner: spore-host
       name: homebrew-tap
       branch: main
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
-    directory: Formula
     homepage: https://github.com/spore-host/truffle
     description: "Find and discover AWS EC2 instance types"
     license: Apache-2.0
-    test: |
-      system "#{bin}/truffle", "version"
-    install: |
-      bin.install "truffle"
+    skip_upload: auto
+    hooks:
+      post:
+        install_steps: |
+          on_macos do
+            run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{ .StagedPath }}/truffle"]
+          end
 
 scoops:
   - name: truffle
