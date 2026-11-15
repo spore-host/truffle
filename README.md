@@ -18,6 +18,7 @@ All discovery commands require **AWS credentials** (configured via `aws configur
 
 **macOS / Linux (Homebrew)**
 ```bash
+brew tap spore-host/tap && brew trust spore-host/tap
 brew install spore-host/tap/truffle
 ```
 
