@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Homebrew: users who had both the truffle and spawn formulae were left with
+  truffle's cask installed but no `truffle` on their PATH after the tap moved
+  both to casks (spawn's cask installed truffle's while truffle's formula was
+  still linked). This release's cask upgrade relinks it through `brew upgrade`.
+  To repair without upgrading: `brew reinstall --cask spore-host/tap/truffle`
+  (spore-host/spore-host#747).
+
 ## [0.64.0] - 2026-11-15
 
 ### Changed
